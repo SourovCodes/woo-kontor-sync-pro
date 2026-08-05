@@ -96,6 +96,45 @@ class Status {
 	}
 
 	/**
+	 * How long a job may sit in the "running" state before it is presumed dead.
+	 *
+	 * A crashed run must not block the job forever.
+	 */
+	const STALE_AFTER = 6 * HOUR_IN_SECONDS;
+
+	/**
+	 * Whether a job is currently running.
+	 *
+	 * @param string $job Job key.
+	 * @return bool True when a run is in flight and not stale.
+	 */
+	public static function is_running( $job ) {
+		$status = self::get( $job );
+
+		if ( 'running' !== $status['state'] ) {
+			return false;
+		}
+
+		return ( time() - (int) $status['started'] ) < self::STALE_AFTER;
+	}
+
+	/**
+	 * Whether the given run is the one currently in flight.
+	 *
+	 * Chained actions carry the run they belong to. An action already executing
+	 * cannot be cancelled, and it queues its own successor, so without this check a
+	 * superseded run keeps walking the catalogue underneath a newer one — two runs
+	 * then fight over the same products and both sets of counts are wrong.
+	 *
+	 * @param string $job Job key.
+	 * @param int    $run Run identifier carried by the action.
+	 * @return bool True when the action belongs to the current run.
+	 */
+	public static function is_current_run( $job, $run ) {
+		return (int) self::get( $job )['started'] === (int) $run;
+	}
+
+	/**
 	 * Read the status of a single job.
 	 *
 	 * @param string $job Job key.

@@ -652,7 +652,7 @@ class Settings {
 		if ( ! isset( $jobs[ $queued ] ) ) {
 			printf(
 				'<div class="notice notice-error is-dismissible"><p>%s</p></div>',
-				esc_html__( 'The job could not be queued. Check that WooCommerce is active.', 'woo-kontor-sync-pro' )
+				esc_html__( 'The job could not be queued. It may already be running, or WooCommerce may be inactive.', 'woo-kontor-sync-pro' )
 			);
 
 			return;

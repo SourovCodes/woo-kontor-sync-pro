@@ -73,6 +73,12 @@ class StockSync {
 	 * @return void
 	 */
 	public function start() {
+		if ( Status::is_running( self::JOB ) ) {
+			$this->log( 'info', 'Stock sync already running; ignoring the request to start another.' );
+
+			return;
+		}
+
 		$run      = Status::start( self::JOB );
 		$response = $this->client->fetch_stock();
 
@@ -110,6 +116,12 @@ class StockSync {
 	 * @return void
 	 */
 	public function apply_chunk( $offset, $run ) {
+		if ( ! Status::is_current_run( self::JOB, $run ) ) {
+			$this->log( 'info', sprintf( 'Discarding stock chunk at offset %d: run %d has been superseded.', $offset, $run ) );
+
+			return;
+		}
+
 		$levels = get_transient( self::TRANSIENT_PREFIX . $run );
 
 		if ( ! is_array( $levels ) ) {

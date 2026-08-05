@@ -130,16 +130,26 @@ of them wrong produces silently wrong data rather than an error:
 
 - **`shoptype` selects a price list, not a catalogue.** B2B, B2C, EDU and no filter all return the
   same 4386 articles. What changes is `UVP`: one article is 22.50 for B2B, 45.00 for B2C, 36.00 for
-  EDU, while `Ek` stays constant across all three. So **`UVP` is the selling price** for the
-  configured shop type and `Ek` is the purchase price, kept only as `_wksync_cost` meta. Mapping
-  `Ek` to the price would sell the whole catalogue at wholesale.
+  EDU, while `Ek` stays constant across all three. **`UVP` is the product price.** `Ek` is the
+  purchase price and is **not imported at all** — mapping it to the price would sell the whole
+  catalogue at wholesale.
+- **`Ek` and `Categories` are deliberately ignored**, and neither is part of the change hash. The
+  hash covers only the fields in `ProductSync::$mapped_fields`; hashing the whole row would rewrite
+  every product whenever purchase prices moved.
+- **`Hersteller` and `Herstellerid` become WooCommerce brands** (`product_brand`, core since
+  WooCommerce 9.6). They always arrive together — 1998 of 2000 sampled rows carry both, none has one
+  without the other — and 28 distinct manufacturers map 1:1 to names. `Herstellerid` is stored as
+  term meta and is what terms are matched on, so a manufacturer renamed in the ERP renames the
+  existing brand instead of leaving a duplicate. **Keep the IDs as strings**: they carry leading
+  zeros (`084`), so casting to int would collide `084` with `84`.
 - **`paging.take` is capped at 2000** server-side, silently. Requesting 5000 returns 2000, so a
   pager that trusts its own page size skips records. `Client::MAX_PAGE_SIZE` enforces the cap;
   the catalogue is walked at 500 per page.
 - **The `stock` entity takes no paging and no filter.** One request returns a level for every
   article (~2945 rows in ~65ms). Sending paging to it is not an error, just pointless.
 - **The `categories` entity exists but returns zero rows**, filtered or not, so the `Categories`
-  GUIDs on an article cannot be resolved to names. Category mapping is not currently possible.
+  GUIDs on an article could not be resolved to names even if we wanted them. Category mapping is
+  not possible.
 - **Image fields are bare filenames** (`abel-AB12_001.jpg`), not URLs. They are only usable if an
   image base URL is configured; with it blank, the sync skips images.
 - **Errors are well formed**: a bad key gives HTTP 401 with `success:false` and

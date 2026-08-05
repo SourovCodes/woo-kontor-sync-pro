@@ -186,6 +186,12 @@ class Scheduler {
 			return false;
 		}
 
+		// Refuse rather than queue an action that would be discarded on arrival, so
+		// the admin screen can say why nothing happened.
+		if ( Status::is_running( $job ) ) {
+			return false;
+		}
+
 		as_enqueue_async_action( $jobs[ $job ]['action'], array(), self::GROUP );
 
 		return true;

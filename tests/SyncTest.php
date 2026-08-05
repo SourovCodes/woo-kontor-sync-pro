@@ -8,7 +8,10 @@
 namespace WooKontorSync\Tests;
 
 use WC_Product_Simple;
+use WooKontorSync\Sync\Brands;
 use WooKontorSync\Sync\ProductSync;
+use WooKontorSync\Sync\Scheduler;
+use WooKontorSync\Sync\Status;
 use WooKontorSync\Sync\StockSync;
 use WP_UnitTestCase;
 
@@ -29,6 +32,7 @@ class SyncTest extends WP_UnitTestCase {
 				'Artnr'        => 'abel-AB12',
 				'Artean'       => '8945005491168',
 				'Hersteller'   => 'Abel Woodentoys',
+				'Herstellerid' => '104',
 				'Mpn'          => 'AB12',
 				'Gewnetto'     => 1.250,
 				'Artzentralnr' => 'abel-AB12',
@@ -70,23 +74,163 @@ class SyncTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * UVP is the selling price and Ek is kept only as cost.
-	 *
-	 * The same article comes back at a different UVP per shop type while Ek stays
-	 * constant, so mapping Ek to the price would sell everything at wholesale.
+	 * UVP is the product price, and Ek is not imported at all.
 	 *
 	 * @return void
 	 */
-	public function test_uvp_becomes_the_price_and_ek_is_kept_as_cost() {
+	public function test_uvp_is_the_price_and_ek_is_ignored() {
 		$sync = new ProductSync( null, array( 'image_base_url' => '' ) );
 		$sync->import_article( $this->article(), 1000 );
 
 		$product = wc_get_product( wc_get_product_id_by_sku( 'abel-AB12' ) );
 
 		$this->assertSame( '81.9', $product->get_regular_price() );
-		$this->assertSame( '40.95', $product->get_meta( '_wksync_cost' ) );
 		$this->assertSame( 'AB12', $product->get_meta( '_wksync_mpn' ) );
-		$this->assertSame( 'Abel Woodentoys', $product->get_meta( '_wksync_manufacturer' ) );
+
+		// Ek is the purchase price and must not be stored anywhere.
+		$this->assertSame( '', (string) $product->get_meta( '_wksync_cost' ) );
+
+		foreach ( $product->get_meta_data() as $meta ) {
+			$this->assertNotSame( '40.95', (string) $meta->value, 'Ek leaked into meta ' . $meta->key );
+		}
+	}
+
+	/**
+	 * Ek and Categories changing does not count as a change.
+	 *
+	 * Hashing the whole row would rewrite the entire catalogue every time purchase
+	 * prices moved, even though neither field is imported.
+	 *
+	 * @return void
+	 */
+	public function test_ignored_fields_do_not_trigger_an_update() {
+		$sync = new ProductSync( null, array( 'image_base_url' => '' ) );
+
+		$this->assertSame( 'created', $sync->import_article( $this->article(), 1000 ) );
+
+		$churned = $this->article(
+			array(
+				'Ek'         => 999.9900,
+				'Categories' => 'ed36602283b14c329e31f029bdcc7fc9,D444E512-20AB-45B5-B8C8-C968A934DB52',
+			)
+		);
+
+		$this->assertSame( 'skipped', $sync->import_article( $churned, 1001 ) );
+
+		// A field that is imported still registers as a change.
+		$this->assertSame( 'updated', $sync->import_article( $this->article( array( 'UVP' => 12.5 ) ), 1002 ) );
+	}
+
+	/**
+	 * The manufacturer becomes a WooCommerce brand assigned to the product.
+	 *
+	 * @return void
+	 */
+	public function test_manufacturer_becomes_an_assigned_brand() {
+		$sync = new ProductSync( null, array( 'image_base_url' => '' ) );
+		$sync->import_article( $this->article(), 1000 );
+
+		$product_id = wc_get_product_id_by_sku( 'abel-AB12' );
+		$brands     = wp_get_object_terms( $product_id, Brands::TAXONOMY );
+
+		$this->assertCount( 1, $brands );
+		$this->assertSame( 'Abel Woodentoys', $brands[0]->name );
+
+		// Herstellerid is kept on the term so a rename can find it again.
+		$this->assertSame( '104', get_term_meta( $brands[0]->term_id, Brands::TERM_META_ID, true ) );
+	}
+
+	/**
+	 * Two articles from one manufacturer share a single brand term.
+	 *
+	 * @return void
+	 */
+	public function test_articles_share_one_brand_term() {
+		$sync = new ProductSync( null, array( 'image_base_url' => '' ) );
+		$sync->import_article( $this->article(), 1000 );
+		$sync->import_article(
+			$this->article(
+				array(
+					'Artnr'  => 'abel-AB24',
+					'Artean' => '7426870707154',
+				)
+			),
+			1000
+		);
+
+		$terms = get_terms(
+			array(
+				'taxonomy'   => Brands::TAXONOMY,
+				'hide_empty' => false,
+				'name'       => 'Abel Woodentoys',
+			)
+		);
+
+		$this->assertCount( 1, $terms );
+	}
+
+	/**
+	 * A manufacturer renamed in the ERP renames the brand instead of duplicating it.
+	 *
+	 * Matching is on Herstellerid, which is why this works.
+	 *
+	 * @return void
+	 */
+	public function test_renamed_manufacturer_updates_the_existing_brand() {
+		$sync = new ProductSync( null, array( 'image_base_url' => '' ) );
+		$sync->import_article( $this->article(), 1000 );
+
+		$first = wp_get_object_terms( wc_get_product_id_by_sku( 'abel-AB12' ), Brands::TAXONOMY );
+
+		$sync->import_article( $this->article( array( 'Hersteller' => 'Abel Wooden Toys BV' ) ), 1001 );
+
+		$after = wp_get_object_terms( wc_get_product_id_by_sku( 'abel-AB12' ), Brands::TAXONOMY );
+
+		$this->assertCount( 1, $after );
+		$this->assertSame( $first[0]->term_id, $after[0]->term_id );
+		$this->assertSame( 'Abel Wooden Toys BV', $after[0]->name );
+	}
+
+	/**
+	 * Manufacturer IDs keep their leading zeros.
+	 *
+	 * Kontor sends IDs such as "084"; treating them as integers would collide 084
+	 * with 84.
+	 *
+	 * @return void
+	 */
+	public function test_manufacturer_ids_keep_leading_zeros() {
+		$term_id = Brands::resolve( '084', 'BubbleLab' );
+
+		$this->assertGreaterThan( 0, $term_id );
+		$this->assertSame( '084', get_term_meta( $term_id, Brands::TERM_META_ID, true ) );
+		$this->assertNotSame( $term_id, Brands::resolve( '84', 'Some Other Maker' ) );
+	}
+
+	/**
+	 * An article with no manufacturer leaves the existing brand alone.
+	 *
+	 * @return void
+	 */
+	public function test_missing_manufacturer_does_not_clear_the_brand() {
+		$sync = new ProductSync( null, array( 'image_base_url' => '' ) );
+		$sync->import_article( $this->article(), 1000 );
+
+		$sync->import_article(
+			$this->article(
+				array(
+					'Hersteller'   => null,
+					'Herstellerid' => null,
+					'UVP'          => 44.0,
+				)
+			),
+			1001
+		);
+
+		$brands = wp_get_object_terms( wc_get_product_id_by_sku( 'abel-AB12' ), Brands::TAXONOMY );
+
+		$this->assertCount( 1, $brands );
+		$this->assertSame( 'Abel Woodentoys', $brands[0]->name );
 	}
 
 	/**
@@ -194,6 +338,56 @@ class SyncTest extends WP_UnitTestCase {
 		$sync->import_article( $this->article( array( 'UVP' => 55.0 ) ), 1001 );
 
 		$this->assertSame( 'draft', wc_get_product( $id )->get_status() );
+	}
+
+	/**
+	 * A superseded run's chained page is discarded instead of importing.
+	 *
+	 * An action already executing cannot be cancelled and queues its own successor,
+	 * so without this a stale run keeps walking the catalogue underneath a newer
+	 * one. Two runs then create and update the same products in parallel.
+	 *
+	 * @return void
+	 */
+	public function test_superseded_run_is_discarded() {
+		$current = Status::start( ProductSync::JOB );
+		$sync    = new ProductSync( null, array( 'image_base_url' => '' ) );
+
+		// A page belonging to an older run must do nothing at all.
+		$sync->import_page( 0, $current - 500 );
+
+		$this->assertSame( array(), Status::get( ProductSync::JOB )['counts'] );
+	}
+
+	/**
+	 * A second run cannot start while one is in flight.
+	 *
+	 * @return void
+	 */
+	public function test_second_run_is_refused_while_one_is_running() {
+		$first = Status::start( ProductSync::JOB );
+
+		( new ProductSync( null, array( 'image_base_url' => '' ) ) )->start();
+
+		// The run stamp is unchanged, so no new run took over.
+		$this->assertSame( $first, Status::get( ProductSync::JOB )['started'] );
+		$this->assertFalse( Scheduler::trigger( 'products' ) );
+	}
+
+	/**
+	 * A run left behind by a crash does not block the job forever.
+	 *
+	 * @return void
+	 */
+	public function test_stale_run_does_not_block_forever() {
+		Status::start( ProductSync::JOB );
+
+		$all                        = get_option( Status::OPTION_KEY );
+		$all['products']['started'] = time() - ( Status::STALE_AFTER + 60 );
+		update_option( Status::OPTION_KEY, $all, false );
+
+		$this->assertFalse( Status::is_running( ProductSync::JOB ) );
+		$this->assertTrue( Scheduler::trigger( 'products' ) );
 	}
 
 	/**

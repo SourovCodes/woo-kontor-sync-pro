@@ -44,19 +44,37 @@ class ProductSync {
 	const META_SYNCED_AT = '_wksync_synced_at';
 
 	/**
-	 * Meta holding Kontor's purchase price, which is not the selling price.
+	 * Fields this sync actually consumes.
+	 *
+	 * The change hash is built from these alone, so churn in fields we deliberately
+	 * ignore — Ek and Categories — cannot trigger a pointless rewrite of every
+	 * product. Ek is the purchase price and is not imported; the Categories GUIDs
+	 * cannot be resolved, because Kontor's categories entity returns no rows.
+	 *
+	 * @var string[]
 	 */
-	const META_COST = '_wksync_cost';
+	private static $mapped_fields = array(
+		'Artnr',
+		'Artzentralnr',
+		'Shoptype',
+		'Shoptitel',
+		'Bez1',
+		'Kurztext',
+		'Langtext',
+		'UVP',
+		'Lagerbestand',
+		'Gewnetto',
+		'Artean',
+		'Mpn',
+		'Hersteller',
+		'Herstellerid',
+		'MainImageURL',
+	);
 
 	/**
 	 * Meta holding the manufacturer part number.
 	 */
 	const META_MPN = '_wksync_mpn';
-
-	/**
-	 * Meta holding the manufacturer name.
-	 */
-	const META_MANUFACTURER = '_wksync_manufacturer';
 
 	/**
 	 * Meta holding a hash of the image filenames last sideloaded.
@@ -104,6 +122,14 @@ class ProductSync {
 	 * @return void
 	 */
 	public function start() {
+		// Two concurrent runs would fight over the same products, double-count, and
+		// leave the totals meaningless.
+		if ( Status::is_running( self::JOB ) ) {
+			$this->log( 'info', 'Product sync already running; ignoring the request to start another.' );
+
+			return;
+		}
+
 		$run = Status::start( self::JOB );
 
 		Scheduler::chain(
@@ -123,6 +149,12 @@ class ProductSync {
 	 * @return void
 	 */
 	public function import_page( $skip, $run ) {
+		if ( ! Status::is_current_run( self::JOB, $run ) ) {
+			$this->log( 'info', sprintf( 'Discarding product page at offset %d: run %d has been superseded.', $skip, $run ) );
+
+			return;
+		}
+
 		$response = $this->client->fetch_products( $skip, Client::PRODUCT_PAGE_SIZE );
 
 		if ( is_wp_error( $response ) ) {
@@ -197,6 +229,12 @@ class ProductSync {
 	 * @return void
 	 */
 	public function finalise( $run ) {
+		if ( ! Status::is_current_run( self::JOB, $run ) ) {
+			$this->log( 'info', sprintf( 'Discarding finalise pass: run %d has been superseded.', $run ) );
+
+			return;
+		}
+
 		$stale = get_posts(
 			array(
 				'post_type'        => 'product',
@@ -273,7 +311,7 @@ class ProductSync {
 			return 'failed';
 		}
 
-		$hash       = md5( (string) wp_json_encode( $row ) );
+		$hash       = $this->hash( $row );
 		$product_id = wc_get_product_id_by_sku( $sku );
 		$existing   = $product_id ? wc_get_product( $product_id ) : null;
 		$restored   = $existing ? $this->restore_if_sync_drafted( $existing ) : false;
@@ -303,9 +341,7 @@ class ProductSync {
 		$product->update_meta_data( self::META_KONTOR_ID, $this->text( $row, 'Artzentralnr', $sku ) );
 		$product->update_meta_data( self::META_HASH, $hash );
 		$product->update_meta_data( self::META_SYNCED_AT, $run );
-		$product->update_meta_data( self::META_COST, wc_format_decimal( $this->text( $row, 'Ek', '' ) ) );
 		$product->update_meta_data( self::META_MPN, $this->text( $row, 'Mpn', '' ) );
-		$product->update_meta_data( self::META_MANUFACTURER, $this->text( $row, 'Hersteller', '' ) );
 
 		$saved_id = $product->save();
 
@@ -315,9 +351,31 @@ class ProductSync {
 			return 'failed';
 		}
 
+		Brands::assign( $saved_id, $this->text( $row, 'Herstellerid', '' ), $this->text( $row, 'Hersteller', '' ) );
+
 		$this->sideload_images( $product, $row );
 
 		return $is_create ? 'created' : 'updated';
+	}
+
+	/**
+	 * Hash the fields this sync maps, so unchanged articles can be skipped.
+	 *
+	 * Deliberately not a hash of the whole row: Ek moves independently of the
+	 * selling price and is not imported, so hashing it would rewrite the entire
+	 * catalogue whenever purchase prices shifted.
+	 *
+	 * @param array $row Article row from the API.
+	 * @return string Hash of the mapped fields.
+	 */
+	protected function hash( array $row ) {
+		$mapped = array();
+
+		foreach ( array_merge( self::$mapped_fields, $this->image_keys() ) as $field ) {
+			$mapped[ $field ] = isset( $row[ $field ] ) ? $row[ $field ] : null;
+		}
+
+		return md5( (string) wp_json_encode( $mapped ) );
 	}
 
 	/**
@@ -373,9 +431,9 @@ class ProductSync {
 		$product->set_short_description( wp_kses_post( $this->text( $row, 'Kurztext', '' ) ) );
 
 		/*
-		 * UVP is the selling price for the configured shop type: the same article
-		 * comes back at 22.50 for B2B, 45.00 for B2C and 36.00 for EDU, while Ek
-		 * stays constant. Ek is the purchase price and is kept as meta only.
+		 * UVP is the product price. It is the selling price for the configured shop
+		 * type: the same article comes back at 22.50 for B2B, 45.00 for B2C and 36.00
+		 * for EDU. Ek is the purchase price and is deliberately not imported.
 		 */
 		$price = wc_format_decimal( $this->text( $row, 'UVP', '' ) );
 
