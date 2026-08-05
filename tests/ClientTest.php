@@ -159,6 +159,36 @@ class ClientTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * The shops entity is sent without paging or filter, and yields its rows.
+	 *
+	 * @return void
+	 */
+	public function test_shops_request_carries_no_paging_or_filter() {
+		$this->fake_response(
+			200,
+			array(
+				'success' => true,
+				'message' => 'Search completed successfully',
+				'meta'    => array(
+					'rowCount'   => 1,
+					'totalCount' => 1,
+				),
+				'data'    => array(
+					array(
+						'Shopid' => '1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d',
+						'Name'   => 'Edu-Shop',
+					),
+				),
+			)
+		);
+
+		$result = ( new Client( $this->settings() ) )->fetch_shops();
+
+		$this->assertSame( array( 'entity' => 'shops' ), json_decode( $this->captured['args']['body'], true ) );
+		$this->assertSame( 'Edu-Shop', $result['data'][0]['Name'] );
+	}
+
+	/**
 	 * Page size is clamped to what the server will actually return.
 	 *
 	 * Asking for more than 2000 silently returns 2000, which would make the paging

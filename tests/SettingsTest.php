@@ -38,6 +38,10 @@ class SettingsTest extends WP_UnitTestCase {
 		$this->assertSame( 'B2B', $settings['shoptype'] );
 		$this->assertSame( '', $settings['image_base_url'] );
 
+		// No shop until someone fetches the list and chooses one.
+		$this->assertSame( '', $settings['shop_id'] );
+		$this->assertSame( '', $settings['shop_name'] );
+
 		// Both jobs default to Never: a fresh install has no API key, so nothing
 		// should contact Kontor or rewrite the catalogue until it is configured.
 		$this->assertSame( Settings::INTERVAL_NEVER, $settings['product_sync_interval'] );
@@ -240,5 +244,195 @@ class SettingsTest extends WP_UnitTestCase {
 
 		$this->assertStringNotContainsString( 'javascript:', $sanitised['api_base_url'] );
 		$this->assertStringNotContainsString( 'javascript:', $sanitised['image_base_url'] );
+	}
+
+	/**
+	 * A synthetic shop ID with the shape Kontor returns.
+	 *
+	 * @return string A canonical GUID.
+	 */
+	private function shop_id() {
+		return '1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d';
+	}
+
+	/**
+	 * A chosen shop is stored with the label that goes with it.
+	 *
+	 * @return void
+	 */
+	public function test_shop_selection_is_stored() {
+		$settings  = new Settings();
+		$sanitised = $settings->sanitize(
+			array(
+				'shop_id'   => $this->shop_id(),
+				'shop_name' => 'Edu-Shop',
+			)
+		);
+
+		$this->assertSame( $this->shop_id(), $sanitised['shop_id'] );
+		$this->assertSame( 'Edu-Shop', $sanitised['shop_name'] );
+	}
+
+	/**
+	 * Only well-formed GUIDs are accepted as a shop ID.
+	 *
+	 * @return void
+	 */
+	public function test_shop_id_must_be_a_guid() {
+		$this->assertTrue( Settings::is_shop_id( $this->shop_id() ) );
+		$this->assertTrue( Settings::is_shop_id( strtoupper( $this->shop_id() ) ) );
+		$this->assertFalse( Settings::is_shop_id( '' ) );
+		$this->assertFalse( Settings::is_shop_id( 'Edu-Shop' ) );
+		$this->assertFalse( Settings::is_shop_id( '1a2b3c4d5e6f4a7b8c9d0e1f2a3b4c5d' ) );
+		$this->assertFalse( Settings::is_shop_id( $this->shop_id() . '-extra' ) );
+	}
+
+	/**
+	 * A malformed shop ID keeps whatever was already stored.
+	 *
+	 * @return void
+	 */
+	public function test_malformed_shop_id_keeps_the_stored_one() {
+		update_option(
+			Settings::OPTION_KEY,
+			array(
+				'shop_id'   => $this->shop_id(),
+				'shop_name' => 'Edu-Shop',
+			)
+		);
+
+		$sanitised = ( new Settings() )->sanitize( array( 'shop_id' => 'not-a-guid' ) );
+
+		$this->assertSame( $this->shop_id(), $sanitised['shop_id'] );
+		$this->assertSame( 'Edu-Shop', $sanitised['shop_name'] );
+	}
+
+	/**
+	 * A submission that omits the shop keeps the stored one.
+	 *
+	 * The intervals behave the same way: a partial save must never silently unset a
+	 * configured value, and order push depends on this one.
+	 *
+	 * @return void
+	 */
+	public function test_absent_shop_id_keeps_the_stored_one() {
+		update_option(
+			Settings::OPTION_KEY,
+			array(
+				'shop_id'   => $this->shop_id(),
+				'shop_name' => 'Edu-Shop',
+			)
+		);
+
+		$sanitised = ( new Settings() )->sanitize( array( 'shoptype' => 'B2C' ) );
+
+		$this->assertSame( $this->shop_id(), $sanitised['shop_id'] );
+		$this->assertSame( 'Edu-Shop', $sanitised['shop_name'] );
+	}
+
+	/**
+	 * Explicitly choosing no shop clears the selection.
+	 *
+	 * @return void
+	 */
+	public function test_empty_shop_id_clears_the_selection() {
+		update_option(
+			Settings::OPTION_KEY,
+			array(
+				'shop_id'   => $this->shop_id(),
+				'shop_name' => 'Edu-Shop',
+			)
+		);
+
+		$sanitised = ( new Settings() )->sanitize( array( 'shop_id' => '' ) );
+
+		$this->assertSame( '', $sanitised['shop_id'] );
+		$this->assertSame( '', $sanitised['shop_name'] );
+	}
+
+	/**
+	 * The shop name is a label only and cannot carry markup.
+	 *
+	 * @return void
+	 */
+	public function test_shop_name_is_stripped() {
+		$sanitised = ( new Settings() )->sanitize(
+			array(
+				'shop_id'   => $this->shop_id(),
+				'shop_name' => '<script>alert(1)</script>Edu-Shop',
+			)
+		);
+
+		// wp_strip_all_tags() drops a script block whole, contents included.
+		$this->assertSame( 'Edu-Shop', $sanitised['shop_name'] );
+		$this->assertStringNotContainsString( '<', $sanitised['shop_name'] );
+	}
+
+	/**
+	 * A shops response is reduced to id and name pairs.
+	 *
+	 * @return void
+	 */
+	public function test_shops_are_read_from_the_response() {
+		$shops = Settings::shops_from_response(
+			array(
+				'data' => array(
+					array(
+						'Shopid' => $this->shop_id(),
+						'Name'   => 'Edu-Shop',
+					),
+					array(
+						'Shopid' => '9f8e7d6c-5b4a-4392-8171-6a5b4c3d2e1f',
+						'Name'   => 'Retailer',
+					),
+				),
+			)
+		);
+
+		$this->assertCount( 2, $shops );
+		$this->assertSame( $this->shop_id(), $shops[0]['id'] );
+		$this->assertSame( 'Edu-Shop', $shops[0]['name'] );
+		$this->assertSame( 'Retailer', $shops[1]['name'] );
+	}
+
+	/**
+	 * Unusable rows are dropped, and a nameless shop still gets an entry.
+	 *
+	 * A choice that could never work should not be offered, but a shop with a
+	 * missing label is still a shop and must stay selectable.
+	 *
+	 * @return void
+	 */
+	public function test_unusable_shop_rows_are_dropped() {
+		$shops = Settings::shops_from_response(
+			array(
+				'data' => array(
+					array( 'Name' => 'No ID at all' ),
+					array(
+						'Shopid' => 'not-a-guid',
+						'Name'   => 'Malformed',
+					),
+					array( 'Shopid' => $this->shop_id() ),
+					'not even a row',
+				),
+			)
+		);
+
+		$this->assertCount( 1, $shops );
+		$this->assertSame( $this->shop_id(), $shops[0]['id'] );
+
+		// With no Name, the ID stands in as the label.
+		$this->assertSame( $this->shop_id(), $shops[0]['name'] );
+	}
+
+	/**
+	 * A response with no data at all yields no shops rather than an error.
+	 *
+	 * @return void
+	 */
+	public function test_empty_shops_response_is_handled() {
+		$this->assertSame( array(), Settings::shops_from_response( array() ) );
+		$this->assertSame( array(), Settings::shops_from_response( array( 'data' => array() ) ) );
+		$this->assertSame( array(), Settings::shops_from_response( array( 'data' => 'nonsense' ) ) );
 	}
 }

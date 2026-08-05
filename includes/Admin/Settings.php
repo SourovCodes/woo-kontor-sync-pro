@@ -92,6 +92,8 @@ class Settings {
 			'api_base_url'          => 'https://sp3api.kontor-crm.de/api/v1/kontor',
 			'api_key'               => '',
 			'shoptype'              => 'B2B',
+			'shop_id'               => '',
+			'shop_name'             => '',
 			'image_base_url'        => '',
 			'product_sync_interval' => self::INTERVAL_NEVER,
 			'stock_sync_interval'   => self::INTERVAL_NEVER,
@@ -157,6 +159,7 @@ class Settings {
 		add_action( 'admin_menu', array( $this, 'register_menu' ) );
 		add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_assets' ) );
 		add_action( 'wp_ajax_wksync_test_connection', array( $this, 'handle_test_connection' ) );
+		add_action( 'wp_ajax_wksync_fetch_shops', array( $this, 'handle_fetch_shops' ) );
 		add_action( 'admin_post_wksync_run_job', array( $this, 'handle_run_job' ) );
 	}
 
@@ -216,10 +219,15 @@ class Settings {
 			'wksync-settings',
 			'wksyncSettings',
 			array(
-				'ajaxUrl' => admin_url( 'admin-ajax.php' ),
-				'nonce'   => wp_create_nonce( 'wksync_test_connection' ),
-				'testing' => __( 'Testing connection…', 'woo-kontor-sync-pro' ),
-				'failed'  => __( 'The connection test could not be completed.', 'woo-kontor-sync-pro' ),
+				'ajaxUrl'       => admin_url( 'admin-ajax.php' ),
+				'nonce'         => wp_create_nonce( 'wksync_test_connection' ),
+				'testing'       => __( 'Testing connection…', 'woo-kontor-sync-pro' ),
+				'failed'        => __( 'The connection test could not be completed.', 'woo-kontor-sync-pro' ),
+				'shopsNonce'    => wp_create_nonce( 'wksync_fetch_shops' ),
+				'fetchingShops' => __( 'Fetching shops…', 'woo-kontor-sync-pro' ),
+				'shopsFailed'   => __( 'The shop list could not be fetched.', 'woo-kontor-sync-pro' ),
+				'noShop'        => __( '— No shop selected —', 'woo-kontor-sync-pro' ),
+				'unsavedShop'   => __( 'Shops loaded. Choose one, then save the settings.', 'woo-kontor-sync-pro' ),
 			)
 		);
 	}
@@ -242,11 +250,14 @@ class Settings {
 
 		$submitted_key = isset( $input['api_key'] ) ? self::sanitize_api_key( $input['api_key'] ) : '';
 		$shoptype      = isset( $input['shoptype'] ) ? sanitize_text_field( $input['shoptype'] ) : '';
+		$shop          = $this->pick_shop( $input, $existing );
 
 		return array(
 			'api_base_url'          => isset( $input['api_base_url'] ) ? esc_url_raw( trim( $input['api_base_url'] ) ) : '',
 			'api_key'               => '' === $submitted_key ? $existing['api_key'] : $submitted_key,
 			'shoptype'              => array_key_exists( $shoptype, self::shoptypes() ) ? $shoptype : $existing['shoptype'],
+			'shop_id'               => $shop['shop_id'],
+			'shop_name'             => $shop['shop_name'],
 			'image_base_url'        => isset( $input['image_base_url'] ) ? esc_url_raw( trim( $input['image_base_url'] ) ) : '',
 			'product_sync_interval' => $this->pick_interval( $input, 'product_sync_interval', self::product_sync_intervals(), $existing ),
 			'stock_sync_interval'   => $this->pick_interval( $input, 'stock_sync_interval', self::stock_sync_intervals(), $existing ),
@@ -302,6 +313,73 @@ class Settings {
 	}
 
 	/**
+	 * Validate the submitted shop selection.
+	 *
+	 * The choices come from Kontor rather than from a fixed list here, so there is
+	 * no allowlist to check membership against; the GUID shape is what can be
+	 * verified. A well-formed but unknown ID is harmless — the API rejects it — while
+	 * anything malformed is a tampered or broken submission and keeps the stored
+	 * value instead.
+	 *
+	 * An absent field keeps the stored shop, matching the intervals: a partial
+	 * submission must never silently unset a configured shop. An explicitly empty
+	 * one clears the selection, which is how "no shop chosen" is expressed.
+	 *
+	 * @param array $input    Raw submitted settings.
+	 * @param array $existing Currently stored settings.
+	 * @return array The shop_id and shop_name to store.
+	 */
+	protected function pick_shop( array $input, array $existing ) {
+		$stored = array(
+			'shop_id'   => isset( $existing['shop_id'] ) ? (string) $existing['shop_id'] : '',
+			'shop_name' => isset( $existing['shop_name'] ) ? (string) $existing['shop_name'] : '',
+		);
+
+		if ( ! isset( $input['shop_id'] ) ) {
+			return $stored;
+		}
+
+		$shop_id = trim( (string) $input['shop_id'] );
+
+		if ( '' === $shop_id ) {
+			return array(
+				'shop_id'   => '',
+				'shop_name' => '',
+			);
+		}
+
+		if ( ! self::is_shop_id( $shop_id ) ) {
+			return $stored;
+		}
+
+		/*
+		 * The name is a label carried alongside the ID so the saved shop still reads
+		 * as a name after a reload, without re-querying Kontor. Nothing is decided by
+		 * it, and it is stripped rather than passed through sanitize_text_field(),
+		 * which would eat percent octets in a shop name.
+		 */
+		$name = isset( $input['shop_name'] ) ? trim( wp_strip_all_tags( (string) $input['shop_name'] ) ) : '';
+
+		return array(
+			'shop_id'   => $shop_id,
+			'shop_name' => $shop_id === $stored['shop_id'] && '' === $name ? $stored['shop_name'] : $name,
+		);
+	}
+
+	/**
+	 * Whether a value has the shape of a Kontor shop ID.
+	 *
+	 * Kontor returns canonical GUIDs, such as
+	 * "72aa5fcd-5296-4c67-908f-3f2cc3bd09e0".
+	 *
+	 * @param string $value Value to check.
+	 * @return bool True when the value is a well-formed GUID.
+	 */
+	public static function is_shop_id( $value ) {
+		return 1 === preg_match( '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', (string) $value );
+	}
+
+	/**
 	 * Test the API credentials without saving them.
 	 *
 	 * Uses whatever is currently typed into the form so the settings can be checked
@@ -316,20 +394,9 @@ class Settings {
 			wp_send_json_error( array( 'message' => __( 'You do not have permission to do that.', 'woo-kontor-sync-pro' ) ), 403 );
 		}
 
-		$stored = self::get_settings();
-		// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- sanitize_api_key() is the sanitiser; sanitize_text_field() would corrupt the key.
-		$key      = isset( $_POST['api_key'] ) ? self::sanitize_api_key( wp_unslash( $_POST['api_key'] ) ) : '';
-		$base     = isset( $_POST['api_base_url'] ) ? trim( esc_url_raw( wp_unslash( $_POST['api_base_url'] ) ) ) : '';
-		$shoptype = isset( $_POST['shoptype'] ) ? sanitize_text_field( wp_unslash( $_POST['shoptype'] ) ) : '';
-
-		$settings = array(
-			'api_base_url' => '' === $base ? $stored['api_base_url'] : $base,
-			'api_key'      => '' === $key ? $stored['api_key'] : $key,
-			'shoptype'     => array_key_exists( $shoptype, self::shoptypes() ) ? $shoptype : $stored['shoptype'],
-		);
-
-		$client = new Client( $settings );
-		$result = $client->test_connection();
+		$settings = $this->credentials_from_request();
+		$client   = new Client( $settings );
+		$result   = $client->test_connection();
 
 		if ( is_wp_error( $result ) ) {
 			$code = Client::detail( $result, 'error_code' );
@@ -354,6 +421,123 @@ class Settings {
 					$settings['shoptype']
 				),
 			)
+		);
+	}
+
+	/**
+	 * Fetch the list of shops from Kontor for the settings screen.
+	 *
+	 * Uses whatever credentials are currently typed into the form, so the shops can
+	 * be listed before the settings are saved — otherwise choosing a shop on a fresh
+	 * install would require saving an untested key first.
+	 *
+	 * @return void
+	 */
+	public function handle_fetch_shops() {
+		check_ajax_referer( 'wksync_fetch_shops', 'nonce' );
+
+		if ( ! current_user_can( self::CAPABILITY ) ) {
+			wp_send_json_error( array( 'message' => __( 'You do not have permission to do that.', 'woo-kontor-sync-pro' ) ), 403 );
+		}
+
+		$client = new Client( $this->credentials_from_request() );
+		$result = $client->fetch_shops();
+
+		if ( is_wp_error( $result ) ) {
+			$code = Client::detail( $result, 'error_code' );
+
+			wp_send_json_error(
+				array(
+					'message' => '' === $code
+						? $result->get_error_message()
+						: sprintf( '%s (%s)', $result->get_error_message(), $code ),
+				)
+			);
+		}
+
+		$shops = self::shops_from_response( $result );
+
+		if ( empty( $shops ) ) {
+			wp_send_json_error( array( 'message' => __( 'Kontor returned no shops for this key.', 'woo-kontor-sync-pro' ) ) );
+		}
+
+		wp_send_json_success(
+			array(
+				'shops'   => $shops,
+				'message' => sprintf(
+					/* translators: %s: number of shops found. */
+					_n( 'Found %s shop.', 'Found %s shops.', count( $shops ), 'woo-kontor-sync-pro' ),
+					number_format_i18n( count( $shops ) )
+				),
+			)
+		);
+	}
+
+	/**
+	 * Reduce a shops response to id and name pairs.
+	 *
+	 * Rows without a usable Shopid are dropped rather than offered as a choice that
+	 * could never work. A row that arrives without a Name still gets an entry, so a
+	 * usable shop is never hidden just because its label is missing.
+	 *
+	 * @param array $response Decoded envelope from the shops entity.
+	 * @return array List of arrays with "id" and "name" keys.
+	 */
+	public static function shops_from_response( array $response ) {
+		$rows  = isset( $response['data'] ) && is_array( $response['data'] ) ? $response['data'] : array();
+		$shops = array();
+
+		foreach ( $rows as $row ) {
+			if ( ! is_array( $row ) || ! isset( $row['Shopid'] ) ) {
+				continue;
+			}
+
+			$id = trim( (string) $row['Shopid'] );
+
+			if ( ! self::is_shop_id( $id ) ) {
+				continue;
+			}
+
+			$name = isset( $row['Name'] ) ? trim( wp_strip_all_tags( (string) $row['Name'] ) ) : '';
+
+			$shops[] = array(
+				'id'   => $id,
+				'name' => '' === $name ? $id : $name,
+			);
+		}
+
+		return $shops;
+	}
+
+	/**
+	 * Build a settings array from the credentials typed into the form.
+	 *
+	 * Shared by the connection test and the shop lookup so the two cannot drift on
+	 * how they read a key — the sanitising here is deliberate and easy to get wrong.
+	 * A blank field means "use the stored value".
+	 *
+	 * The caller is responsible for the nonce and capability checks.
+	 *
+	 * @return array Settings suitable for constructing a Client.
+	 */
+	protected function credentials_from_request() {
+		$stored = self::get_settings();
+
+		/*
+		 * The nonce is verified by the calling handler, which is why the sniff cannot
+		 * see it from in here.
+		 */
+		// phpcs:disable WordPress.Security.NonceVerification.Missing
+		// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- sanitize_api_key() is the sanitiser; sanitize_text_field() would corrupt the key.
+		$key      = isset( $_POST['api_key'] ) ? self::sanitize_api_key( wp_unslash( $_POST['api_key'] ) ) : '';
+		$base     = isset( $_POST['api_base_url'] ) ? trim( esc_url_raw( wp_unslash( $_POST['api_base_url'] ) ) ) : '';
+		$shoptype = isset( $_POST['shoptype'] ) ? sanitize_text_field( wp_unslash( $_POST['shoptype'] ) ) : '';
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		return array(
+			'api_base_url' => '' === $base ? $stored['api_base_url'] : $base,
+			'api_key'      => '' === $key ? $stored['api_key'] : $key,
+			'shoptype'     => array_key_exists( $shoptype, self::shoptypes() ) ? $shoptype : $stored['shoptype'],
 		);
 	}
 
@@ -459,6 +643,34 @@ class Settings {
 								<?php endforeach; ?>
 							</select>
 							<p class="description"><?php echo esc_html__( 'Selects which price list is imported. The article list is the same for every shop type; only the selling price differs.', 'woo-kontor-sync-pro' ); ?></p>
+						</td>
+					</tr>
+					<tr>
+						<th scope="row">
+							<label for="wksync-shop-id"><?php echo esc_html__( 'Shop', 'woo-kontor-sync-pro' ); ?></label>
+						</th>
+						<td>
+							<select id="wksync-shop-id" name="<?php echo esc_attr( self::OPTION_KEY ); ?>[shop_id]">
+								<option value=""><?php echo esc_html__( '— No shop selected —', 'woo-kontor-sync-pro' ); ?></option>
+								<?php if ( '' !== $settings['shop_id'] ) : ?>
+									<option value="<?php echo esc_attr( $settings['shop_id'] ); ?>" selected>
+										<?php echo esc_html( '' === $settings['shop_name'] ? $settings['shop_id'] : $settings['shop_name'] ); ?>
+									</option>
+								<?php endif; ?>
+							</select>
+							<button type="button" class="button" id="wksync-fetch-shops">
+								<?php echo esc_html__( 'Fetch shops', 'woo-kontor-sync-pro' ); ?>
+							</button>
+							<input
+								type="hidden"
+								id="wksync-shop-name"
+								name="<?php echo esc_attr( self::OPTION_KEY ); ?>[shop_name]"
+								value="<?php echo esc_attr( $settings['shop_name'] ); ?>"
+							/>
+							<p class="description">
+								<?php echo esc_html__( 'Identifies this store in Kontor when orders are sent and delivery information is fetched back. Neither job runs without it. Product and stock sync do not use it.', 'woo-kontor-sync-pro' ); ?>
+							</p>
+							<p class="description" id="wksync-shops-result" aria-live="polite"></p>
 						</td>
 					</tr>
 					<tr>

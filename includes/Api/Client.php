@@ -138,6 +138,22 @@ class Client {
 	}
 
 	/**
+	 * Fetch the shops configured in Kontor.
+	 *
+	 * A short list — 13 rows on the account this was built against — so the entity
+	 * takes no paging, like stock. Each row is a Shopid GUID and a display Name.
+	 *
+	 * The shop is not used by product or stock sync. It identifies which shop an
+	 * order belongs to when orders are pushed and delivery information is pulled
+	 * back, so it has to be chosen before either of those can run.
+	 *
+	 * @return array|WP_Error Array with "data" and "meta" keys, or WP_Error on failure.
+	 */
+	public function fetch_shops() {
+		return $this->search( 'shops' );
+	}
+
+	/**
 	 * Check that the configured base URL and API key work.
 	 *
 	 * Asks for a single product so the round trip stays cheap.

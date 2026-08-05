@@ -156,6 +156,13 @@ of them wrong produces silently wrong data rather than an error:
   Raise this and the failure mode is a truncated pass, not an API error.
 - **The `stock` entity takes no paging and no filter.** One request returns a level for every
   article (~2945 rows in ~65ms). Sending paging to it is not an error, just pointless.
+- **The `shops` entity takes no paging or filter either**, and returns one row per shop — 13 on the
+  account this was built against — as a `Shopid` GUID and a display `Name`. The chosen `Shopid` is
+  stored as the `shop_id` setting, picked in the admin from a list fetched on demand by the **Fetch
+  shops** button (`wksync_fetch_shops`, nonce plus `manage_woocommerce`). The list is never rendered
+  from a cached copy that could go stale silently. Product and stock sync do not use the shop at
+  all; it identifies the store when **orders are pushed and delivery information is pulled back**,
+  so both of those need it set before they can run.
 - **The `categories` entity exists but returns zero rows**, filtered or not, so the `Categories`
   GUIDs on an article could not be resolved to names even if we wanted them. Category mapping is
   not possible.
@@ -196,7 +203,8 @@ disables a schedule.
 The ERP is a remote REST service. Treat it as slow, occasionally unavailable, and never trusted.
 
 Two jobs are implemented, both pulling from Kontor: **product sync** (7–30 days) and **stock sync**
-(15 minutes–1 day). Order push and delivery-information pull are planned and not built.
+(15 minutes–1 day). Order push and delivery-information pull are planned and not built; the
+`shop_id` they will need is already configurable, so neither has to add a setting later.
 
 - **Schedule with Action Scheduler**, which ships inside WooCommerce — `as_schedule_single_action()`,
   `as_schedule_recurring_action()`, `as_next_scheduled_action()`. Do not use raw `wp_cron`: it has no
