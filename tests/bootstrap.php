@@ -57,7 +57,27 @@ function wksync_manually_load_plugins() {
 	update_option( 'woocommerce_custom_orders_table_enabled', 'yes' );
 
 	require_once $woocommerce;
-	require_once dirname( __DIR__ ) . '/woo-kontor-sync-pro.php';
+
+	/*
+	 * Load the plugin the way WordPress loads it: through wp-content/plugins, having
+	 * registered the real path behind the symlink first. Requiring the checkout
+	 * directly instead leaves plugin_basename() unable to shorten the path to the
+	 * plugin slug, and everything keyed on that slug then behaves differently under
+	 * test than in production — the HPOS compatibility declaration is recorded under
+	 * an absolute path, and load_plugin_textdomain() registers a languages directory
+	 * that does not exist, so no translation ever loads.
+	 */
+	$plugin = WP_PLUGIN_DIR . '/woo-kontor-sync-pro/woo-kontor-sync-pro.php';
+
+	if ( ! file_exists( $plugin ) ) {
+		echo 'This checkout is not linked into ' . WP_PLUGIN_DIR . '/woo-kontor-sync-pro.' . PHP_EOL;
+		echo 'Link it there and try again.' . PHP_EOL;
+		exit( 1 );
+	}
+
+	wp_register_plugin_realpath( $plugin );
+
+	require_once $plugin;
 }
 tests_add_filter( 'muplugins_loaded', 'wksync_manually_load_plugins' );
 

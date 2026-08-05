@@ -60,9 +60,10 @@ class PluginTest extends WP_UnitTestCase {
 		$compatible = \Automattic\WooCommerce\Utilities\FeaturesUtil::get_compatible_plugins_for_feature( 'custom_order_tables' );
 
 		/*
-		 * WooCommerce records the declaration under the plugin's slug. Do not use
-		 * plugin_basename() here: the suite loads the plugin from its checkout
-		 * rather than from WP_PLUGIN_DIR, so it has no prefix to strip.
+		 * WooCommerce records the declaration under the plugin's slug, which is what
+		 * the bootstrap goes to the trouble of making plugin_basename() return. The
+		 * slug is spelled out rather than computed here so that a bootstrap loading
+		 * the plugin the wrong way fails this test instead of agreeing with itself.
 		 */
 		$slug = 'woo-kontor-sync-pro/woo-kontor-sync-pro.php';
 

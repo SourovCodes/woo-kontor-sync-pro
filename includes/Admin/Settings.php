@@ -249,6 +249,13 @@ class Settings {
 			return;
 		}
 
+		wp_enqueue_style(
+			'wksync-settings',
+			WKSYNC_PLUGIN_URL . 'assets/css/settings.css',
+			array(),
+			WKSYNC_VERSION
+		);
+
 		wp_enqueue_script(
 			'wksync-settings',
 			WKSYNC_PLUGIN_URL . 'assets/js/settings.js',
@@ -273,7 +280,16 @@ class Settings {
 				'manufacturersNonce'    => wp_create_nonce( 'wksync_fetch_manufacturers' ),
 				'fetchingManufacturers' => __( 'Fetching manufacturers…', 'woo-kontor-sync-pro' ),
 				'manufacturersFailed'   => __( 'The manufacturer list could not be fetched.', 'woo-kontor-sync-pro' ),
-				'unsavedManufacturers'  => __( 'Manufacturers loaded. Choose the ones to import, then save the settings.', 'woo-kontor-sync-pro' ),
+				'unsavedManufacturers'  => __( 'Manufacturers loaded. Tick the ones to import, then save the settings.', 'woo-kontor-sync-pro' ),
+
+				/*
+				 * Two templates rather than one call to _n(): the count is only known in
+				 * the browser. Correct for English and German, which is what this ships
+				 * translations for.
+				 */
+				'summaryNone'           => self::manufacturer_summary( 0 ),
+				'summaryOne'            => self::manufacturer_summary( 1, '%s' ),
+				'summaryMany'           => self::manufacturer_summary( 2, '%s' ),
 			)
 		);
 	}
@@ -974,11 +990,11 @@ class Settings {
 				<h2><?php echo esc_html__( 'Products', 'woo-kontor-sync-pro' ); ?></h2>
 				<table class="form-table" role="presentation">
 					<tr>
-						<th scope="row">
-							<label for="wksync-manufacturer-ids"><?php echo esc_html__( 'Manufacturers', 'woo-kontor-sync-pro' ); ?></label>
-						</th>
+						<th scope="row"><?php echo esc_html__( 'Manufacturers', 'woo-kontor-sync-pro' ); ?></th>
 						<td>
 							<?php
+							$chosen = (array) $settings['manufacturer_ids'];
+
 							/*
 							 * Always submitted, so an empty selection can be told apart from a
 							 * submission that never had the field. Without it, choosing nothing
@@ -987,30 +1003,56 @@ class Settings {
 							 */
 							?>
 							<input type="hidden" name="<?php echo esc_attr( self::OPTION_KEY ); ?>[manufacturer_choice]" value="1"/>
-							<select
-								id="wksync-manufacturer-ids"
-								name="<?php echo esc_attr( self::OPTION_KEY ); ?>[manufacturer_ids][]"
-								multiple
-								size="8"
-								class="regular-text"
+
+							<?php
+							/*
+							 * Checkboxes rather than a multi-select. A multi-select cannot be
+							 * emptied without knowing to ctrl-click the last remaining item, and a
+							 * plain click on any option silently collapses the whole selection to
+							 * that one — so the control both hides the way out and destroys work on
+							 * the way in.
+							 */
+							?>
+							<div
+								id="wksync-manufacturer-list"
+								class="wksync-choice-list"
+								role="group"
+								aria-label="<?php echo esc_attr__( 'Manufacturers to import', 'woo-kontor-sync-pro' ); ?>"
+								data-empty="<?php echo esc_attr__( 'Every manufacturer is imported.', 'woo-kontor-sync-pro' ); ?>"
+								data-field="<?php echo esc_attr( self::OPTION_KEY . '[manufacturer_ids][]' ); ?>"
 							>
-								<?php foreach ( (array) $settings['manufacturer_ids'] as $manufacturer_id ) : ?>
-									<option value="<?php echo esc_attr( $manufacturer_id ); ?>" selected>
-										<?php echo esc_html( self::manufacturer_label( $settings, $manufacturer_id ) ); ?>
-									</option>
+								<?php foreach ( $chosen as $manufacturer_id ) : ?>
+									<?php $this->render_manufacturer_choice( $manufacturer_id, self::manufacturer_label( $settings, $manufacturer_id ) ); ?>
 								<?php endforeach; ?>
-							</select>
-							<button type="button" class="button" id="wksync-fetch-manufacturers">
-								<?php echo esc_html__( 'Fetch manufacturers', 'woo-kontor-sync-pro' ); ?>
-							</button>
+							</div>
+
+							<p class="wksync-choice-actions">
+								<button type="button" class="button" id="wksync-fetch-manufacturers">
+									<?php echo esc_html__( 'Fetch manufacturers', 'woo-kontor-sync-pro' ); ?>
+								</button>
+								<button type="button" class="button" id="wksync-clear-manufacturers" <?php disabled( empty( $chosen ) ); ?>>
+									<?php echo esc_html__( 'Import everything', 'woo-kontor-sync-pro' ); ?>
+								</button>
+							</p>
+
 							<input
 								type="hidden"
 								id="wksync-manufacturer-names"
 								name="<?php echo esc_attr( self::OPTION_KEY ); ?>[manufacturer_names]"
 								value="<?php echo esc_attr( (string) wp_json_encode( (array) $settings['manufacturer_names'] ) ); ?>"
 							/>
+
+							<?php
+							/*
+							 * Rendered server-side as well as by the script, so the state is
+							 * readable before the script runs and if it never does.
+							 */
+							?>
+							<p class="description" id="wksync-manufacturers-summary" aria-live="polite">
+								<?php echo esc_html( self::manufacturer_summary( count( $chosen ) ) ); ?>
+							</p>
 							<p class="description">
-								<?php echo esc_html__( 'Limits the product sync to these manufacturers. Select none to import the whole catalogue.', 'woo-kontor-sync-pro' ); ?>
+								<?php echo esc_html__( 'Tick the manufacturers to import. Fetch the list to add more; leave every box clear to import the whole catalogue.', 'woo-kontor-sync-pro' ); ?>
 							</p>
 							<p class="description">
 								<strong><?php echo esc_html__( 'Narrowing this drafts products.', 'woo-kontor-sync-pro' ); ?></strong>
@@ -1127,6 +1169,63 @@ class Settings {
 		return isset( $names[ $manufacturer_id ] ) && '' !== $names[ $manufacturer_id ]
 			? (string) $names[ $manufacturer_id ]
 			: (string) $manufacturer_id;
+	}
+
+	/**
+	 * Render one manufacturer checkbox.
+	 *
+	 * Every row rendered here is ticked: the server only ever draws the current
+	 * selection, and the unticked rows are added by the script once the full list has
+	 * been fetched.
+	 *
+	 * The ID is shown beside the name because the ID is what is actually sent, and
+	 * two manufacturers can share a name.
+	 *
+	 * @param string $manufacturer_id Manufacturer ID.
+	 * @param string $label           Display name.
+	 * @return void
+	 */
+	protected function render_manufacturer_choice( $manufacturer_id, $label ) {
+		?>
+		<label>
+			<input
+				type="checkbox"
+				name="<?php echo esc_attr( self::OPTION_KEY ); ?>[manufacturer_ids][]"
+				value="<?php echo esc_attr( $manufacturer_id ); ?>"
+				checked
+			/>
+			<span class="wksync-choice-label"><?php echo esc_html( $label ); ?></span>
+			<span class="wksync-choice-id"><?php echo esc_html( $manufacturer_id ); ?></span>
+		</label>
+		<?php
+	}
+
+	/**
+	 * Describe the current manufacturer selection in one line.
+	 *
+	 * The count is passed separately from what is printed so the script can be handed
+	 * the translated sentence with its placeholder intact: only the browser knows how
+	 * many boxes are ticked, but only PHP has the translations.
+	 *
+	 * @param int         $count   Number of manufacturers selected, which picks the plural form.
+	 * @param string|null $display What to print in place of the count; null formats the count itself.
+	 * @return string Human-readable summary.
+	 */
+	protected static function manufacturer_summary( $count, $display = null ) {
+		if ( $count < 1 ) {
+			return __( 'No manufacturers selected, so the whole catalogue is imported.', 'woo-kontor-sync-pro' );
+		}
+
+		return sprintf(
+			/* translators: %s: number of manufacturers selected. */
+			_n(
+				'%s manufacturer selected. Everything else is left out of the import.',
+				'%s manufacturers selected. Everything else is left out of the import.',
+				$count,
+				'woo-kontor-sync-pro'
+			),
+			null === $display ? number_format_i18n( $count ) : $display
+		);
 	}
 
 	/**

@@ -1,0 +1,595 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: Woo Kontor Sync Pro 0.4.0\n"
+"Report-Msgid-Bugs-To: https://wordpress.org/support/plugin/woo-kontor-sync-pro\n"
+"Last-Translator: Woo Kontor Sync Pro\n"
+"Language-Team: Deutsch\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"POT-Creation-Date: 2026-08-05T12:14:38+00:00\n"
+"PO-Revision-Date: 2026-08-05 12:00+0000\n"
+"Language: de_DE_formal\n"
+"X-Generator: WP-CLI 2.12.0\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+"X-Domain: woo-kontor-sync-pro\n"
+
+#. Plugin Name of the plugin
+#: woo-kontor-sync-pro.php
+msgid "Woo Kontor Sync Pro"
+msgstr ""
+
+#. Plugin URI of the plugin
+#: woo-kontor-sync-pro.php
+msgid "https://github.com/SourovCodes/woo-kontor-sync-pro"
+msgstr ""
+
+#. Description of the plugin
+#: woo-kontor-sync-pro.php
+msgid "Synchronises WooCommerce products, orders and customers with the Kontor ERP."
+msgstr "Synchronisiert WooCommerce-Produkte, -Bestellungen und -Kunden mit dem Kontor-ERP."
+
+#. Author of the plugin
+#: woo-kontor-sync-pro.php
+msgid "Sourov Biswas"
+msgstr ""
+
+#: includes/Admin/Settings.php:118
+msgid "B2B — wholesale"
+msgstr "B2B — Großhandel"
+
+#: includes/Admin/Settings.php:119
+msgid "B2C — retail"
+msgstr "B2C — Einzelhandel"
+
+#: includes/Admin/Settings.php:120
+msgid "EDU — education"
+msgstr "EDU — Bildung"
+
+#: includes/Admin/Settings.php:131
+#: includes/Admin/Settings.php:146
+#: includes/Admin/Settings.php:167
+#: includes/Admin/Settings.php:183
+msgid "Never — only when run manually"
+msgstr "Nie — nur bei manueller Ausführung"
+
+#: includes/Admin/Settings.php:132
+msgid "Every 7 days"
+msgstr "Alle 7 Tage"
+
+#: includes/Admin/Settings.php:133
+msgid "Every 14 days"
+msgstr "Alle 14 Tage"
+
+#: includes/Admin/Settings.php:134
+msgid "Every 21 days"
+msgstr "Alle 21 Tage"
+
+#: includes/Admin/Settings.php:135
+msgid "Every 30 days"
+msgstr "Alle 30 Tage"
+
+#: includes/Admin/Settings.php:147
+#: includes/Admin/Settings.php:168
+msgid "Every 15 minutes"
+msgstr "Alle 15 Minuten"
+
+#: includes/Admin/Settings.php:148
+#: includes/Admin/Settings.php:169
+#: includes/Admin/Settings.php:184
+msgid "Every 30 minutes"
+msgstr "Alle 30 Minuten"
+
+#: includes/Admin/Settings.php:149
+#: includes/Admin/Settings.php:170
+#: includes/Admin/Settings.php:185
+msgid "Every hour"
+msgstr "Stündlich"
+
+#: includes/Admin/Settings.php:150
+#: includes/Admin/Settings.php:186
+msgid "Every 3 hours"
+msgstr "Alle 3 Stunden"
+
+#: includes/Admin/Settings.php:151
+#: includes/Admin/Settings.php:171
+#: includes/Admin/Settings.php:187
+msgid "Every 6 hours"
+msgstr "Alle 6 Stunden"
+
+#: includes/Admin/Settings.php:152
+#: includes/Admin/Settings.php:188
+msgid "Every 12 hours"
+msgstr "Alle 12 Stunden"
+
+#: includes/Admin/Settings.php:153
+#: includes/Admin/Settings.php:172
+#: includes/Admin/Settings.php:189
+msgid "Once a day"
+msgstr "Einmal täglich"
+
+#: includes/Admin/Settings.php:233
+#: includes/Admin/Settings.php:234
+#: includes/Admin/Settings.php:865
+msgid "Kontor Sync"
+msgstr "Kontor-Sync"
+
+#: includes/Admin/Settings.php:273
+msgid "Testing connection…"
+msgstr "Verbindung wird getestet…"
+
+#: includes/Admin/Settings.php:274
+msgid "The connection test could not be completed."
+msgstr "Der Verbindungstest konnte nicht abgeschlossen werden."
+
+#: includes/Admin/Settings.php:276
+msgid "Fetching shops…"
+msgstr "Shops werden abgerufen…"
+
+#: includes/Admin/Settings.php:277
+msgid "The shop list could not be fetched."
+msgstr "Die Shop-Liste konnte nicht abgerufen werden."
+
+#: includes/Admin/Settings.php:278
+#: includes/Admin/Settings.php:934
+msgid "— No shop selected —"
+msgstr "— Kein Shop ausgewählt —"
+
+#: includes/Admin/Settings.php:279
+msgid "Shops loaded. Choose one, then save the settings."
+msgstr "Shops geladen. Wählen Sie einen aus und speichern Sie die Einstellungen."
+
+#: includes/Admin/Settings.php:281
+msgid "Fetching manufacturers…"
+msgstr "Hersteller werden abgerufen…"
+
+#: includes/Admin/Settings.php:282
+msgid "The manufacturer list could not be fetched."
+msgstr "Die Herstellerliste konnte nicht abgerufen werden."
+
+#: includes/Admin/Settings.php:283
+msgid "Manufacturers loaded. Tick the ones to import, then save the settings."
+msgstr "Hersteller geladen. Haken Sie die zu importierenden an und speichern Sie die Einstellungen."
+
+#: includes/Admin/Settings.php:560
+#: includes/Admin/Settings.php:606
+#: includes/Admin/Settings.php:655
+#: includes/Admin/Settings.php:810
+msgid "You do not have permission to do that."
+msgstr "Sie haben keine Berechtigung für diese Aktion."
+
+#. translators: 1: number of articles, 2: shop type such as B2B.
+#: includes/Admin/Settings.php:585
+#, php-format
+msgid "Connected. Kontor reports %1$s articles for %2$s."
+msgstr "Verbunden. Kontor meldet %1$s Artikel für %2$s."
+
+#: includes/Admin/Settings.php:627
+msgid "Kontor returned no shops for this key."
+msgstr "Kontor hat für diesen Schlüssel keine Shops zurückgegeben."
+
+#. translators: %s: number of shops found.
+#: includes/Admin/Settings.php:635
+#, php-format
+msgid "Found %s shop."
+msgid_plural "Found %s shops."
+msgstr[0] "%s Shop gefunden."
+msgstr[1] "%s Shops gefunden."
+
+#: includes/Admin/Settings.php:676
+msgid "Kontor returned no manufacturers for this key."
+msgstr "Kontor hat für diesen Schlüssel keine Hersteller zurückgegeben."
+
+#. translators: %s: number of manufacturers found.
+#: includes/Admin/Settings.php:684
+#, php-format
+msgid "Found %s manufacturer."
+msgid_plural "Found %s manufacturers."
+msgstr[0] "%s Hersteller gefunden."
+msgstr[1] "%s Hersteller gefunden."
+
+#: includes/Admin/Settings.php:845
+#: includes/Sync/Scheduler.php:249
+msgid "The job could not be queued. Check that WooCommerce is active."
+msgstr "Der Job konnte nicht eingereiht werden. Prüfen Sie, ob WooCommerce aktiv ist."
+
+#: includes/Admin/Settings.php:846
+#: includes/Sync/Scheduler.php:256
+msgid "That job is already running."
+msgstr "Dieser Job läuft bereits."
+
+#: includes/Admin/Settings.php:847
+msgid "Set the API base URL and API key before running a sync."
+msgstr "Legen Sie die API-Basis-URL und den API-Schlüssel fest, bevor Sie eine Synchronisation starten."
+
+#: includes/Admin/Settings.php:848
+msgid "Choose a Kontor shop before syncing orders."
+msgstr "Wählen Sie einen Kontor-Shop aus, bevor Sie Bestellungen synchronisieren."
+
+#: includes/Admin/Settings.php:859
+msgid "You do not have permission to manage these settings."
+msgstr "Sie haben keine Berechtigung, diese Einstellungen zu verwalten."
+
+#: includes/Admin/Settings.php:872
+msgid "Connection"
+msgstr "Verbindung"
+
+#: includes/Admin/Settings.php:876
+msgid "API base URL"
+msgstr "API-Basis-URL"
+
+#: includes/Admin/Settings.php:886
+msgid "The search endpoint is appended to this, so omit the trailing \"/search\"."
+msgstr "Der Such-Endpunkt wird angehängt, lassen Sie das abschließende „/search“ also weg."
+
+#: includes/Admin/Settings.php:891
+msgid "API key"
+msgstr "API-Schlüssel"
+
+#: includes/Admin/Settings.php:906
+msgid "No key stored yet. Sent as the x-api-key header."
+msgstr "Noch kein Schlüssel gespeichert. Wird als x-api-key-Header gesendet."
+
+#: includes/Admin/Settings.php:907
+msgid "A key is stored. Leave this field blank to keep it."
+msgstr "Ein Schlüssel ist gespeichert. Lassen Sie dieses Feld leer, um ihn zu behalten."
+
+#: includes/Admin/Settings.php:915
+msgid "Shop type"
+msgstr "Shop-Typ"
+
+#: includes/Admin/Settings.php:925
+msgid "Selects which price list is imported. The article list is the same for every shop type; only the selling price differs."
+msgstr "Bestimmt, welche Preisliste importiert wird. Die Artikelliste ist für jeden Shop-Typ identisch, nur der Verkaufspreis unterscheidet sich."
+
+#: includes/Admin/Settings.php:930
+msgid "Shop"
+msgstr "Shop"
+
+#: includes/Admin/Settings.php:942
+msgid "Fetch shops"
+msgstr "Shops abrufen"
+
+#: includes/Admin/Settings.php:951
+msgid "Identifies this store in Kontor when orders are sent and delivery information is fetched back. Neither job runs without it. Product and stock sync do not use it."
+msgstr "Identifiziert diesen Shop in Kontor, wenn Bestellungen gesendet und Lieferinformationen zurückgeholt werden. Ohne ihn läuft keiner der beiden Jobs. Produkt- und Bestandssynchronisation nutzen ihn nicht."
+
+#: includes/Admin/Settings.php:958
+msgid "Upload user ID"
+msgstr "Upload-Benutzer-ID"
+
+#: includes/Admin/Settings.php:976
+msgid "Sent with every order upload as meta.userId. Fixed by agreement with Kontor and not editable here."
+msgstr "Wird bei jedem Bestell-Upload als meta.userId gesendet. In Absprache mit Kontor festgelegt und hier nicht änderbar."
+
+#: includes/Admin/Settings.php:980
+msgid "Connection test"
+msgstr "Verbindungstest"
+
+#: includes/Admin/Settings.php:983
+msgid "Test connection"
+msgstr "Verbindung testen"
+
+#: includes/Admin/Settings.php:990
+msgid "Products"
+msgstr "Produkte"
+
+#: includes/Admin/Settings.php:993
+msgid "Manufacturers"
+msgstr "Hersteller"
+
+#: includes/Admin/Settings.php:1020
+msgid "Manufacturers to import"
+msgstr "Zu importierende Hersteller"
+
+#: includes/Admin/Settings.php:1021
+msgid "Every manufacturer is imported."
+msgstr "Alle Hersteller werden importiert."
+
+#: includes/Admin/Settings.php:1031
+msgid "Fetch manufacturers"
+msgstr "Hersteller abrufen"
+
+#: includes/Admin/Settings.php:1034
+msgid "Import everything"
+msgstr "Alles importieren"
+
+#: includes/Admin/Settings.php:1055
+msgid "Tick the manufacturers to import. Fetch the list to add more; leave every box clear to import the whole catalogue."
+msgstr "Haken Sie die zu importierenden Hersteller an. Rufen Sie die Liste ab, um weitere hinzuzufügen, und lassen Sie alle Kästchen leer, um den gesamten Katalog zu importieren."
+
+#: includes/Admin/Settings.php:1058
+msgid "Narrowing this drafts products."
+msgstr "Eine Einschränkung setzt Produkte auf Entwurf."
+
+#: includes/Admin/Settings.php:1059
+msgid "Articles the filter excludes are no longer in the feed, so the next product sync drafts the ones it previously imported. Widening the filter again republishes them."
+msgstr "Vom Filter ausgeschlossene Artikel sind nicht mehr im Feed, daher setzt die nächste Produktsynchronisation die zuvor importierten auf Entwurf. Wird der Filter wieder erweitert, werden sie erneut veröffentlicht."
+
+#: includes/Admin/Settings.php:1066
+msgid "Image base URL"
+msgstr "Bild-Basis-URL"
+
+#: includes/Admin/Settings.php:1076
+msgid "Kontor returns image filenames rather than URLs. Set the folder they live in to import product images; leave blank to skip images."
+msgstr "Kontor liefert Bilddateinamen statt URLs. Geben Sie den Ordner an, in dem sie liegen, um Produktbilder zu importieren, oder lassen Sie das Feld leer, um Bilder zu überspringen."
+
+#: includes/Admin/Settings.php:1081
+msgid "Schedules"
+msgstr "Zeitpläne"
+
+#: includes/Admin/Settings.php:1085
+#: includes/Sync/Scheduler.php:88
+msgid "Product sync"
+msgstr "Produktsynchronisation"
+
+#: includes/Admin/Settings.php:1100
+#: includes/Sync/Scheduler.php:96
+msgid "Stock sync"
+msgstr "Bestandssynchronisation"
+
+#: includes/Admin/Settings.php:1115
+#: includes/Sync/Scheduler.php:104
+msgid "Order sync"
+msgstr "Bestellsynchronisation"
+
+#: includes/Admin/Settings.php:1126
+msgid "Orders are sent to Kontor as they are paid. This sweep only catches ones that were missed, and needs a shop selected."
+msgstr "Bestellungen werden an Kontor gesendet, sobald sie bezahlt sind. Dieser Durchlauf erfasst nur übersehene Bestellungen und benötigt einen ausgewählten Shop."
+
+#: includes/Admin/Settings.php:1131
+#: includes/Sync/Scheduler.php:113
+msgid "Delivery sync"
+msgstr "Liefersynchronisation"
+
+#: includes/Admin/Settings.php:1142
+msgid "Pulls tracking details back from Kontor and needs a shop selected. An order Kontor reports as completed is completed here too, which emails the customer."
+msgstr "Holt Sendungsdaten aus Kontor zurück und benötigt einen ausgewählten Shop. Eine Bestellung, die Kontor als abgeschlossen meldet, wird auch hier abgeschlossen, wodurch der Kunde eine E-Mail erhält."
+
+#: includes/Admin/Settings.php:1150
+msgid "Scheduled jobs"
+msgstr "Geplante Jobs"
+
+#: includes/Admin/Settings.php:1216
+msgid "No manufacturers selected, so the whole catalogue is imported."
+msgstr "Keine Hersteller ausgewählt, daher wird der gesamte Katalog importiert."
+
+#. translators: %s: number of manufacturers selected.
+#: includes/Admin/Settings.php:1221
+#, php-format
+msgid "%s manufacturer selected. Everything else is left out of the import."
+msgid_plural "%s manufacturers selected. Everything else is left out of the import."
+msgstr[0] "%s Hersteller ausgewählt. Alles andere bleibt vom Import ausgeschlossen."
+msgstr[1] "%s Hersteller ausgewählt. Alles andere bleibt vom Import ausgeschlossen."
+
+#: includes/Admin/Settings.php:1262
+msgid "Job"
+msgstr "Job"
+
+#: includes/Admin/Settings.php:1263
+msgid "Next run"
+msgstr "Nächster Lauf"
+
+#: includes/Admin/Settings.php:1264
+msgid "Last result"
+msgstr "Letztes Ergebnis"
+
+#: includes/Admin/Settings.php:1265
+msgid "Actions"
+msgstr "Aktionen"
+
+#: includes/Admin/Settings.php:1284
+msgid "Not scheduled"
+msgstr "Nicht geplant"
+
+#: includes/Admin/Settings.php:1294
+msgid "Run now"
+msgstr "Jetzt ausführen"
+
+#: includes/Admin/Settings.php:1312
+msgid "Never run"
+msgstr "Nie ausgeführt"
+
+#. translators: %s: how long ago the run started.
+#: includes/Admin/Settings.php:1317
+#, php-format
+msgid "Running, started %s ago"
+msgstr "Läuft, vor %s gestartet"
+
+#. translators: 1: timestamp, 2: failure reason.
+#: includes/Admin/Settings.php:1324
+#, php-format
+msgid "Failed at %1$s — %2$s"
+msgstr "Fehlgeschlagen am %1$s — %2$s"
+
+#. translators: 1: timestamp, 2: run summary.
+#: includes/Admin/Settings.php:1328
+#, php-format
+msgid "Succeeded at %1$s — %2$s"
+msgstr "Erfolgreich am %1$s — %2$s"
+
+#: includes/Admin/Settings.php:1356
+msgid "The job could not be queued. It may already be running, or WooCommerce may be inactive."
+msgstr "Der Job konnte nicht eingereiht werden. Möglicherweise läuft er bereits oder WooCommerce ist nicht aktiv."
+
+#. translators: %s: job name.
+#: includes/Admin/Settings.php:1368
+#, php-format
+msgid "%s queued. It runs on the next queue pass, within a minute or so."
+msgstr "%s eingereiht. Der Job läuft beim nächsten Warteschlangendurchlauf, also in etwa einer Minute."
+
+#: includes/Api/Client.php:393
+msgid "Kontor returned a response that could not be decoded."
+msgstr "Kontor hat eine Antwort zurückgegeben, die nicht dekodiert werden konnte."
+
+#. translators: %d: HTTP status code returned by the Kontor API.
+#: includes/Api/Client.php:413
+#, php-format
+msgid "Kontor returned HTTP status %d."
+msgstr "Kontor hat den HTTP-Status %d zurückgegeben."
+
+#: includes/Api/Client.php:444
+msgid "The Kontor API base URL has not been configured."
+msgstr "Die Kontor-API-Basis-URL wurde nicht konfiguriert."
+
+#: includes/Api/Client.php:463
+msgid "The Kontor API key has not been configured."
+msgstr "Der Kontor-API-Schlüssel wurde nicht konfiguriert."
+
+#: includes/Frontend/Tracking.php:88
+#: includes/Frontend/Tracking.php:145
+#: includes/Frontend/Tracking.php:171
+msgid "Shipment tracking"
+msgstr "Sendungsverfolgung"
+
+#: includes/Frontend/Tracking.php:93
+#: includes/Frontend/Tracking.php:148
+msgid "Carrier"
+msgstr "Versanddienstleister"
+
+#: includes/Frontend/Tracking.php:98
+#: includes/Frontend/Tracking.php:151
+msgid "Tracking number"
+msgstr "Sendungsnummer"
+
+#: includes/Frontend/Tracking.php:156
+msgid "Track your shipment"
+msgstr "Sendung verfolgen"
+
+#. translators: %s: shipping carrier name.
+#: includes/Frontend/Tracking.php:176
+#, php-format
+msgid "Carrier: %s"
+msgstr "Versanddienstleister: %s"
+
+#. translators: %s: parcel tracking number.
+#: includes/Frontend/Tracking.php:183
+#, php-format
+msgid "Tracking number: %s"
+msgstr "Sendungsnummer: %s"
+
+#. translators: %s: URL of the carrier's tracking page.
+#: includes/Frontend/Tracking.php:190
+#, php-format
+msgid "Track your shipment: %s"
+msgstr "Sendung verfolgen: %s"
+
+#: includes/Sync/DeliverySync.php:138
+msgid "Kontor reported no orders for this shop."
+msgstr "Kontor hat für diesen Shop keine Bestellungen gemeldet."
+
+#: includes/Sync/DeliverySync.php:171
+msgid "The cached delivery payload expired before it could be applied."
+msgstr "Die zwischengespeicherten Lieferdaten sind abgelaufen, bevor sie übernommen werden konnten."
+
+#: includes/Sync/DeliverySync.php:245
+msgid "Kontor reports this order as completed."
+msgstr "Kontor meldet diese Bestellung als abgeschlossen."
+
+#. translators: 1: shipping provider, 2: tracking number.
+#: includes/Sync/DeliverySync.php:295
+#, php-format
+msgid "Kontor tracking: %1$s %2$s"
+msgstr "Kontor-Sendungsverfolgung: %1$s %2$s"
+
+#: includes/Sync/DeliverySync.php:296
+msgid "unknown carrier"
+msgstr "unbekannter Versanddienstleister"
+
+#. translators: 1: orders updated, 2: orders completed, 3: order numbers with no matching order.
+#: includes/Sync/DeliverySync.php:428
+#, php-format
+msgid "%1$d orders updated, %2$d completed, %3$d not found locally."
+msgstr "%1$d Bestellungen aktualisiert, %2$d abgeschlossen, %3$d lokal nicht gefunden."
+
+#: includes/Sync/OrderSync.php:206
+msgid "No orders were waiting to be sent."
+msgstr "Es standen keine Bestellungen zum Senden an."
+
+#. translators: 1: orders accepted, 2: orders already present, 3: orders rejected.
+#: includes/Sync/OrderSync.php:221
+#, php-format
+msgid "%1$d sent, %2$d already in Kontor, %3$d rejected."
+msgstr "%1$d gesendet, %2$d bereits in Kontor, %3$d abgelehnt."
+
+#: includes/Sync/OrderSync.php:399
+msgid "Already present in Kontor; not sent again."
+msgstr "Bereits in Kontor vorhanden, nicht erneut gesendet."
+
+#. translators: %s: Kontor's internal order number.
+#: includes/Sync/OrderSync.php:402
+#, php-format
+msgid "Sent to Kontor as %s."
+msgstr "An Kontor gesendet als %s."
+
+#: includes/Sync/Preflight.php:96
+msgid "Kontor is not configured: set the API base URL and API key before running a sync."
+msgstr "Kontor ist nicht konfiguriert: Legen Sie die API-Basis-URL und den API-Schlüssel fest, bevor Sie eine Synchronisation starten."
+
+#: includes/Sync/Preflight.php:115
+msgid "No Kontor shop has been selected. Choose one on the settings screen before syncing orders."
+msgstr "Es wurde kein Kontor-Shop ausgewählt. Wählen Sie auf der Einstellungsseite einen aus, bevor Sie Bestellungen synchronisieren."
+
+#. translators: 1: created count, 2: updated count, 3: unchanged count, 4: drafted count.
+#: includes/Sync/ProductSync.php:321
+#, php-format
+msgid "%1$d created, %2$d updated, %3$d unchanged, %4$d drafted."
+msgstr "%1$d erstellt, %2$d aktualisiert, %3$d unverändert, %4$d auf Entwurf gesetzt."
+
+#: includes/Sync/Scheduler.php:89
+msgid "Imports articles, titles, descriptions and prices from Kontor."
+msgstr "Importiert Artikel, Titel, Beschreibungen und Preise aus Kontor."
+
+#: includes/Sync/Scheduler.php:90
+#: includes/Sync/Scheduler.php:98
+#: includes/Sync/Scheduler.php:115
+msgid "From Kontor"
+msgstr "Aus Kontor"
+
+#: includes/Sync/Scheduler.php:97
+msgid "Updates stock levels for every article Kontor reports."
+msgstr "Aktualisiert die Lagerbestände für jeden von Kontor gemeldeten Artikel."
+
+#: includes/Sync/Scheduler.php:105
+msgid "Sends paid orders to Kontor. Orders are normally sent as they are paid; this sweep catches any that were missed."
+msgstr "Sendet bezahlte Bestellungen an Kontor. Bestellungen werden normalerweise gesendet, sobald sie bezahlt sind, dieser Durchlauf erfasst übersehene."
+
+#: includes/Sync/Scheduler.php:106
+msgid "To Kontor"
+msgstr "An Kontor"
+
+#: includes/Sync/Scheduler.php:114
+msgid "Brings order status and tracking details back from Kontor. Completing an order emails the customer."
+msgstr "Holt Bestellstatus und Sendungsdaten aus Kontor zurück. Das Abschließen einer Bestellung sendet dem Kunden eine E-Mail."
+
+#: includes/Sync/StockSync.php:108
+msgid "Kontor reported no stock levels."
+msgstr "Kontor hat keine Lagerbestände gemeldet."
+
+#: includes/Sync/StockSync.php:141
+msgid "The cached stock payload expired before it could be applied."
+msgstr "Die zwischengespeicherten Bestandsdaten sind abgelaufen, bevor sie übernommen werden konnten."
+
+#. translators: 1: products updated, 2: article numbers with no matching product, 3: products left alone because they do not manage stock.
+#: includes/Sync/StockSync.php:309
+#, php-format
+msgid "%1$d products updated, %2$d article numbers had no matching SKU, %3$d skipped as not stock-managed."
+msgstr "%1$d Produkte aktualisiert, %2$d Artikelnummern ohne passende SKU, %3$d übersprungen, da ohne Bestandsverwaltung."
+
+#: woo-kontor-sync-pro.php:59
+msgid "Woo Kontor Sync Pro is missing its dependencies. Run \"composer install\" in the plugin directory."
+msgstr "Woo Kontor Sync Pro fehlen seine Abhängigkeiten. Führen Sie „composer install“ im Plugin-Verzeichnis aus."
+
+#. translators: %s: minimum supported WooCommerce version.
+#: woo-kontor-sync-pro.php:77
+#, php-format
+msgid "Woo Kontor Sync Pro requires WooCommerce %s or newer to be installed and active."
+msgstr "Woo Kontor Sync Pro benötigt WooCommerce %s oder neuer, installiert und aktiv."
+
+#: woo-kontor-sync-pro.php:92
+msgid "Woo Kontor Sync Pro requires High-Performance Order Storage. Synchronisation with Kontor stays disabled until it is enabled."
+msgstr "Woo Kontor Sync Pro benötigt High-Performance Order Storage (HPOS). Die Synchronisation mit Kontor bleibt deaktiviert, bis HPOS aktiviert ist."
+
+#: woo-kontor-sync-pro.php:97
+msgid "Enable High-Performance Order Storage"
+msgstr "High-Performance Order Storage aktivieren"

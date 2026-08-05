@@ -59,10 +59,15 @@ to 8.2.29 so dependency resolution targets the runtime the code actually execute
 ## Commands
 
 ```bash
-composer lint       # phpcs against the WooCommerce standard
-composer lint:fix   # phpcbf — fix what can be fixed automatically
-composer test       # PHPUnit against the WordPress test library
-./bin/wp <args>     # wp-cli against the Local site
+composer lint           # phpcs against the WooCommerce standard
+composer lint:fix       # phpcbf — fix what can be fixed automatically
+composer test           # PHPUnit against the WordPress test library
+composer test:coverage  # …with a coverage report in coverage-html/
+composer i18n           # re-extract the POT and recompile the translations
+composer i18n:check     # is the POT still in step with the source?
+composer check          # everything CI checks: validate, version, i18n, lint, test
+composer build          # build dist/woo-kontor-sync-pro-<version>.zip
+./bin/wp <args>         # wp-cli against the Local site
 ```
 
 `bin/install-wp-tests.sh` provisions the `woo_kontor_tests` database once, before the first
@@ -164,10 +169,17 @@ of them wrong produces silently wrong data rather than an error:
     `finalise()` drafts the ones it previously imported, exactly as if Kontor had dropped them.
     Widening it again republishes them, because `restore_if_sync_drafted()` only ever undoes this
     sync's own drafting. This is correct, and it is also surprising, so the settings screen says so.
-  - A multi-select with nothing chosen submits **no field at all**, so "absent" cannot mean "clear"
-    — that would let a partial save silently widen the import to the whole catalogue. The form
-    carries a `manufacturer_choice` marker that is always present, and only a submission carrying it
-    may clear the list. Same reasoning as the intervals and the shop.
+  - The picker is a **list of checkboxes, not a multi-select**. A multi-select cannot be emptied
+    without knowing to ctrl-click the last remaining item, and a plain click on any option silently
+    collapses the whole selection to that one — it hides the way out and destroys work on the way
+    in. The checkbox list comes with an **Import everything** button, which is the discoverable way
+    back to "no filter".
+  - Nothing ticked submits **no field at all**, so "absent" cannot mean "clear" — that would let a
+    partial save silently widen the import to the whole catalogue. The form carries a
+    `manufacturer_choice` marker that is always present, and only a submission carrying it may clear
+    the list. Same reasoning as the intervals and the shop.
+  - Pressing **Fetch manufacturers** keeps a ticked manufacturer that Kontor no longer lists, at the
+    end of the list. Looking something up must not quietly edit the selection underneath it.
 - **Images are deduplicated on their source URL**, recorded on the attachment as
   `ProductSync::META_IMAGE_SOURCE`. The same photograph is shared across articles often enough that
   downloading per product would multiply the media library. That meta doubles as the marker for
@@ -341,7 +353,91 @@ calling it queues real work: it is not a way to test whether a job would be allo
 - Verify against the real site (`./bin/wp`, http://testshop.local/wp-admin) rather than reasoning
   about what WooCommerce would do.
 - Bump the version in both the `woo-kontor-sync-pro.php` header and the `WKSYNC_VERSION` constant
-  together.
+  together — `bin/check-version.sh` fails the build when they drift apart.
+
+## Languages — English and German
+
+The plugin ships English (the source strings) and German, and German is a requirement
+rather than a courtesy: `tests/I18nTest.php` fails the build on a string that is in the catalogue
+but untranslated. WordPress falls back to English silently, one label at a time, so nothing else
+would notice.
+
+- **Two German catalogues, not one.** WordPress treats `de_DE` (informal, *du* — the register
+  WordPress core itself uses) and `de_DE_formal` (*Sie*) as unrelated locales, so both are
+  maintained. Only the strings that address the reader differ between them.
+- **Every other German locale is mapped**, by `Plugin::map_german_locale()` on
+  `load_textdomain_mofile`. `de_AT`, `de_CH` and `de_CH_informal` have no catalogue of their own and
+  WordPress does not fall back between German locales, so without this an Austrian shop reads an
+  English admin screen. The filter only redirects a *missing* German catalogue, so a translation
+  someone drops into `wp-content/languages/plugins` still wins. Filtering the `.mo` path is enough
+  to bring the `.l10n.php` along, because WordPress derives that filename from the filtered value.
+- **`.mo` and `.l10n.php` are both committed and both shipped.** WordPress 6.5 and newer load the
+  PHP file in preference to the `.mo`; the `.mo` stays for anything reading the catalogue directly.
+  The `.po` sources are the input and are left out of the build.
+- **Regenerate with `composer i18n`** after adding or changing any translatable string: it
+  re-extracts the POT, merges it into each `.po` (keeping existing translations, marking changed
+  ones fuzzy) and recompiles. It uses wp-cli's `i18n` commands, which are pure PHP — no gettext
+  toolchain, on a laptop or on a runner. A fuzzy entry counts as untranslated and fails the tests.
+- **`composer i18n:check`** asserts the POT still lists every string in the source. It compares the
+  *set of strings*, not the files: the POT also records the line each string came from, and failing
+  a build because a function moved twenty lines down would teach everyone to ignore the check.
+- Strings for the admin JavaScript are translated in PHP and handed over with
+  `wp_localize_script()`, so there is nothing to extract from `assets/js` and no JSON catalogue to
+  build.
+
+## Continuous integration and releases
+
+`.github/workflows/ci.yml` runs on every push to `main` and every pull request, and is the same set
+of commands the working agreement asks for:
+
+- **Coding standards** — `composer validate --strict`, `bin/check-version.sh`, `composer lint`, and
+  `node --check` over `assets/js`.
+- **Translations** — `bin/check-translations.sh`, which needs wp-cli and so runs in its own job.
+  Whether the strings are *translated* is asserted by the test suite instead.
+- **Dependency audit** — `composer audit --locked`.
+- **Tests** — the full suite on PHP 8.2, 8.3 and 8.4. 8.2 is the floor and what the site runs; the
+  others are forward compatibility. `fail-fast` is off so one version failing does not hide the rest.
+- **Coverage** — one more run under pcov, published as a job summary and an artifact. No threshold is
+  enforced; the number is there to be looked at, not to fail a pull request on.
+- **Build** — `bin/build-zip.sh`, uploaded as an artifact, so every pull request proves the release
+  artefact still builds and leaves something installable to test by hand.
+
+Each job goes through `.github/actions/setup-plugin`, so PHP, the Composer cache and the test site
+are configured in one place rather than four.
+
+**CI cannot use `bin/install-wp-tests.sh`** — it resolves everything from Local's `sites.json`.
+`bin/install-wp-tests-ci.sh` is the runner's equivalent: it downloads WordPress and WooCommerce,
+creates the database through mysqli rather than a `mysql` client that a runner is not guaranteed to
+have, and writes the same `tests/wp-tests-config.php`. It refuses to overwrite a config pointing
+somewhere else, so running it on the development machine cannot silently repoint the suite away from
+the Local site.
+
+**It symlinks the checkout into `wp-content/plugins/woo-kontor-sync-pro`, and that link is
+load-bearing.** `tests/bootstrap.php` loads the plugin from `WP_PLUGIN_DIR` and calls
+`wp_register_plugin_realpath()` first, which is how WordPress itself loads a symlinked plugin, and
+the only way `plugin_basename()` shortens to the plugin slug. Everything keyed on that slug behaves
+differently when it does not: `FeaturesUtil::declare_compatibility()` records HPOS support under an
+absolute path, and `load_plugin_textdomain()` registers a languages directory that does not exist,
+so no translation loads and every i18n test fails while the plugin works perfectly on a real site.
+Local provides the symlink; the CI script creates the same one.
+
+Releases are cut by pushing a `v*` tag (`.github/workflows/release.yml`):
+
+- The entire CI workflow runs against the tagged commit first, so nothing is ever published from a
+  red build.
+- `bin/check-version.sh <tag>` then asserts that the tag, the `Version:` header and `WKSYNC_VERSION`
+  all agree.
+- `bin/build-zip.sh` produces `dist/woo-kontor-sync-pro-<version>.zip` and a `.sha256` beside it, and
+  `gh release create` publishes both with generated notes. A tag containing a hyphen (`v0.5.0-rc.1`)
+  is published as a pre-release. Running the workflow by hand builds and verifies without publishing.
+
+The zip carries only what WordPress runs: the main file, `includes/`, `assets/`, `languages/`,
+`uninstall.php` and a `--no-dev` `vendor/`. Composer runs inside the staging copy rather than the
+checkout, so building never disturbs the dev dependencies the suite needs, and `composer.json` is
+removed from the build so nobody is invited to run Composer inside a live plugins directory.
+
+`.github/dependabot.yml` watches Composer and the actions themselves weekly. It is told to ignore
+PHPUnit 10+ and PHP_CodeSniffer 4+, because both pins below are deliberate.
 
 ## Dependency versions — do not "upgrade" these
 

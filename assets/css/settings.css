@@ -1,0 +1,45 @@
+/**
+ * Kontor Sync settings screen.
+ *
+ * The manufacturer picker is a scrolling list of checkboxes rather than a
+ * multi-select, so it needs a box of its own to sit in.
+ */
+
+.wksync-choice-list {
+	max-width: 32em;
+	max-height: 16em;
+	padding: 8px 12px;
+	overflow-y: auto;
+	background: #fff;
+	border: 1px solid #c3c4c7;
+	border-radius: 4px;
+}
+
+/* Nothing chosen and nothing fetched: the box would otherwise collapse to a sliver. */
+.wksync-choice-list:empty::after {
+	color: #646970;
+	content: attr( data-empty );
+	font-style: italic;
+}
+
+.wksync-choice-list label {
+	display: block;
+	padding: 3px 0;
+}
+
+.wksync-choice-list label:hover {
+	background: #f6f7f7;
+}
+
+.wksync-choice-id {
+	color: #646970;
+	font-size: 12px;
+}
+
+.wksync-choice-id::before {
+	content: "#";
+}
+
+.wksync-choice-actions {
+	margin-top: 8px;
+}

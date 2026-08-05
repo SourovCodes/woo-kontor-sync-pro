@@ -99,29 +99,112 @@
 		}
 
 		var makersButton = document.getElementById( 'wksync-fetch-manufacturers' );
+		var makersClear = document.getElementById( 'wksync-clear-manufacturers' );
 		var makersOutput = document.getElementById( 'wksync-manufacturers-result' );
-		var makersSelect = document.getElementById( 'wksync-manufacturer-ids' );
+		var makersSummary = document.getElementById( 'wksync-manufacturers-summary' );
+		var makersList = document.getElementById( 'wksync-manufacturer-list' );
 		var makersNames = document.getElementById( 'wksync-manufacturer-names' );
 
-		if ( makersButton && makersOutput && makersSelect && makersNames ) {
-			/*
-			 * The names ride along in a hidden field purely so the saved selection still
-			 * reads as names after a reload. Nothing is decided by them server-side, and
-			 * only the selected ones are kept.
+		if ( makersButton && makersClear && makersOutput && makersSummary && makersList && makersNames ) {
+			/**
+			 * Every manufacturer checkbox currently in the list.
+			 *
+			 * @return {Array} The checkbox elements.
 			 */
-			var rememberNames = function () {
-				var names = {};
+			function makerBoxes() {
+				return Array.prototype.slice.call(
+					makersList.querySelectorAll( 'input[type="checkbox"]' )
+				);
+			}
 
-				Array.prototype.forEach.call( makersSelect.options, function ( option ) {
-					if ( option.selected ) {
-						names[ option.value ] = option.textContent.trim();
+			/**
+			 * The IDs and names of the ticked manufacturers.
+			 *
+			 * @return {Object} Map of ID to display name.
+			 */
+			function tickedMakers() {
+				var ticked = {};
+
+				makerBoxes().forEach( function ( box ) {
+					if ( box.checked ) {
+						var label = box.parentNode.querySelector( '.wksync-choice-label' );
+
+						ticked[ box.value ] = label ? label.textContent.trim() : box.value;
 					}
 				} );
 
-				makersNames.value = JSON.stringify( names );
-			};
+				return ticked;
+			}
 
-			makersSelect.addEventListener( 'change', rememberNames );
+			/**
+			 * Reflect the current selection in the hidden names field and the summary.
+			 *
+			 * The names ride along purely so the saved selection still reads as names
+			 * after a reload. Nothing is decided by them server-side.
+			 */
+			function refreshMakers() {
+				var ticked = tickedMakers();
+				var count = Object.keys( ticked ).length;
+				var template;
+
+				makersNames.value = JSON.stringify( ticked );
+				makersClear.disabled = 0 === count;
+
+				if ( 0 === count ) {
+					makersSummary.textContent = wksyncSettings.summaryNone;
+
+					return;
+				}
+
+				template = 1 === count ? wksyncSettings.summaryOne : wksyncSettings.summaryMany;
+				makersSummary.textContent = template.replace( '%s', String( count ) );
+			}
+
+			/**
+			 * Add one manufacturer checkbox to the list.
+			 *
+			 * Built here rather than by cloning a template so the markup matches what
+			 * PHP renders for an already-saved selection.
+			 *
+			 * @param {Object}  maker  Manufacturer with id and name.
+			 * @param {boolean} ticked Whether it starts selected.
+			 */
+			function addMaker( maker, ticked ) {
+				var label = document.createElement( 'label' );
+				var box = document.createElement( 'input' );
+				var name = document.createElement( 'span' );
+				var id = document.createElement( 'span' );
+
+				box.type = 'checkbox';
+				box.name = makersList.getAttribute( 'data-field' );
+				box.value = maker.id;
+				box.checked = ticked;
+
+				name.className = 'wksync-choice-label';
+				name.textContent = maker.name;
+
+				id.className = 'wksync-choice-id';
+				id.textContent = maker.id;
+
+				label.appendChild( box );
+				label.appendChild( document.createTextNode( ' ' ) );
+				label.appendChild( name );
+				label.appendChild( document.createTextNode( ' ' ) );
+				label.appendChild( id );
+
+				makersList.appendChild( label );
+			}
+
+			// One listener on the container, so checkboxes added later are covered too.
+			makersList.addEventListener( 'change', refreshMakers );
+
+			makersClear.addEventListener( 'click', function () {
+				makerBoxes().forEach( function ( box ) {
+					box.checked = false;
+				} );
+
+				refreshMakers();
+			} );
 
 			makersButton.addEventListener( 'click', function () {
 				report( makersOutput, wksyncSettings.fetchingManufacturers, false );
@@ -132,29 +215,34 @@
 					makersOutput,
 					wksyncSettings.manufacturersFailed,
 					function ( result ) {
-						var chosen = [];
+						var previous = tickedMakers();
+						var chosen = Object.keys( previous );
+						var listed = [];
 						var makers = result.data && result.data.manufacturers
 							? result.data.manufacturers
 							: [];
 
-						Array.prototype.forEach.call( makersSelect.options, function ( option ) {
-							if ( option.selected ) {
-								chosen.push( option.value );
+						makersList.textContent = '';
+
+						makers.forEach( function ( maker ) {
+							listed.push( maker.id );
+
+							// Keep the current selection if Kontor still lists it.
+							addMaker( maker, -1 !== chosen.indexOf( maker.id ) );
+						} );
+
+						/*
+						 * A ticked manufacturer Kontor no longer lists stays ticked, at the
+						 * end of the list. Pressing a button to look something up must not
+						 * quietly edit the selection underneath it.
+						 */
+						chosen.forEach( function ( id ) {
+							if ( -1 === listed.indexOf( id ) ) {
+								addMaker( { id: id, name: previous[ id ] }, true );
 							}
 						} );
 
-						makersSelect.textContent = '';
-
-						makers.forEach( function ( maker ) {
-							var option = new Option( maker.name, maker.id );
-
-							// Keep the current selection if Kontor still lists it.
-							option.selected = -1 !== chosen.indexOf( maker.id );
-
-							makersSelect.appendChild( option );
-						} );
-
-						rememberNames();
+						refreshMakers();
 						report( makersOutput, wksyncSettings.unsavedManufacturers, false );
 					}
 				);
