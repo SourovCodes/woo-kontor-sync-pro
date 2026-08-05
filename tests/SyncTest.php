@@ -136,6 +136,67 @@ class SyncTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A title containing a percent sequence is not mangled.
+	 *
+	 * The generic sanitize_text_field() strips percent-encoded octets, so a title
+	 * like "Rabatt 20%ab Lager" would become "Rabatt 20 Lager".
+	 *
+	 * @return void
+	 */
+	public function test_percent_sequences_in_titles_survive() {
+		$sync = new ProductSync( null, array( 'image_base_url' => '' ) );
+		$sync->import_article( $this->article( array( 'Shoptitel' => 'Rabatt 20%ab Lager' ) ), 1000 );
+
+		$product = wc_get_product( wc_get_product_id_by_sku( 'abel-AB12' ) );
+
+		$this->assertSame( 'Rabatt 20%ab Lager', $product->get_name() );
+	}
+
+	/**
+	 * A product this sync drafted is republished when the article returns.
+	 *
+	 * @return void
+	 */
+	public function test_sync_drafted_product_is_republished_when_it_returns() {
+		$sync = new ProductSync( null, array( 'image_base_url' => '' ) );
+		$sync->import_article( $this->article(), 1000 );
+
+		$id = wc_get_product_id_by_sku( 'abel-AB12' );
+
+		// Stand in for finalise() having drafted it on a run where Kontor dropped it.
+		$product = wc_get_product( $id );
+		$product->set_status( 'draft' );
+		$product->update_meta_data( '_wksync_drafted_by_sync', 1 );
+		$product->save();
+
+		$sync->import_article( $this->article(), 1001 );
+
+		$restored = wc_get_product( $id );
+
+		$this->assertSame( 'publish', $restored->get_status() );
+		$this->assertSame( '', (string) $restored->get_meta( '_wksync_drafted_by_sync' ) );
+	}
+
+	/**
+	 * A draft someone made by hand is left alone.
+	 *
+	 * @return void
+	 */
+	public function test_manually_drafted_product_stays_drafted() {
+		$sync = new ProductSync( null, array( 'image_base_url' => '' ) );
+		$sync->import_article( $this->article(), 1000 );
+
+		$id      = wc_get_product_id_by_sku( 'abel-AB12' );
+		$product = wc_get_product( $id );
+		$product->set_status( 'draft' );
+		$product->save();
+
+		$sync->import_article( $this->article( array( 'UVP' => 55.0 ) ), 1001 );
+
+		$this->assertSame( 'draft', wc_get_product( $id )->get_status() );
+	}
+
+	/**
 	 * Stock levels are applied to the matching SKU and counted.
 	 *
 	 * @return void
@@ -159,6 +220,55 @@ class SyncTest extends WP_UnitTestCase {
 
 		$refreshed = wc_get_product( $product->get_id() );
 		$this->assertSame( 111, $refreshed->get_stock_quantity() );
+		$this->assertSame( 'instock', $refreshed->get_stock_status() );
+	}
+
+	/**
+	 * A product this plugin imported has stock control taken over, rather than
+	 * being silently left selling.
+	 *
+	 * Calling wc_update_product_stock() is a no-op when manage_stock is off: the
+	 * quantity stays null and the status stays "instock" whatever Kontor reports.
+	 *
+	 * @return void
+	 */
+	public function test_imported_product_without_stock_management_is_taken_over() {
+		$product = new WC_Product_Simple();
+		$product->set_sku( 'KONTOR-OWNED' );
+		$product->set_manage_stock( false );
+		$product->set_stock_status( 'instock' );
+		$product->update_meta_data( '_wksync_kontor_id', 'KONTOR-OWNED' );
+		$product->save();
+
+		$counts = ( new StockSync( null, array() ) )->apply( array( 'KONTOR-OWNED' => 0 ) );
+
+		$refreshed = wc_get_product( $product->get_id() );
+
+		$this->assertSame( 1, $counts['updated'] );
+		$this->assertTrue( $refreshed->get_manage_stock() );
+		$this->assertSame( 0, $refreshed->get_stock_quantity() );
+		$this->assertSame( 'outofstock', $refreshed->get_stock_status() );
+	}
+
+	/**
+	 * Someone else's product is counted, not quietly reconfigured.
+	 *
+	 * @return void
+	 */
+	public function test_foreign_product_without_stock_management_is_left_alone() {
+		$product = new WC_Product_Simple();
+		$product->set_sku( 'HAND-MADE' );
+		$product->set_manage_stock( false );
+		$product->set_stock_status( 'instock' );
+		$product->save();
+
+		$counts = ( new StockSync( null, array() ) )->apply( array( 'HAND-MADE' => 0 ) );
+
+		$refreshed = wc_get_product( $product->get_id() );
+
+		$this->assertSame( 1, $counts['unmanaged'] );
+		$this->assertSame( 0, $counts['updated'] );
+		$this->assertFalse( $refreshed->get_manage_stock() );
 		$this->assertSame( 'instock', $refreshed->get_stock_status() );
 	}
 

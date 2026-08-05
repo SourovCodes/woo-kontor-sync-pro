@@ -9,6 +9,7 @@ namespace WooKontorSync\Sync;
 
 use WooKontorSync\Admin\Settings;
 use WooKontorSync\Api\Client;
+use WooKontorSync\Sync\ProductSync;
 
 defined( 'ABSPATH' ) || exit;
 
@@ -153,8 +154,9 @@ class StockSync {
 	 */
 	public function apply( array $chunk ) {
 		$counts     = array(
-			'updated' => 0,
-			'missing' => 0,
+			'updated'   => 0,
+			'missing'   => 0,
+			'unmanaged' => 0,
 		);
 		$by_product = $this->resolve_skus( array_keys( $chunk ) );
 
@@ -164,10 +166,32 @@ class StockSync {
 				continue;
 			}
 
-			$product_id = $by_product[ $sku ];
+			$product = wc_get_product( $by_product[ $sku ] );
 
-			wc_update_product_stock( $product_id, $quantity, 'set' );
-			wc_delete_product_transients( $product_id );
+			if ( ! $product ) {
+				++$counts['missing'];
+				continue;
+			}
+
+			/*
+			 * wc_update_product_stock() is a silent no-op on a product that does not
+			 * manage stock: the quantity stays null and the status stays "instock",
+			 * so it keeps selling however low Kontor says it is. Take stock control
+			 * for products this plugin imported, and leave anyone else's alone rather
+			 * than changing settings a shop manager chose.
+			 */
+			if ( ! $product->get_manage_stock() ) {
+				if ( ! $product->get_meta( ProductSync::META_KONTOR_ID ) ) {
+					++$counts['unmanaged'];
+					continue;
+				}
+
+				$product->set_manage_stock( true );
+			}
+
+			$product->set_stock_quantity( $quantity );
+			$product->set_stock_status( $quantity > 0 ? 'instock' : 'outofstock' );
+			$product->save();
 
 			++$counts['updated'];
 		}
@@ -256,10 +280,11 @@ class StockSync {
 		Status::finish(
 			self::JOB,
 			sprintf(
-				/* translators: 1: number of products updated, 2: number of article numbers with no matching product. */
-				__( '%1$d products updated, %2$d article numbers had no matching SKU.', 'woo-kontor-sync-pro' ),
+				/* translators: 1: products updated, 2: article numbers with no matching product, 3: products left alone because they do not manage stock. */
+				__( '%1$d products updated, %2$d article numbers had no matching SKU, %3$d skipped as not stock-managed.', 'woo-kontor-sync-pro' ),
 				isset( $counts['updated'] ) ? (int) $counts['updated'] : 0,
-				isset( $counts['missing'] ) ? (int) $counts['missing'] : 0
+				isset( $counts['missing'] ) ? (int) $counts['missing'] : 0,
+				isset( $counts['unmanaged'] ) ? (int) $counts['unmanaged'] : 0
 			)
 		);
 	}

@@ -52,6 +52,11 @@ class Scheduler {
 	const ACTION_SYNC_STOCK_CHUNK = 'woo_kontor_sync_stock_chunk';
 
 	/**
+	 * Transient that rate limits the schedule reconciliation on `init`.
+	 */
+	const SCHEDULE_GUARD = 'wksync_schedule_checked';
+
+	/**
 	 * The jobs this plugin runs, keyed by the slug used in the admin UI.
 	 *
 	 * @return array Job definitions.
@@ -97,23 +102,50 @@ class Scheduler {
 	}
 
 	/**
-	 * Make sure each job has a recurring action queued at its configured interval.
+	 * Bring the queue in line with the configured intervals, occasionally.
+	 *
+	 * This is hooked to `init`, so it runs on every request. Querying Action
+	 * Scheduler for each job every time would add queries to every page load for a
+	 * check that almost never has anything to do, so the real work is rate limited
+	 * to once an hour. Saving the settings clears the guard, so a change still takes
+	 * effect immediately.
 	 *
 	 * @return void
 	 */
 	public function ensure_recurring_actions() {
-		if ( ! self::is_available() ) {
+		if ( ! self::is_available() || get_transient( self::SCHEDULE_GUARD ) ) {
 			return;
 		}
 
+		set_transient( self::SCHEDULE_GUARD, 1, HOUR_IN_SECONDS );
+
+		$this->sync_schedules();
+	}
+
+	/**
+	 * Queue, or cancel, each job's recurring action to match its setting.
+	 *
+	 * @return void
+	 */
+	public function sync_schedules() {
 		$settings = Settings::get_settings();
 
 		foreach ( self::get_jobs() as $job ) {
-			if ( as_next_scheduled_action( $job['action'], array(), self::GROUP ) ) {
+			$interval = absint( $settings[ $job['setting'] ] );
+			$next     = as_next_scheduled_action( $job['action'], array(), self::GROUP );
+
+			// "Never" means no recurring action at all; the job stays manual.
+			if ( Settings::INTERVAL_NEVER === $interval ) {
+				if ( $next ) {
+					as_unschedule_all_actions( $job['action'], array(), self::GROUP );
+				}
+
 				continue;
 			}
 
-			$interval = absint( $settings[ $job['setting'] ] );
+			if ( $next ) {
+				continue;
+			}
 
 			as_schedule_recurring_action( time() + $interval, $interval, $job['action'], array(), self::GROUP );
 		}
@@ -121,6 +153,9 @@ class Scheduler {
 
 	/**
 	 * Re-queue the recurring actions after the intervals change.
+	 *
+	 * Only the top-level job hooks are cancelled, so a sync already walking the
+	 * catalogue keeps its chained page actions and runs to completion.
 	 *
 	 * @return void
 	 */
@@ -133,7 +168,9 @@ class Scheduler {
 			as_unschedule_all_actions( $job['action'], array(), self::GROUP );
 		}
 
-		$this->ensure_recurring_actions();
+		delete_transient( self::SCHEDULE_GUARD );
+
+		$this->sync_schedules();
 	}
 
 	/**

@@ -148,11 +148,13 @@ of them wrong produces silently wrong data rather than an error:
 
 Three traps that all fail silently rather than loudly:
 
-- **Never run the API key through `sanitize_text_field()`.** It strips percent-encoded octets, so a
-  real key containing `%5a` loses three characters and every request then fails with a confusing
-  401. Keys also contain non-ASCII characters such as `ß`. Use `Settings::sanitize_api_key()`,
-  which preserves everything except control characters — those must go, because the key is written
-  straight into a request header where a newline would allow header injection.
+- **`sanitize_text_field()` strips percent-encoded octets.** This bites twice. A key containing
+  `%5a` loses three characters and every request then fails with a confusing 401 — use
+  `Settings::sanitize_api_key()`, which preserves everything except control characters (those must
+  go, because the key becomes a request header where a newline would allow header injection). The
+  same applies to any text coming from Kontor: a product title like `Rabatt 20%ab Lager` becomes
+  `Rabatt 20 Lager`. Use `wp_strip_all_tags()` for names; WooCommerce escapes on output. Reach for
+  `sanitize_text_field()` only where the value genuinely is plain prose.
 - **`WP_Error::get_error_data()` takes an error code, not a data key.** Use `Client::detail()` to
   read `disposition` or `error_code`; `get_error_data( 'disposition' )` returns null and silently
   reduces every retry to a single attempt.
@@ -160,6 +162,15 @@ Three traps that all fail silently rather than loudly:
   throws `WC_Data_Exception` on a duplicate. Check with `wc_get_product_id_by_global_unique_id()`
   before setting it, and keep the per-article import inside a `try`/`catch` so one bad row cannot
   abort the whole page.
+- **`wc_update_product_stock()` is a silent no-op when `manage_stock` is off.** The quantity stays
+  null and the status stays `instock`, so the product keeps selling however low Kontor says it is.
+  `StockSync::apply()` therefore loads the product, turns stock management on for products this
+  plugin imported, and counts anyone else's separately rather than reconfiguring them.
+
+Both jobs default to **Never**, so a fresh install contacts Kontor only when someone chooses a
+schedule or presses Run now. Never is interval `0` (`Settings::INTERVAL_NEVER`); treat a missing
+interval in a submission as "keep the stored value", never as `0`, or a partial save silently
+disables a schedule.
 
 ## Kontor sync layer
 

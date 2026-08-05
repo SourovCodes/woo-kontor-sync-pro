@@ -64,6 +64,11 @@ class ProductSync {
 	const META_IMAGE_HASH = '_wksync_image_hash';
 
 	/**
+	 * Marks a product that this sync drafted, rather than a person.
+	 */
+	const META_SYNC_DRAFTED = '_wksync_drafted_by_sync';
+
+	/**
 	 * How many stale products to draft per finalising pass.
 	 */
 	const FINALISE_BATCH = 200;
@@ -223,6 +228,10 @@ class ProductSync {
 			}
 
 			$product->set_status( 'draft' );
+
+			// Marked so a later run can tell this draft apart from a deliberate one
+			// and republish it if the article returns to the feed.
+			$product->update_meta_data( self::META_SYNC_DRAFTED, 1 );
 			$product->save();
 		}
 
@@ -267,11 +276,13 @@ class ProductSync {
 		$hash       = md5( (string) wp_json_encode( $row ) );
 		$product_id = wc_get_product_id_by_sku( $sku );
 		$existing   = $product_id ? wc_get_product( $product_id ) : null;
+		$restored   = $existing ? $this->restore_if_sync_drafted( $existing ) : false;
 
-		// Nothing changed since the last run, so only refresh the run stamp.
-		if ( $existing && $hash === (string) $existing->get_meta( self::META_HASH ) ) {
+		// Nothing changed since the last run, so only refresh the run stamp. Writing
+		// just the meta avoids a full product save for every unchanged article.
+		if ( $existing && ! $restored && $hash === (string) $existing->get_meta( self::META_HASH ) ) {
 			$existing->update_meta_data( self::META_SYNCED_AT, $run );
-			$existing->save();
+			$existing->save_meta_data();
 
 			return 'skipped';
 		}
@@ -310,6 +321,32 @@ class ProductSync {
 	}
 
 	/**
+	 * Republish a product that an earlier run of this sync drafted.
+	 *
+	 * An article can leave the feed and come back. Without this, finalise() drafts
+	 * it once and it stays hidden forever even though Kontor lists it again.
+	 *
+	 * Only drafts this plugin created are restored: the marker meta is what
+	 * distinguishes them from a product a shop manager deliberately unpublished,
+	 * which must be left alone.
+	 *
+	 * @param WC_Product_Simple $product Existing product.
+	 * @return bool True when the product was restored and therefore needs saving.
+	 */
+	protected function restore_if_sync_drafted( $product ) {
+		if ( 'draft' !== $product->get_status() || ! $product->get_meta( self::META_SYNC_DRAFTED ) ) {
+			return false;
+		}
+
+		$product->set_status( 'publish' );
+		$product->delete_meta_data( self::META_SYNC_DRAFTED );
+
+		$this->log( 'info', sprintf( 'Republished article %s: it is listed by Kontor again.', $product->get_sku() ) );
+
+		return true;
+	}
+
+	/**
 	 * Copy the Kontor fields onto a WooCommerce product.
 	 *
 	 * @param WC_Product_Simple $product Product to populate.
@@ -324,7 +361,12 @@ class ProductSync {
 		}
 
 		if ( '' !== $title ) {
-			$product->set_name( sanitize_text_field( $title ) );
+			/*
+			 * Not sanitize_text_field(): it strips percent-encoded octets, so a title
+			 * like "Rabatt 20%ab Lager" silently becomes "Rabatt 20 Lager". Stripping
+			 * tags is the actual requirement; WooCommerce escapes on output.
+			 */
+			$product->set_name( trim( wp_strip_all_tags( $title ) ) );
 		}
 
 		$product->set_description( wp_kses_post( $this->text( $row, 'Langtext', '' ) ) );

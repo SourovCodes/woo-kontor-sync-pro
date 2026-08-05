@@ -37,8 +37,49 @@ class SettingsTest extends WP_UnitTestCase {
 		$this->assertSame( '', $settings['api_key'] );
 		$this->assertSame( 'B2B', $settings['shoptype'] );
 		$this->assertSame( '', $settings['image_base_url'] );
-		$this->assertSame( 7 * DAY_IN_SECONDS, $settings['product_sync_interval'] );
-		$this->assertSame( 15 * MINUTE_IN_SECONDS, $settings['stock_sync_interval'] );
+
+		// Both jobs default to Never: a fresh install has no API key, so nothing
+		// should contact Kontor or rewrite the catalogue until it is configured.
+		$this->assertSame( Settings::INTERVAL_NEVER, $settings['product_sync_interval'] );
+		$this->assertSame( Settings::INTERVAL_NEVER, $settings['stock_sync_interval'] );
+	}
+
+	/**
+	 * Never is offered for both jobs.
+	 *
+	 * @return void
+	 */
+	public function test_never_is_an_offered_interval() {
+		$this->assertArrayHasKey( Settings::INTERVAL_NEVER, Settings::product_sync_intervals() );
+		$this->assertArrayHasKey( Settings::INTERVAL_NEVER, Settings::stock_sync_intervals() );
+
+		$settings = new Settings();
+
+		$this->assertSame( Settings::INTERVAL_NEVER, $settings->sanitize( array( 'product_sync_interval' => 0 ) )['product_sync_interval'] );
+		$this->assertSame( Settings::INTERVAL_NEVER, $settings->sanitize( array( 'stock_sync_interval' => 0 ) )['stock_sync_interval'] );
+	}
+
+	/**
+	 * A submission that omits an interval keeps the stored one.
+	 *
+	 * Now that 0 is a legitimate choice, defaulting a missing field to 0 would let
+	 * any partial submission silently switch a configured schedule to Never.
+	 *
+	 * @return void
+	 */
+	public function test_missing_interval_keeps_the_stored_value() {
+		update_option(
+			Settings::OPTION_KEY,
+			array(
+				'product_sync_interval' => 14 * DAY_IN_SECONDS,
+				'stock_sync_interval'   => HOUR_IN_SECONDS,
+			)
+		);
+
+		$sanitised = ( new Settings() )->sanitize( array( 'shoptype' => 'B2B' ) );
+
+		$this->assertSame( 14 * DAY_IN_SECONDS, $sanitised['product_sync_interval'] );
+		$this->assertSame( HOUR_IN_SECONDS, $sanitised['stock_sync_interval'] );
 	}
 
 	/**
@@ -65,7 +106,7 @@ class SettingsTest extends WP_UnitTestCase {
 		$settings = Settings::get_settings();
 
 		$this->assertSame( 'EDU', $settings['shoptype'] );
-		$this->assertSame( 15 * MINUTE_IN_SECONDS, $settings['stock_sync_interval'] );
+		$this->assertSame( Settings::INTERVAL_NEVER, $settings['stock_sync_interval'] );
 	}
 
 	/**
@@ -151,8 +192,16 @@ class SettingsTest extends WP_UnitTestCase {
 		$this->assertSame( HOUR_IN_SECONDS, $settings->sanitize( array( 'stock_sync_interval' => HOUR_IN_SECONDS ) )['stock_sync_interval'] );
 
 		// One second, or anything else not on the menu, falls back to the stored value.
-		$this->assertSame( 7 * DAY_IN_SECONDS, $settings->sanitize( array( 'product_sync_interval' => 1 ) )['product_sync_interval'] );
-		$this->assertSame( 15 * MINUTE_IN_SECONDS, $settings->sanitize( array( 'stock_sync_interval' => 1 ) )['stock_sync_interval'] );
+		update_option(
+			Settings::OPTION_KEY,
+			array(
+				'product_sync_interval' => 21 * DAY_IN_SECONDS,
+				'stock_sync_interval'   => 6 * HOUR_IN_SECONDS,
+			)
+		);
+
+		$this->assertSame( 21 * DAY_IN_SECONDS, $settings->sanitize( array( 'product_sync_interval' => 1 ) )['product_sync_interval'] );
+		$this->assertSame( 6 * HOUR_IN_SECONDS, $settings->sanitize( array( 'stock_sync_interval' => 1 ) )['stock_sync_interval'] );
 	}
 
 	/**
@@ -162,8 +211,12 @@ class SettingsTest extends WP_UnitTestCase {
 	 * @return void
 	 */
 	public function test_interval_choices_stay_within_range() {
-		$product = array_keys( Settings::product_sync_intervals() );
-		$stock   = array_keys( Settings::stock_sync_intervals() );
+		$scheduled = static function ( array $intervals ) {
+			return array_filter( array_keys( $intervals ) );
+		};
+
+		$product = $scheduled( Settings::product_sync_intervals() );
+		$stock   = $scheduled( Settings::stock_sync_intervals() );
 
 		$this->assertSame( 7 * DAY_IN_SECONDS, min( $product ) );
 		$this->assertSame( 30 * DAY_IN_SECONDS, max( $product ) );

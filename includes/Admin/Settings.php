@@ -40,6 +40,15 @@ class Settings {
 	const CAPABILITY = 'manage_woocommerce';
 
 	/**
+	 * Interval value meaning "do not schedule this job at all".
+	 *
+	 * This is the default for both jobs: a fresh install has no API key, so nothing
+	 * should start reaching out to Kontor, or rewriting the catalogue, until it has
+	 * been configured deliberately. Manual "Run now" still works.
+	 */
+	const INTERVAL_NEVER = 0;
+
+	/**
 	 * Hook suffix of the settings screen, used to scope asset loading.
 	 *
 	 * @var string
@@ -84,8 +93,8 @@ class Settings {
 			'api_key'               => '',
 			'shoptype'              => 'B2B',
 			'image_base_url'        => '',
-			'product_sync_interval' => 7 * DAY_IN_SECONDS,
-			'stock_sync_interval'   => 15 * MINUTE_IN_SECONDS,
+			'product_sync_interval' => self::INTERVAL_NEVER,
+			'stock_sync_interval'   => self::INTERVAL_NEVER,
 		);
 	}
 
@@ -112,10 +121,11 @@ class Settings {
 	 */
 	public static function product_sync_intervals() {
 		return array(
-			7 * DAY_IN_SECONDS  => __( 'Every 7 days', 'woo-kontor-sync-pro' ),
-			14 * DAY_IN_SECONDS => __( 'Every 14 days', 'woo-kontor-sync-pro' ),
-			21 * DAY_IN_SECONDS => __( 'Every 21 days', 'woo-kontor-sync-pro' ),
-			30 * DAY_IN_SECONDS => __( 'Every 30 days', 'woo-kontor-sync-pro' ),
+			self::INTERVAL_NEVER => __( 'Never — only when run manually', 'woo-kontor-sync-pro' ),
+			7 * DAY_IN_SECONDS   => __( 'Every 7 days', 'woo-kontor-sync-pro' ),
+			14 * DAY_IN_SECONDS  => __( 'Every 14 days', 'woo-kontor-sync-pro' ),
+			21 * DAY_IN_SECONDS  => __( 'Every 21 days', 'woo-kontor-sync-pro' ),
+			30 * DAY_IN_SECONDS  => __( 'Every 30 days', 'woo-kontor-sync-pro' ),
 		);
 	}
 
@@ -126,6 +136,7 @@ class Settings {
 	 */
 	public static function stock_sync_intervals() {
 		return array(
+			self::INTERVAL_NEVER   => __( 'Never — only when run manually', 'woo-kontor-sync-pro' ),
 			15 * MINUTE_IN_SECONDS => __( 'Every 15 minutes', 'woo-kontor-sync-pro' ),
 			30 * MINUTE_IN_SECONDS => __( 'Every 30 minutes', 'woo-kontor-sync-pro' ),
 			HOUR_IN_SECONDS        => __( 'Every hour', 'woo-kontor-sync-pro' ),
@@ -276,7 +287,16 @@ class Settings {
 	 * @return int Interval in seconds.
 	 */
 	protected function pick_interval( array $input, $key, array $allowed, array $existing ) {
-		$value = isset( $input[ $key ] ) ? absint( $input[ $key ] ) : 0;
+		/*
+		 * An absent field must keep the stored interval. Defaulting to 0 here would
+		 * mean any partial submission silently switched a configured schedule to
+		 * Never, since 0 is now a legitimate choice.
+		 */
+		if ( ! isset( $input[ $key ] ) ) {
+			return (int) $existing[ $key ];
+		}
+
+		$value = absint( $input[ $key ] );
 
 		return isset( $allowed[ $value ] ) ? $value : (int) $existing[ $key ];
 	}
