@@ -48,7 +48,10 @@ done
 
 # The development config points at the Local site. Clobbering it would silently
 # repoint the suite at a downloaded WordPress the next time someone runs the tests.
-if [ -f "$CONFIG" ] && ! grep -q "define( 'ABSPATH', '$WP_ROOT/' );" "$CONFIG"; then
+# -F because WP_ROOT is a path, and a path is not a regular expression: a dot in a
+# directory name would otherwise match any character and wave through a config
+# pointing at a different install.
+if [ -f "$CONFIG" ] && ! grep -qF "define( 'ABSPATH', '$WP_ROOT/' );" "$CONFIG"; then
 	die "$CONFIG already exists and points somewhere else. Delete it first if you meant to replace it."
 fi
 

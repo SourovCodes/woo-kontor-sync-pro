@@ -48,7 +48,12 @@ class I18nTest extends WP_UnitTestCase {
 	 * @return void
 	 */
 	public function tear_down() {
-		remove_all_filters( 'locale' );
+		/*
+		 * Only the catalogue is dropped, so the next test loads it for whatever locale
+		 * it asks for. The `locale` filter is not touched here: with_locale() removes
+		 * its own in a finally block, and clearing the hook wholesale would also
+		 * discard filters that belong to WordPress or to another test.
+		 */
 		unload_textdomain( 'woo-kontor-sync-pro', true );
 
 		parent::tear_down();
