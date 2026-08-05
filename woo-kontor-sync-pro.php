@@ -4,15 +4,15 @@
  * Plugin URI:           https://github.com/SourovCodes/woo-kontor-sync-pro
  * Description:          Synchronises WooCommerce products, orders and customers with the Kontor ERP.
  * Version:              0.1.0
- * Requires at least:    6.8
- * Requires PHP:         8.1
+ * Requires at least:    7.0
+ * Requires PHP:         8.2
  * Requires Plugins:     woocommerce
  * Author:               Sourov Biswas
  * License:              GPL-2.0-or-later
  * License URI:          https://www.gnu.org/licenses/gpl-2.0.html
  * Text Domain:          woo-kontor-sync-pro
  * Domain Path:          /languages
- * WC requires at least: 9.0
+ * WC requires at least: 11.0
  * WC tested up to:      11.0
  *
  * @package WooKontorSync
@@ -26,7 +26,7 @@ define( 'WKSYNC_VERSION', '0.1.0' );
 define( 'WKSYNC_PLUGIN_FILE', __FILE__ );
 define( 'WKSYNC_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'WKSYNC_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
-define( 'WKSYNC_MIN_WC_VERSION', '9.0' );
+define( 'WKSYNC_MIN_WC_VERSION', '11.0' );
 
 /**
  * Load the Composer autoloader.
@@ -82,6 +82,23 @@ function render_missing_woocommerce_notice() {
 }
 
 /**
+ * Show an admin notice explaining that High-Performance Order Storage is required.
+ *
+ * @return void
+ */
+function render_hpos_required_notice() {
+	printf(
+		'<div class="notice notice-error"><p>%1$s</p><p><a href="%2$s">%3$s</a></p></div>',
+		esc_html__(
+			'Woo Kontor Sync Pro requires High-Performance Order Storage. Synchronisation with Kontor stays disabled until it is enabled.',
+			'woo-kontor-sync-pro'
+		),
+		esc_url( admin_url( 'admin.php?page=wc-settings&tab=advanced&section=features' ) ),
+		esc_html__( 'Enable High-Performance Order Storage', 'woo-kontor-sync-pro' )
+	);
+}
+
+/**
  * Determine whether a supported version of WooCommerce is active.
  *
  * The "Requires Plugins" header covers WordPress 6.5 and newer, but it does not
@@ -95,6 +112,23 @@ function is_woocommerce_supported() {
 	}
 
 	return version_compare( WC_VERSION, WKSYNC_MIN_WC_VERSION, '>=' );
+}
+
+/**
+ * Determine whether High-Performance Order Storage is the active order store.
+ *
+ * The plugin requires it. Every order read and write goes through the orders
+ * tables, so running against the legacy post-based store would silently sync the
+ * wrong data rather than fail loudly.
+ *
+ * @return bool True when HPOS is enabled.
+ */
+function is_hpos_enabled() {
+	if ( ! class_exists( \Automattic\WooCommerce\Utilities\OrderUtil::class ) ) {
+		return false;
+	}
+
+	return \Automattic\WooCommerce\Utilities\OrderUtil::custom_orders_table_usage_is_enabled();
 }
 
 /**
@@ -122,6 +156,11 @@ function declare_woocommerce_compatibility() {
 function bootstrap() {
 	if ( ! is_woocommerce_supported() ) {
 		add_action( 'admin_notices', __NAMESPACE__ . '\\render_missing_woocommerce_notice' );
+		return;
+	}
+
+	if ( ! is_hpos_enabled() ) {
+		add_action( 'admin_notices', __NAMESPACE__ . '\\render_hpos_required_notice' );
 		return;
 	}
 

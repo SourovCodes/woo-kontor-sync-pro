@@ -22,11 +22,11 @@
 	<!-- The WooCommerce standard layers WooCommerce conventions on top of WordPress-Extra. -->
 	<rule ref="WooCommerce-Core"/>
 
-	<!-- PHPCompatibilityWP: the plugin declares "Requires PHP: 8.1". -->
-	<config name="testVersion" value="8.1-"/>
+	<!-- PHPCompatibilityWP: the plugin declares "Requires PHP: 8.2". -->
+	<config name="testVersion" value="8.2-"/>
 
 	<!-- WordPress version floor used by the deprecation sniffs. -->
-	<config name="minimum_wp_version" value="6.8"/>
+	<config name="minimum_wp_version" value="7.0"/>
 
 	<!-- Every translatable string must use the plugin's own text domain. -->
 	<rule ref="WordPress.WP.I18n">

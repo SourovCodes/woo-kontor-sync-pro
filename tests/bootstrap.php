@@ -47,6 +47,15 @@ function wksync_manually_load_plugins() {
 		exit( 1 );
 	}
 
+	/*
+	 * The plugin requires High-Performance Order Storage, so the suite has to run
+	 * with it enabled. Set this before WooCommerce loads: its data stores read the
+	 * option while initialising, and the plugin's own HPOS gate runs on
+	 * plugins_loaded, which is later than this hook but earlier than setup_theme.
+	 */
+	update_option( 'woocommerce_feature_custom_order_tables_enabled', 'yes' );
+	update_option( 'woocommerce_custom_orders_table_enabled', 'yes' );
+
 	require_once $woocommerce;
 	require_once dirname( __DIR__ ) . '/woo-kontor-sync-pro.php';
 }
@@ -65,6 +74,17 @@ function wksync_install_woocommerce() {
 	// Suppress the "installed" notices WC_Install emits while creating tables.
 	$_SERVER['REQUEST_URI'] = '/';
 	WC_Install::install();
+
+	/*
+	 * WC_Install() does not provision the orders tables here, because the features
+	 * controller resolved before the suite enabled HPOS. Create them explicitly, or
+	 * every order touched by a test raises "Table wptests_wc_orders doesn't exist".
+	 */
+	$synchronizer = \Automattic\WooCommerce\Internal\DataStores\Orders\DataSynchronizer::class;
+
+	if ( class_exists( $synchronizer ) && function_exists( 'wc_get_container' ) ) {
+		wc_get_container()->get( $synchronizer )->create_database_tables();
+	}
 
 	// WC_Install adds roles, so the global has to be rebuilt for them to be visible.
 	$GLOBALS['wp_roles'] = null;

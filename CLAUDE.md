@@ -7,7 +7,30 @@ over its REST API.
 - PHP namespace: `WooKontorSync\` (PSR-4 → `includes/`)
 - Global prefix: `wksync` / `woo_kontor_sync` — constants, hooks, options and meta keys.
   WPCS rejects prefixes shorter than four characters, so `wks` is not usable.
-- Minimum PHP 8.1, minimum WordPress 6.8, WooCommerce 9.0+
+
+## Minimum requirements
+
+The plugin deliberately targets the current release of everything. There is no
+backwards-compatibility budget: do not add shims, polyfills or version branches for older
+WordPress, WooCommerce or PHP.
+
+| Requirement | Floor | Enforced by |
+|---|---|---|
+| WordPress | 7.0 (current latest) | `Requires at least` header; WordPress blocks activation below it |
+| PHP | 8.2 | `Requires PHP` header, `composer.json`, PHPCompatibilityWP `testVersion` |
+| WooCommerce | 11.0 (current latest) | `Requires Plugins` header plus a runtime `version_compare` check |
+| HPOS | **Required, not merely supported** | Runtime check; the plugin refuses to boot without it |
+
+**High-Performance Order Storage is a hard requirement.** Declaring compatibility is not enough:
+`bootstrap()` calls `OrderUtil::custom_orders_table_usage_is_enabled()` and, when HPOS is off,
+registers an admin notice and returns without initialising. Running against the legacy post-based
+order store would silently read and write the wrong data rather than fail loudly, which is far worse
+than not running at all.
+
+Because HPOS is guaranteed, order code should use the CRUD APIs directly and never carry a legacy
+fallback path. When you bump these floors, update the plugin header, `WKSYNC_MIN_WC_VERSION`,
+`composer.json`, and the `testVersion` / `minimum_wp_version` values in `phpcs.xml.dist` together.
+
 
 ## Environment
 

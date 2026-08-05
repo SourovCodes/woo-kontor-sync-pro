@@ -72,6 +72,57 @@ class PluginTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * High-Performance Order Storage is a hard requirement, and the suite runs with
+	 * it enabled.
+	 *
+	 * @return void
+	 */
+	public function test_hpos_is_enabled() {
+		$this->assertTrue( \WooKontorSync\is_hpos_enabled() );
+		$this->assertTrue( \Automattic\WooCommerce\Utilities\OrderUtil::custom_orders_table_usage_is_enabled() );
+	}
+
+	/**
+	 * The plugin booted, which is only possible once both the WooCommerce version
+	 * check and the HPOS gate have passed.
+	 *
+	 * @return void
+	 */
+	public function test_plugin_booted_past_its_requirement_gates() {
+		$this->assertGreaterThan( 0, did_action( 'woo_kontor_sync_loaded' ) );
+	}
+
+	/**
+	 * The declared requirements are the current releases, and the runtime constant
+	 * agrees with the plugin header.
+	 *
+	 * The header and WKSYNC_MIN_WC_VERSION are two copies of the same fact; this
+	 * test is what stops them drifting apart.
+	 *
+	 * @return void
+	 */
+	public function test_declared_requirements_are_current() {
+		$headers = get_file_data(
+			WKSYNC_PLUGIN_FILE,
+			array(
+				'requires_wp'  => 'Requires at least',
+				'requires_php' => 'Requires PHP',
+				'requires_wc'  => 'WC requires at least',
+			)
+		);
+
+		$this->assertSame( '7.0', $headers['requires_wp'] );
+		$this->assertSame( '8.2', $headers['requires_php'] );
+		$this->assertSame( '11.0', $headers['requires_wc'] );
+		$this->assertSame( $headers['requires_wc'], WKSYNC_MIN_WC_VERSION );
+
+		// The site under test must itself satisfy the floors the plugin declares.
+		$this->assertTrue( version_compare( WC_VERSION, WKSYNC_MIN_WC_VERSION, '>=' ) );
+		$this->assertTrue( version_compare( PHP_VERSION, $headers['requires_php'], '>=' ) );
+		$this->assertTrue( version_compare( get_bloginfo( 'version' ), $headers['requires_wp'], '>=' ) );
+	}
+
+	/**
 	 * The scheduler queues work into its own Action Scheduler group.
 	 *
 	 * @return void
