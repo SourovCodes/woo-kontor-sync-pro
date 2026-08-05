@@ -26,7 +26,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out the plugin
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up the plugin
         uses: ./.github/actions/setup-plugin
@@ -54,7 +54,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out the plugin
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up the plugin
         uses: ./.github/actions/setup-plugin
@@ -79,7 +79,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out the plugin
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up the plugin
         uses: ./.github/actions/setup-plugin
@@ -119,7 +119,7 @@ jobs:
 
     steps:
       - name: Check out the plugin
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up the plugin
         uses: ./.github/actions/setup-plugin
@@ -152,7 +152,7 @@ jobs:
 
     steps:
       - name: Check out the plugin
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up the plugin
         uses: ./.github/actions/setup-plugin
@@ -196,7 +196,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out the plugin
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up the plugin
         uses: ./.github/actions/setup-plugin
