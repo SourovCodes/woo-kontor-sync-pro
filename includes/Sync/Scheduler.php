@@ -7,15 +7,17 @@
 
 namespace WooKontorSync\Sync;
 
+use WooKontorSync\Admin\Settings;
+
 defined( 'ABSPATH' ) || exit;
 
 /**
- * Queues sync work onto Action Scheduler.
+ * Queues sync work onto Action Scheduler and routes it to the sync classes.
  *
- * Nothing here talks to Kontor directly. WooCommerce hooks enqueue an action and
- * return immediately, so a slow or unavailable ERP can never stall a customer
- * request. Action Scheduler ships inside WooCommerce and gives us retries,
- * concurrency limits and an admin UI that raw WP-Cron does not.
+ * Nothing here talks to Kontor directly. Action Scheduler ships inside WooCommerce
+ * and gives us retries, concurrency limits and an admin UI that raw WP-Cron does
+ * not. Long runs are split across chained actions so no single request has to walk
+ * the whole catalogue.
  */
 class Scheduler {
 
@@ -25,106 +27,212 @@ class Scheduler {
 	const GROUP = 'woo-kontor-sync';
 
 	/**
-	 * Hook fired for a single order push.
+	 * Entry point for a full product sync.
 	 */
-	const ACTION_SYNC_ORDER = 'woo_kontor_sync_push_order';
+	const ACTION_SYNC_PRODUCTS = 'woo_kontor_sync_products';
 
 	/**
-	 * Hook fired for the recurring reconciliation sweep.
+	 * Imports one page of products, then chains to the next.
 	 */
-	const ACTION_RECONCILE = 'woo_kontor_sync_reconcile';
+	const ACTION_SYNC_PRODUCTS_PAGE = 'woo_kontor_sync_products_page';
 
 	/**
-	 * Interval between reconciliation sweeps, in seconds.
+	 * Runs after the last product page.
 	 */
-	const RECONCILE_INTERVAL = HOUR_IN_SECONDS;
+	const ACTION_SYNC_PRODUCTS_FINALISE = 'woo_kontor_sync_products_finalise';
 
 	/**
-	 * Register the WooCommerce and Action Scheduler hooks.
+	 * Entry point for a stock sync.
+	 */
+	const ACTION_SYNC_STOCK = 'woo_kontor_sync_stock';
+
+	/**
+	 * Applies one chunk of stock levels, then chains to the next.
+	 */
+	const ACTION_SYNC_STOCK_CHUNK = 'woo_kontor_sync_stock_chunk';
+
+	/**
+	 * The jobs this plugin runs, keyed by the slug used in the admin UI.
+	 *
+	 * @return array Job definitions.
+	 */
+	public static function get_jobs() {
+		return array(
+			'products' => array(
+				'label'       => __( 'Product sync', 'woo-kontor-sync-pro' ),
+				'description' => __( 'Imports articles, titles, descriptions and prices from Kontor.', 'woo-kontor-sync-pro' ),
+				'direction'   => __( 'From Kontor', 'woo-kontor-sync-pro' ),
+				'action'      => self::ACTION_SYNC_PRODUCTS,
+				'setting'     => 'product_sync_interval',
+				'intervals'   => 'product_sync_intervals',
+			),
+			'stock'    => array(
+				'label'       => __( 'Stock sync', 'woo-kontor-sync-pro' ),
+				'description' => __( 'Updates stock levels for every article Kontor reports.', 'woo-kontor-sync-pro' ),
+				'direction'   => __( 'From Kontor', 'woo-kontor-sync-pro' ),
+				'action'      => self::ACTION_SYNC_STOCK,
+				'setting'     => 'stock_sync_interval',
+				'intervals'   => 'stock_sync_intervals',
+			),
+		);
+	}
+
+	/**
+	 * Register the Action Scheduler hooks.
 	 *
 	 * @return void
 	 */
 	public function register() {
-		add_action( 'woocommerce_order_status_processing', array( $this, 'enqueue_order' ) );
-		add_action( 'woocommerce_order_status_completed', array( $this, 'enqueue_order' ) );
+		add_action( self::ACTION_SYNC_PRODUCTS, array( $this, 'handle_products' ) );
+		add_action( self::ACTION_SYNC_PRODUCTS_PAGE, array( $this, 'handle_products_page' ), 10, 2 );
+		add_action( self::ACTION_SYNC_PRODUCTS_FINALISE, array( $this, 'handle_products_finalise' ), 10, 1 );
 
-		add_action( self::ACTION_SYNC_ORDER, array( $this, 'handle_order_sync' ) );
-		add_action( self::ACTION_RECONCILE, array( $this, 'handle_reconcile' ) );
+		add_action( self::ACTION_SYNC_STOCK, array( $this, 'handle_stock' ) );
+		add_action( self::ACTION_SYNC_STOCK_CHUNK, array( $this, 'handle_stock_chunk' ), 10, 2 );
 
 		add_action( 'init', array( $this, 'ensure_recurring_actions' ) );
+
+		// Changing an interval on the settings screen has to move the queued action.
+		add_action( 'update_option_' . Settings::OPTION_KEY, array( $this, 'reschedule' ) );
 	}
 
 	/**
-	 * Queue an order for pushing to Kontor.
-	 *
-	 * @param int $order_id WooCommerce order ID.
-	 * @return void
-	 */
-	public function enqueue_order( $order_id ) {
-		$order_id = absint( $order_id );
-
-		if ( 0 === $order_id || ! $this->is_action_scheduler_available() ) {
-			return;
-		}
-
-		$args = array( 'order_id' => $order_id );
-
-		// Do not stack duplicate jobs for the same order.
-		if ( as_next_scheduled_action( self::ACTION_SYNC_ORDER, $args, self::GROUP ) ) {
-			return;
-		}
-
-		as_enqueue_async_action( self::ACTION_SYNC_ORDER, $args, self::GROUP );
-	}
-
-	/**
-	 * Make sure the recurring reconciliation sweep is scheduled.
+	 * Make sure each job has a recurring action queued at its configured interval.
 	 *
 	 * @return void
 	 */
 	public function ensure_recurring_actions() {
-		if ( ! $this->is_action_scheduler_available() ) {
+		if ( ! self::is_available() ) {
 			return;
 		}
 
-		if ( as_next_scheduled_action( self::ACTION_RECONCILE, array(), self::GROUP ) ) {
-			return;
-		}
+		$settings = Settings::get_settings();
 
-		as_schedule_recurring_action( time() + self::RECONCILE_INTERVAL, self::RECONCILE_INTERVAL, self::ACTION_RECONCILE, array(), self::GROUP );
+		foreach ( self::get_jobs() as $job ) {
+			if ( as_next_scheduled_action( $job['action'], array(), self::GROUP ) ) {
+				continue;
+			}
+
+			$interval = absint( $settings[ $job['setting'] ] );
+
+			as_schedule_recurring_action( time() + $interval, $interval, $job['action'], array(), self::GROUP );
+		}
 	}
 
 	/**
-	 * Push a single order to Kontor.
+	 * Re-queue the recurring actions after the intervals change.
 	 *
-	 * @param int $order_id WooCommerce order ID.
 	 * @return void
 	 */
-	public function handle_order_sync( $order_id ) {
-		$order = wc_get_order( absint( $order_id ) );
-
-		if ( ! $order ) {
+	public function reschedule() {
+		if ( ! self::is_available() ) {
 			return;
 		}
 
-		/*
-		 * Implementation lands here. Read and write order data through the CRUD
-		 * object ($order->get_*, $order->update_meta_data, $order->save) so the
-		 * plugin keeps working under High-Performance Order Storage, and derive
-		 * the idempotency key from the order ID plus a hash of the payload.
-		 */
+		foreach ( self::get_jobs() as $job ) {
+			as_unschedule_all_actions( $job['action'], array(), self::GROUP );
+		}
+
+		$this->ensure_recurring_actions();
 	}
 
 	/**
-	 * Reconcile local records against Kontor.
+	 * Queue a job to run as soon as the queue is next processed.
+	 *
+	 * @param string $job Job key from get_jobs().
+	 * @return bool True when the job was queued.
+	 */
+	public static function trigger( $job ) {
+		$jobs = self::get_jobs();
+
+		if ( ! isset( $jobs[ $job ] ) || ! self::is_available() ) {
+			return false;
+		}
+
+		as_enqueue_async_action( $jobs[ $job ]['action'], array(), self::GROUP );
+
+		return true;
+	}
+
+	/**
+	 * When the given job is next due.
+	 *
+	 * @param string $job Job key from get_jobs().
+	 * @return int Unix timestamp, or 0 when nothing is queued.
+	 */
+	public static function next_run( $job ) {
+		$jobs = self::get_jobs();
+
+		if ( ! isset( $jobs[ $job ] ) || ! self::is_available() ) {
+			return 0;
+		}
+
+		return (int) as_next_scheduled_action( $jobs[ $job ]['action'], array(), self::GROUP );
+	}
+
+	/**
+	 * Start a product sync.
 	 *
 	 * @return void
 	 */
-	public function handle_reconcile() {
-		/*
-		 * Implementation lands here. Use wc_get_orders() with a meta query on
-		 * _wksync_synced_at to find records that never synced or drifted.
-		 */
+	public function handle_products() {
+		( new ProductSync() )->start();
+	}
+
+	/**
+	 * Import one page of products.
+	 *
+	 * @param int $skip Number of records already imported.
+	 * @param int $run  Run identifier, used to spot products Kontor no longer lists.
+	 * @return void
+	 */
+	public function handle_products_page( $skip = 0, $run = 0 ) {
+		( new ProductSync() )->import_page( absint( $skip ), absint( $run ) );
+	}
+
+	/**
+	 * Finish a product sync.
+	 *
+	 * @param int $run Run identifier.
+	 * @return void
+	 */
+	public function handle_products_finalise( $run = 0 ) {
+		( new ProductSync() )->finalise( absint( $run ) );
+	}
+
+	/**
+	 * Start a stock sync.
+	 *
+	 * @return void
+	 */
+	public function handle_stock() {
+		( new StockSync() )->start();
+	}
+
+	/**
+	 * Apply one chunk of stock levels.
+	 *
+	 * @param int $offset Number of rows already applied.
+	 * @param int $run    Run identifier.
+	 * @return void
+	 */
+	public function handle_stock_chunk( $offset = 0, $run = 0 ) {
+		( new StockSync() )->apply_chunk( absint( $offset ), absint( $run ) );
+	}
+
+	/**
+	 * Queue a follow-up action for the current run.
+	 *
+	 * @param string $hook Action hook to queue.
+	 * @param array  $args Arguments to pass along.
+	 * @return void
+	 */
+	public static function chain( $hook, array $args ) {
+		if ( ! self::is_available() ) {
+			return;
+		}
+
+		as_enqueue_async_action( $hook, $args, self::GROUP );
 	}
 
 	/**
@@ -148,7 +256,10 @@ class Scheduler {
 	 *
 	 * @return bool True when the Action Scheduler API is available.
 	 */
-	protected function is_action_scheduler_available() {
-		return function_exists( 'as_enqueue_async_action' ) && function_exists( 'as_next_scheduled_action' );
+	public static function is_available() {
+		return function_exists( 'as_enqueue_async_action' )
+			&& function_exists( 'as_next_scheduled_action' )
+			&& function_exists( 'as_schedule_recurring_action' )
+			&& function_exists( 'as_unschedule_all_actions' );
 	}
 }

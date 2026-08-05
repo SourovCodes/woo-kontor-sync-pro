@@ -13,11 +13,11 @@ use WP_Error;
 defined( 'ABSPATH' ) || exit;
 
 /**
- * Talks to Kontor over HTTP.
+ * Talks to Kontor's search API over HTTP.
  *
- * Every request is retried with exponential backoff on transient failures, and
- * every write carries an idempotency key so a retry cannot create a duplicate
- * record in the ERP.
+ * Every endpoint is the same POST to /search, distinguished by an "entity" in the
+ * body. Requests are retried with exponential backoff on transient failures, and
+ * writes carry an idempotency key so a retry cannot duplicate a record.
  */
 class Client {
 
@@ -35,6 +35,31 @@ class Client {
 	 * Base delay in seconds used for exponential backoff between attempts.
 	 */
 	const BACKOFF_BASE_SECONDS = 2;
+
+	/**
+	 * Request timeout in seconds.
+	 *
+	 * Generous because a full product page can take a couple of seconds server-side,
+	 * and these requests only ever run inside a background job.
+	 */
+	const REQUEST_TIMEOUT = 30;
+
+	/**
+	 * Largest page the API will actually return.
+	 *
+	 * The server silently caps "take": asking for 5000 returns 2000. Requesting more
+	 * than this would make the paging arithmetic skip records.
+	 */
+	const MAX_PAGE_SIZE = 2000;
+
+	/**
+	 * Page size used when walking the product catalogue.
+	 *
+	 * Sized so one page fits comfortably inside an Action Scheduler pass: saving 500
+	 * products took around 78 seconds, which is long enough to risk being cut short
+	 * on a slower host.
+	 */
+	const PRODUCT_PAGE_SIZE = 200;
 
 	/**
 	 * HTTP status codes worth retrying. Client errors are bugs, not blips.
@@ -60,30 +85,89 @@ class Client {
 	}
 
 	/**
-	 * Perform a GET request.
+	 * Run a search against one of Kontor's entities.
 	 *
-	 * @param string $endpoint Endpoint path, relative to the configured base URL.
-	 * @param array  $query    Optional query arguments.
-	 * @return array|WP_Error Decoded response body, or WP_Error on failure.
+	 * @param string $entity Entity name, for example "products" or "stock".
+	 * @param array  $args   Extra body arguments such as paging and filter.
+	 * @return array|WP_Error Array with "data" and "meta" keys, or WP_Error on failure.
 	 */
-	public function get( $endpoint, array $query = array() ) {
-		if ( ! empty( $query ) ) {
-			$endpoint = add_query_arg( $query, $endpoint );
-		}
+	public function search( $entity, array $args = array() ) {
+		$body = array_merge( array( 'entity' => $entity ), $args );
 
-		return $this->request( 'GET', $endpoint );
+		return $this->request( 'POST', 'search', $body );
 	}
 
 	/**
-	 * Perform a POST request.
+	 * Fetch a page of products for the configured shop type.
 	 *
-	 * @param string $endpoint        Endpoint path, relative to the configured base URL.
-	 * @param array  $body            Request body, encoded as JSON.
-	 * @param string $idempotency_key Stable key identifying this logical write.
-	 * @return array|WP_Error Decoded response body, or WP_Error on failure.
+	 * The shop type does not change which articles come back; it changes their
+	 * pricing. UVP is the shop type's selling price, while Ek stays constant.
+	 *
+	 * @param int         $skip     Number of records to skip.
+	 * @param int         $take     Page size, capped at MAX_PAGE_SIZE.
+	 * @param string|null $shoptype Optional shop type override.
+	 * @return array|WP_Error Array with "data" and "meta" keys, or WP_Error on failure.
 	 */
-	public function post( $endpoint, array $body, $idempotency_key ) {
-		return $this->request( 'POST', $endpoint, $body, $idempotency_key );
+	public function fetch_products( $skip = 0, $take = self::PRODUCT_PAGE_SIZE, $shoptype = null ) {
+		if ( null === $shoptype ) {
+			$shoptype = isset( $this->settings['shoptype'] ) ? (string) $this->settings['shoptype'] : 'B2B';
+		}
+
+		return $this->search(
+			'products',
+			array(
+				'paging' => array(
+					'skip' => max( 0, absint( $skip ) ),
+					'take' => min( self::MAX_PAGE_SIZE, max( 1, absint( $take ) ) ),
+				),
+				'filter' => array( 'shoptype' => $shoptype ),
+			)
+		);
+	}
+
+	/**
+	 * Fetch stock levels for every article.
+	 *
+	 * The stock entity takes no paging and no filter, and returns one row per
+	 * article number.
+	 *
+	 * @return array|WP_Error Array with "data" and "meta" keys, or WP_Error on failure.
+	 */
+	public function fetch_stock() {
+		return $this->search( 'stock' );
+	}
+
+	/**
+	 * Check that the configured base URL and API key work.
+	 *
+	 * Asks for a single product so the round trip stays cheap.
+	 *
+	 * @return array|WP_Error Array with "data" and "meta" keys, or WP_Error on failure.
+	 */
+	public function test_connection() {
+		return $this->fetch_products( 0, 1 );
+	}
+
+	/**
+	 * Read one of the detail values this class attaches to its errors.
+	 *
+	 * WP_Error::get_error_data() takes an error *code*, not a data key, so the data
+	 * array has to be fetched whole and indexed here. Getting that wrong silently
+	 * disables retries, because every lookup comes back null.
+	 *
+	 * @param mixed  $error    Value that may be a WP_Error.
+	 * @param string $key      Detail to read, such as "disposition" or "error_code".
+	 * @param string $fallback Value to use when the detail is absent.
+	 * @return string The detail value.
+	 */
+	public static function detail( $error, $key, $fallback = '' ) {
+		if ( ! is_wp_error( $error ) ) {
+			return $fallback;
+		}
+
+		$data = $error->get_error_data();
+
+		return is_array( $data ) && isset( $data[ $key ] ) ? (string) $data[ $key ] : $fallback;
 	}
 
 	/**
@@ -93,7 +177,7 @@ class Client {
 	 * @param string      $endpoint        Endpoint path, relative to the configured base URL.
 	 * @param array|null  $body            Optional request body.
 	 * @param string|null $idempotency_key Optional idempotency key for writes.
-	 * @return array|WP_Error Decoded response body, or WP_Error on failure.
+	 * @return array|WP_Error Decoded payload, or WP_Error on failure.
 	 */
 	protected function request( $method, $endpoint, $body = null, $idempotency_key = null ) {
 		$url = $this->build_url( $endpoint );
@@ -102,21 +186,28 @@ class Client {
 			return $url;
 		}
 
+		$key = $this->get_api_key();
+
+		if ( is_wp_error( $key ) ) {
+			return $key;
+		}
+
 		$args = array(
 			'method'  => $method,
-			'timeout' => $this->get_timeout(),
-			'headers' => $this->build_headers( $idempotency_key ),
+			'timeout' => self::REQUEST_TIMEOUT,
+			'headers' => $this->build_headers( $key, $idempotency_key ),
 		);
 
 		if ( null !== $body ) {
 			$args['body'] = wp_json_encode( $body );
 		}
 
+		$label      = isset( $body['entity'] ) ? $endpoint . ':' . $body['entity'] : $endpoint;
 		$last_error = null;
 
 		for ( $attempt = 1; $attempt <= self::MAX_ATTEMPTS; $attempt++ ) {
 			$response = wp_remote_request( $url, $args );
-			$result   = $this->interpret_response( $response, $method, $endpoint, $attempt );
+			$result   = $this->interpret_response( $response, $method, $label, $attempt );
 
 			if ( ! is_wp_error( $result ) ) {
 				return $result;
@@ -124,13 +215,31 @@ class Client {
 
 			$last_error = $result;
 
-			if ( 'retry' !== $result->get_error_data( 'disposition' ) || self::MAX_ATTEMPTS === $attempt ) {
+			if ( 'retry' !== self::detail( $result, 'disposition', 'fail' ) || self::MAX_ATTEMPTS === $attempt ) {
 				break;
 			}
 
-			// Exponential backoff: 2s, then 4s. Kept short because this runs inside
-			// an Action Scheduler job, which will retry the whole action if we fail.
-			sleep( self::BACKOFF_BASE_SECONDS ** $attempt );
+			/**
+			 * Filters the backoff delay between retries.
+			 *
+			 * Defaults to exponential backoff: 2s, then 4s. Kept short because this
+			 * runs inside an Action Scheduler job, which retries the whole action if
+			 * we ultimately fail.
+			 *
+			 * @since 0.2.0
+			 *
+			 * @param int $delay   Delay in seconds.
+			 * @param int $attempt Attempt number that just failed.
+			 */
+			$delay = (int) apply_filters(
+				'woo_kontor_sync_retry_delay',
+				self::BACKOFF_BASE_SECONDS ** $attempt,
+				$attempt
+			);
+
+			if ( $delay > 0 ) {
+				sleep( $delay );
+			}
 		}
 
 		return $last_error;
@@ -139,17 +248,22 @@ class Client {
 	/**
 	 * Turn a raw HTTP response into decoded data or a descriptive error.
 	 *
+	 * Kontor wraps every reply in an envelope: a boolean "success", a "message", a
+	 * "meta" block with row counts, the "data" rows, and an "errorCode" on failure.
+	 * A non-2xx status still carries that envelope, so the message it contains is
+	 * what gets surfaced to the user.
+	 *
 	 * @param array|WP_Error $response Raw response from wp_remote_request().
 	 * @param string         $method   HTTP method, for logging.
-	 * @param string         $endpoint Endpoint path, for logging.
+	 * @param string         $label    Request label, for logging.
 	 * @param int            $attempt  Attempt number, for logging.
-	 * @return array|WP_Error Decoded body, or an error carrying a "disposition" of retry or fail.
+	 * @return array|WP_Error Decoded payload, or an error carrying a "disposition" of retry or fail.
 	 */
-	protected function interpret_response( $response, $method, $endpoint, $attempt ) {
+	protected function interpret_response( $response, $method, $label, $attempt ) {
 		if ( is_wp_error( $response ) ) {
 			$this->log(
 				'error',
-				sprintf( '%s %s failed on attempt %d: %s', $method, $endpoint, $attempt, $response->get_error_message() )
+				sprintf( '%s %s failed on attempt %d: %s', $method, $label, $attempt, $response->get_error_message() )
 			);
 
 			return new WP_Error(
@@ -159,42 +273,49 @@ class Client {
 			);
 		}
 
-		$status = (int) wp_remote_retrieve_response_code( $response );
-		$raw    = wp_remote_retrieve_body( $response );
+		$status  = (int) wp_remote_retrieve_response_code( $response );
+		$decoded = json_decode( wp_remote_retrieve_body( $response ), true );
 
-		if ( $status >= 200 && $status < 300 ) {
-			$decoded = json_decode( $raw, true );
+		if ( ! is_array( $decoded ) ) {
+			$this->log( 'error', sprintf( '%s %s returned malformed JSON (HTTP %d).', $method, $label, $status ) );
 
-			if ( JSON_ERROR_NONE !== json_last_error() ) {
-				$this->log( 'error', sprintf( '%s %s returned malformed JSON.', $method, $endpoint ) );
+			return new WP_Error(
+				'woo_kontor_sync_invalid_json',
+				__( 'Kontor returned a response that could not be decoded.', 'woo-kontor-sync-pro' ),
+				array( 'disposition' => in_array( $status, self::$retryable_statuses, true ) ? 'retry' : 'fail' )
+			);
+		}
 
-				return new WP_Error(
-					'woo_kontor_sync_invalid_json',
-					__( 'Kontor returned a response that could not be decoded.', 'woo-kontor-sync-pro' ),
-					array( 'disposition' => 'fail' )
-				);
-			}
+		$succeeded = ( $status >= 200 && $status < 300 ) && ! empty( $decoded['success'] );
 
-			return is_array( $decoded ) ? $decoded : array();
+		if ( $succeeded ) {
+			return array(
+				'data' => isset( $decoded['data'] ) && is_array( $decoded['data'] ) ? $decoded['data'] : array(),
+				'meta' => isset( $decoded['meta'] ) && is_array( $decoded['meta'] ) ? $decoded['meta'] : array(),
+			);
 		}
 
 		$disposition = in_array( $status, self::$retryable_statuses, true ) ? 'retry' : 'fail';
+		$code        = isset( $decoded['errorCode'] ) ? (string) $decoded['errorCode'] : '';
+		$message     = isset( $decoded['message'] ) ? (string) $decoded['message'] : '';
+
+		if ( '' === $message ) {
+			/* translators: %d: HTTP status code returned by the Kontor API. */
+			$message = sprintf( __( 'Kontor returned HTTP status %d.', 'woo-kontor-sync-pro' ), $status );
+		}
 
 		$this->log(
 			'error',
-			sprintf( '%s %s returned HTTP %d on attempt %d (%s).', $method, $endpoint, $status, $attempt, $disposition )
+			sprintf( '%s %s failed on attempt %d: HTTP %d %s (%s).', $method, $label, $attempt, $status, $code, $disposition )
 		);
 
 		return new WP_Error(
-			'woo_kontor_sync_http_error',
-			sprintf(
-				/* translators: %d: HTTP status code returned by the Kontor API. */
-				__( 'Kontor returned HTTP status %d.', 'woo-kontor-sync-pro' ),
-				$status
-			),
+			'woo_kontor_sync_api_error',
+			$message,
 			array(
 				'disposition' => $disposition,
 				'status'      => $status,
+				'error_code'  => $code,
 			)
 		);
 	}
@@ -220,23 +341,38 @@ class Client {
 	}
 
 	/**
+	 * Retrieve the configured API key.
+	 *
+	 * @return string|WP_Error The key, or an error when the plugin is unconfigured.
+	 */
+	protected function get_api_key() {
+		$key = isset( $this->settings['api_key'] ) ? trim( (string) $this->settings['api_key'] ) : '';
+
+		if ( '' === $key ) {
+			return new WP_Error(
+				'woo_kontor_sync_not_configured',
+				__( 'The Kontor API key has not been configured.', 'woo-kontor-sync-pro' ),
+				array( 'disposition' => 'fail' )
+			);
+		}
+
+		return $key;
+	}
+
+	/**
 	 * Build the request headers.
 	 *
+	 * @param string      $api_key         The Kontor API key.
 	 * @param string|null $idempotency_key Optional idempotency key for writes.
 	 * @return array Header name/value pairs.
 	 */
-	protected function build_headers( $idempotency_key ) {
+	protected function build_headers( $api_key, $idempotency_key ) {
 		$headers = array(
 			'Accept'       => 'application/json',
 			'Content-Type' => 'application/json',
+			'x-api-key'    => $api_key,
 			'User-Agent'   => 'WooKontorSyncPro/' . WKSYNC_VERSION . '; ' . home_url( '/' ),
 		);
-
-		$token = isset( $this->settings['api_token'] ) ? (string) $this->settings['api_token'] : '';
-
-		if ( '' !== $token ) {
-			$headers['Authorization'] = 'Bearer ' . $token;
-		}
 
 		if ( null !== $idempotency_key && '' !== $idempotency_key ) {
 			$headers['Idempotency-Key'] = $idempotency_key;
@@ -246,21 +382,10 @@ class Client {
 	}
 
 	/**
-	 * Resolve the configured request timeout.
-	 *
-	 * @return int Timeout in seconds.
-	 */
-	protected function get_timeout() {
-		$timeout = isset( $this->settings['timeout'] ) ? absint( $this->settings['timeout'] ) : 0;
-
-		return $timeout > 0 ? $timeout : 10;
-	}
-
-	/**
 	 * Write a message to the WooCommerce log.
 	 *
 	 * Only decisions and identifiers are logged. Request bodies and headers are
-	 * never logged, because they carry the Kontor bearer token.
+	 * never logged, because they carry the Kontor API key.
 	 *
 	 * @param string $level   Log level, e.g. "error" or "info".
 	 * @param string $message Message to record.

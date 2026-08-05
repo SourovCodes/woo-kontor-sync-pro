@@ -116,17 +116,64 @@ into an incident. Never ship a change that skips one.
   WooCommerce being inactive — the header is advisory on older WordPress versions.
 - Custom order/product meta uses the `_wksync_` prefix so it stays out of the visible custom fields UI.
 
+## The Kontor API
+
+Everything is one `POST` to `{api_base_url}/search`, distinguished by an `entity` in the body, with
+the key in an **`x-api-key`** header — not a bearer token. Every reply, success or failure, uses the
+same envelope: `success`, `message`, `meta.rowCount`, `meta.totalCount`, `data`, `errorCode`.
+
+These were established by probing the live API. They are not in any documentation, and getting any
+of them wrong produces silently wrong data rather than an error:
+
+- **`shoptype` selects a price list, not a catalogue.** B2B, B2C, EDU and no filter all return the
+  same 4386 articles. What changes is `UVP`: one article is 22.50 for B2B, 45.00 for B2C, 36.00 for
+  EDU, while `Ek` stays constant across all three. So **`UVP` is the selling price** for the
+  configured shop type and `Ek` is the purchase price, kept only as `_wksync_cost` meta. Mapping
+  `Ek` to the price would sell the whole catalogue at wholesale.
+- **`paging.take` is capped at 2000** server-side, silently. Requesting 5000 returns 2000, so a
+  pager that trusts its own page size skips records. `Client::MAX_PAGE_SIZE` enforces the cap;
+  the catalogue is walked at 500 per page.
+- **The `stock` entity takes no paging and no filter.** One request returns a level for every
+  article (~2945 rows in ~65ms). Sending paging to it is not an error, just pointless.
+- **The `categories` entity exists but returns zero rows**, filtered or not, so the `Categories`
+  GUIDs on an article cannot be resolved to names. Category mapping is not currently possible.
+- **Image fields are bare filenames** (`abel-AB12_001.jpg`), not URLs. They are only usable if an
+  image base URL is configured; with it blank, the sync skips images.
+- **Errors are well formed**: a bad key gives HTTP 401 with `success:false` and
+  `errorCode: ERR-401-INVALID-API-KEY`, and the `message` is in German. Surface `message` and
+  `errorCode` to the user rather than inventing our own wording.
+
+Three traps that all fail silently rather than loudly:
+
+- **Never run the API key through `sanitize_text_field()`.** It strips percent-encoded octets, so a
+  real key containing `%5a` loses three characters and every request then fails with a confusing
+  401. Keys also contain non-ASCII characters such as `ß`. Use `Settings::sanitize_api_key()`,
+  which preserves everything except control characters — those must go, because the key is written
+  straight into a request header where a newline would allow header injection.
+- **`WP_Error::get_error_data()` takes an error code, not a data key.** Use `Client::detail()` to
+  read `disposition` or `error_code`; `get_error_data( 'disposition' )` returns null and silently
+  reduces every retry to a single attempt.
+- **EANs in the feed are not unique.** WooCommerce enforces uniqueness on `global_unique_id` and
+  throws `WC_Data_Exception` on a duplicate. Check with `wc_get_product_id_by_global_unique_id()`
+  before setting it, and keep the per-article import inside a `try`/`catch` so one bad row cannot
+  abort the whole page.
+
 ## Kontor sync layer
 
 The ERP is a remote REST service. Treat it as slow, occasionally unavailable, and never trusted.
 
+Two jobs are implemented, both pulling from Kontor: **product sync** (7–30 days) and **stock sync**
+(15 minutes–1 day). Order push and delivery-information pull are planned and not built.
+
 - **Schedule with Action Scheduler**, which ships inside WooCommerce — `as_schedule_single_action()`,
   `as_schedule_recurring_action()`, `as_next_scheduled_action()`. Do not use raw `wp_cron`: it has no
   retry semantics, no concurrency control, and no admin visibility.
+- **Chain long runs across actions.** A job that walks thousands of records queues a follow-up
+  action per page or chunk rather than looping in one request. See `ProductSync::import_page()`.
 - **Never sync inside a request that a customer is waiting on.** Checkout and order-status hooks
   enqueue an action; they do not call Kontor.
-- **HTTP via `wp_remote_request()`** with an explicit `timeout` (10s default, never the 5s implicit
-  one for writes), a descriptive `user-agent`, and `WP_Error` handled on every call.
+- **HTTP via `wp_remote_request()`** with an explicit `timeout` (`Client::REQUEST_TIMEOUT`, 30s), a
+  descriptive `user-agent`, and `WP_Error` handled on every call.
 - **Retry with exponential backoff** and a bounded attempt count. Retry 429, 502, 503, 504 and
   network errors; do not retry 4xx client errors — those are bugs, and they belong in the log.
 - **Idempotency keys on every write** so a retried request cannot double-post an order to the ERP.

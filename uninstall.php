@@ -17,6 +17,10 @@ if ( function_exists( 'as_unschedule_all_actions' ) ) {
 
 delete_option( 'woo_kontor_sync_settings' );
 delete_option( 'woo_kontor_sync_version' );
+delete_option( 'woo_kontor_sync_job_status' );
+
+// Drop any cached stock payload left behind by an interrupted run.
+delete_expired_transients();
 
 /*
  * The _wksync_* meta recording each object's Kontor ID is deliberately left in

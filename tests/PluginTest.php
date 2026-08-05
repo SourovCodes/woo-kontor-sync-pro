@@ -133,15 +133,30 @@ class PluginTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * Queueing an invalid order ID is a no-op rather than a fatal.
+	 * The two implemented jobs are registered and each maps to an interval setting.
 	 *
 	 * @return void
 	 */
-	public function test_enqueue_order_ignores_invalid_ids() {
-		$scheduler = new Scheduler();
-		$scheduler->enqueue_order( 0 );
+	public function test_registered_jobs() {
+		$jobs = Scheduler::get_jobs();
 
-		$this->assertFalse( (bool) as_next_scheduled_action( Scheduler::ACTION_SYNC_ORDER, array( 'order_id' => 0 ), Scheduler::GROUP ) );
+		$this->assertSame( array( 'products', 'stock' ), array_keys( $jobs ) );
+		$this->assertSame( 'product_sync_interval', $jobs['products']['setting'] );
+		$this->assertSame( 'stock_sync_interval', $jobs['stock']['setting'] );
+
+		foreach ( $jobs as $job ) {
+			$this->assertTrue( has_action( $job['action'] ) > 0, $job['action'] . ' has no handler' );
+		}
+	}
+
+	/**
+	 * Triggering an unknown job is refused rather than queueing something odd.
+	 *
+	 * @return void
+	 */
+	public function test_unknown_job_cannot_be_triggered() {
+		$this->assertFalse( Scheduler::trigger( 'orders' ) );
+		$this->assertFalse( Scheduler::trigger( '' ) );
 	}
 
 	/**
@@ -153,12 +168,11 @@ class PluginTest extends WP_UnitTestCase {
 		$client = new Client(
 			array(
 				'api_base_url' => '',
-				'api_token'    => '',
-				'timeout'      => 10,
+				'api_key'      => '',
 			)
 		);
 
-		$result = $client->get( '/orders' );
+		$result = $client->fetch_stock();
 
 		$this->assertWPError( $result );
 		$this->assertSame( 'woo_kontor_sync_not_configured', $result->get_error_code() );
