@@ -408,6 +408,51 @@ class OrderSync {
 	}
 
 	/**
+	 * Find the order a row coming back from Kontor belongs to.
+	 *
+	 * Matched on the order number this plugin sent, which is recorded at push time
+	 * rather than recomputed. get_order_number() is filterable, so comparing against
+	 * it directly would stop matching the day a sequential-order-number plugin is
+	 * installed — including for orders pushed long before that.
+	 *
+	 * Lives here because this is where the number is written, and both the delivery
+	 * and invoice imports have to read it back the same way.
+	 *
+	 * @param string $number Order number as Kontor knows it.
+	 * @return WC_Order|null The order, or null when nothing matches.
+	 */
+	public static function find_by_number( $number ) {
+		$number = trim( (string) $number );
+
+		if ( '' === $number ) {
+			return null;
+		}
+
+		$orders = wc_get_orders(
+			array(
+				'limit'      => 1,
+				'status'     => 'any',
+				'return'     => 'objects',
+
+				/*
+				 * Under HPOS this queries the order meta table. Runs in a background job,
+				 * and the number Kontor knows is only recorded as meta.
+				 */
+				// phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query -- See above.
+				'meta_query' => array(
+					array(
+						'key'     => self::META_ORDER_NUMBER,
+						'value'   => $number,
+						'compare' => '=',
+					),
+				),
+			)
+		);
+
+		return empty( $orders ) ? null : $orders[0];
+	}
+
+	/**
 	 * Map a WooCommerce order onto the API's order shape.
 	 *
 	 * @param WC_Order $order Order to map.

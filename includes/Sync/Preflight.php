@@ -24,9 +24,10 @@ defined( 'ABSPATH' ) || exit;
  * Three gates, cheapest first:
  *
  * 1. Credentials — the API base URL and key are present. No network.
- * 2. Shop — order jobs additionally need a shop chosen, because Kontor answers a
- *    malformed shop ID with an HTTP 500 and an empty one with an empty list, and
- *    neither reads as "you forgot to configure this".
+ * 2. Shop — every job that talks to Kontor about orders needs a shop chosen: the
+ *    order push, and the delivery and invoice imports. Kontor answers a malformed
+ *    shop ID with an HTTP 500 and an empty one with an empty list, and neither reads
+ *    as "you forgot to configure this".
  * 3. Connection — the credentials actually authenticate. One small request, with
  *    success cached so a frequent job does not pay for it every run.
  */
@@ -50,7 +51,7 @@ class Preflight {
 	 *
 	 * @var string[]
 	 */
-	private static $shop_jobs = array( OrderSync::JOB, DeliverySync::JOB );
+	private static $shop_jobs = array( OrderSync::JOB, DeliverySync::JOB, InvoiceSync::JOB );
 
 	/**
 	 * Check every precondition for a job.

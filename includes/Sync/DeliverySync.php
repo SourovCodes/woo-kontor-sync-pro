@@ -327,40 +327,11 @@ class DeliverySync {
 	/**
 	 * Find the order a delivery row belongs to.
 	 *
-	 * Matched on the order number this plugin sent, which is recorded at push time.
-	 * get_order_number() is filterable, so comparing against it directly would break
-	 * the moment a sequential-order-number plugin is installed.
-	 *
 	 * @param string $number Order number from Kontor.
 	 * @return WC_Order|null The order, or null when nothing matches.
 	 */
 	protected function find_order( $number ) {
-		if ( '' === $number ) {
-			return null;
-		}
-
-		$orders = wc_get_orders(
-			array(
-				'limit'      => 1,
-				'status'     => 'any',
-				'return'     => 'objects',
-
-				/*
-				 * Under HPOS this queries the order meta table. Runs in a background job,
-				 * and the number Kontor knows is only recorded as meta.
-				 */
-				// phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query -- See above.
-				'meta_query' => array(
-					array(
-						'key'     => OrderSync::META_ORDER_NUMBER,
-						'value'   => $number,
-						'compare' => '=',
-					),
-				),
-			)
-		);
-
-		return empty( $orders ) ? null : $orders[0];
+		return OrderSync::find_by_number( $number );
 	}
 
 	/**

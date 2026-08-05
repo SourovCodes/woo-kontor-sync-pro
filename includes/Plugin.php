@@ -8,7 +8,9 @@
 namespace WooKontorSync;
 
 use WooKontorSync\Admin\Settings;
+use WooKontorSync\Frontend\Invoices;
 use WooKontorSync\Frontend\Tracking;
+use WooKontorSync\Invoices\Download;
 use WooKontorSync\Sync\Scheduler;
 
 defined( 'ABSPATH' ) || exit;
@@ -91,6 +93,11 @@ final class Plugin {
 		// Not gated on is_admin(): order emails render wherever the status changed,
 		// including inside the background job the delivery sync runs in.
 		( new Tracking() )->register();
+		( new Invoices() )->register();
+
+		// Serves invoice PDFs to whoever is entitled to them, which includes guests
+		// holding an order key, so it cannot live behind the admin check either.
+		( new Download() )->register();
 
 		if ( is_admin() ) {
 			( new Settings() )->register();

@@ -141,17 +141,19 @@ class PluginTest extends WP_UnitTestCase {
 	public function test_registered_jobs() {
 		$jobs = Scheduler::get_jobs();
 
-		$this->assertSame( array( 'products', 'stock', 'orders', 'delivery' ), array_keys( $jobs ) );
+		$this->assertSame( array( 'products', 'stock', 'orders', 'delivery', 'invoices' ), array_keys( $jobs ) );
 		$this->assertSame( 'product_sync_interval', $jobs['products']['setting'] );
 		$this->assertSame( 'stock_sync_interval', $jobs['stock']['setting'] );
 		$this->assertSame( 'order_sync_interval', $jobs['orders']['setting'] );
 		$this->assertSame( 'delivery_sync_interval', $jobs['delivery']['setting'] );
+		$this->assertSame( 'invoice_sync_interval', $jobs['invoices']['setting'] );
 
-		// Only the two order jobs depend on a shop being chosen.
+		// Only the jobs that talk to Kontor about orders depend on a shop being chosen.
 		$this->assertArrayNotHasKey( 'needs_shop', $jobs['products'] );
 		$this->assertArrayNotHasKey( 'needs_shop', $jobs['stock'] );
 		$this->assertTrue( $jobs['orders']['needs_shop'] );
 		$this->assertTrue( $jobs['delivery']['needs_shop'] );
+		$this->assertTrue( $jobs['invoices']['needs_shop'] );
 
 		foreach ( $jobs as $job ) {
 			$this->assertTrue( has_action( $job['action'] ) > 0, $job['action'] . ' has no handler' );

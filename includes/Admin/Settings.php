@@ -8,6 +8,7 @@
 namespace WooKontorSync\Admin;
 
 use WooKontorSync\Api\Client;
+use WooKontorSync\Invoices\Storage;
 use WooKontorSync\Sync\OrderSync;
 use WooKontorSync\Sync\Scheduler;
 use WooKontorSync\Sync\Status;
@@ -102,6 +103,7 @@ class Settings {
 			'stock_sync_interval'    => self::INTERVAL_NEVER,
 			'order_sync_interval'    => self::INTERVAL_NEVER,
 			'delivery_sync_interval' => self::INTERVAL_NEVER,
+			'invoice_sync_interval'  => self::INTERVAL_NEVER,
 		);
 	}
 
@@ -187,6 +189,27 @@ class Settings {
 			6 * HOUR_IN_SECONDS    => __( 'Every 6 hours', 'woo-kontor-sync-pro' ),
 			12 * HOUR_IN_SECONDS   => __( 'Every 12 hours', 'woo-kontor-sync-pro' ),
 			DAY_IN_SECONDS         => __( 'Once a day', 'woo-kontor-sync-pro' ),
+		);
+	}
+
+	/**
+	 * Allowed intervals for the invoice document import.
+	 *
+	 * Nothing shorter than an hour. Every run walks the shop's whole invoice history
+	 * — the entity has no incremental filter — and an invoice appears hours after the
+	 * order rather than minutes, so a tighter schedule would only re-read the same
+	 * list more often.
+	 *
+	 * @return array Map of seconds to label.
+	 */
+	public static function invoice_sync_intervals() {
+		return array(
+			self::INTERVAL_NEVER => __( 'Never — only when run manually', 'woo-kontor-sync-pro' ),
+			HOUR_IN_SECONDS      => __( 'Every hour', 'woo-kontor-sync-pro' ),
+			3 * HOUR_IN_SECONDS  => __( 'Every 3 hours', 'woo-kontor-sync-pro' ),
+			6 * HOUR_IN_SECONDS  => __( 'Every 6 hours', 'woo-kontor-sync-pro' ),
+			12 * HOUR_IN_SECONDS => __( 'Every 12 hours', 'woo-kontor-sync-pro' ),
+			DAY_IN_SECONDS       => __( 'Once a day', 'woo-kontor-sync-pro' ),
 		);
 	}
 
@@ -328,6 +351,7 @@ class Settings {
 			'stock_sync_interval'    => $this->pick_interval( $input, 'stock_sync_interval', self::stock_sync_intervals(), $existing ),
 			'order_sync_interval'    => $this->pick_interval( $input, 'order_sync_interval', self::order_sync_intervals(), $existing ),
 			'delivery_sync_interval' => $this->pick_interval( $input, 'delivery_sync_interval', self::delivery_sync_intervals(), $existing ),
+			'invoice_sync_interval'  => $this->pick_interval( $input, 'invoice_sync_interval', self::invoice_sync_intervals(), $existing ),
 		);
 	}
 
@@ -865,6 +889,7 @@ class Settings {
 			<h1><?php echo esc_html__( 'Kontor Sync', 'woo-kontor-sync-pro' ); ?></h1>
 
 			<?php $this->render_queued_notice(); ?>
+			<?php $this->render_exposure_notice(); ?>
 
 			<form action="options.php" method="post">
 				<?php settings_fields( self::OPTION_GROUP ); ?>
@@ -1142,6 +1167,22 @@ class Settings {
 							<p class="description"><?php echo esc_html__( 'Pulls tracking details back from Kontor and needs a shop selected. An order Kontor reports as completed is completed here too, which emails the customer.', 'woo-kontor-sync-pro' ); ?></p>
 						</td>
 					</tr>
+					<tr>
+						<th scope="row">
+							<label for="wksync-invoice-sync-interval"><?php echo esc_html__( 'Invoice sync', 'woo-kontor-sync-pro' ); ?></label>
+						</th>
+						<td>
+							<?php
+							$this->render_interval_select(
+								'wksync-invoice-sync-interval',
+								'invoice_sync_interval',
+								self::invoice_sync_intervals(),
+								(int) $settings['invoice_sync_interval']
+							);
+							?>
+							<p class="description"><?php echo esc_html__( 'Downloads invoice PDFs from Kontor and needs a shop selected. Each invoice is stored privately, shown to the customer on their order, and attached to the order emails sent after it arrives.', 'woo-kontor-sync-pro' ); ?></p>
+						</td>
+					</tr>
 				</table>
 
 				<?php submit_button(); ?>
@@ -1326,6 +1367,52 @@ class Settings {
 
 		/* translators: 1: timestamp, 2: run summary. */
 		return sprintf( __( 'Succeeded at %1$s — %2$s', 'woo-kontor-sync-pro' ), $when, $status['message'] );
+	}
+
+	/**
+	 * Warn when the stored invoices are readable straight off the web server.
+	 *
+	 * The invoice directory carries the files that stop Apache and IIS serving it,
+	 * and unguessable names besides. Nginx reads neither guard file, and WordPress
+	 * offers a plugin no portable directory outside what the server publishes, so on
+	 * those hosts the download handler's permission check can simply be walked around
+	 * by anyone holding a URL.
+	 *
+	 * Shown rather than assumed away because the failure is invisible: everything
+	 * keeps working, and the only symptom is an invoice that did not need to be asked
+	 * for. The rule to paste is included, since knowing it is the whole fix.
+	 *
+	 * @return void
+	 */
+	protected function render_exposure_notice() {
+		if ( ! Storage::is_exposed() ) {
+			return;
+		}
+
+		$directory = Storage::directory( false );
+
+		if ( is_wp_error( $directory ) ) {
+			return;
+		}
+
+		$uploads = wp_upload_dir( null, false );
+		$path    = empty( $uploads['baseurl'] ) ? '/wp-content/uploads' : (string) wp_parse_url( $uploads['baseurl'], PHP_URL_PATH );
+		$rule    = sprintf( "location ^~ %s/%s/ {\n\tdeny all;\n}", untrailingslashit( $path ), $directory['name'] );
+
+		?>
+		<div class="notice notice-warning">
+			<p>
+				<strong><?php echo esc_html__( 'Downloaded invoices can be read without logging in.', 'woo-kontor-sync-pro' ); ?></strong>
+			</p>
+			<p>
+				<?php echo esc_html__( 'This site\'s web server is serving the folder the invoice PDFs are stored in, so anyone who obtains a file\'s address can open it — the permission check on the download link is bypassed. The folder already carries the rules that stop Apache and IIS; nginx ignores them and needs this in its configuration instead:', 'woo-kontor-sync-pro' ); ?>
+			</p>
+			<pre><code><?php echo esc_html( $rule ); ?></code></pre>
+			<p class="description">
+				<?php echo esc_html__( 'Until then the files are protected only by their unguessable names. This check is repeated once a day.', 'woo-kontor-sync-pro' ); ?>
+			</p>
+		</div>
+		<?php
 	}
 
 	/**

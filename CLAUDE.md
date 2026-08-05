@@ -235,9 +235,10 @@ of them wrong produces silently wrong data rather than an error:
   `get_order_number()` is not, being filterable and rewritten wholesale the day a
   sequential-order-number plugin is installed. `orderId` carries what the shop displays, so an order
   is still findable in the ERP by the number the customer and the shop manager both see.
-- **Delivery rows are matched on the order number this plugin sent**, recorded as
+- **Rows coming back are matched on the order number this plugin sent**, recorded as
   `_wksync_order_number` at push time rather than recomputed, so orders pushed by an earlier version
-  still match on whatever they were actually sent as.
+  still match on whatever they were actually sent as. Delivery rows and invoice rows both go through
+  `OrderSync::find_by_number()`, which is where that lookup lives.
 - **`deliveryAddress` is always sent**, falling back to the billing address when the order has no
   shipping street or postcode — which is what WooCommerce leaves on a virtual order, or on one where
   the customer did not tick "ship to a different address". An order reaching the ERP with nowhere to
@@ -245,6 +246,53 @@ of them wrong produces silently wrong data rather than an error:
   absent for the same reason.
 - **`provider` and `trackinginfo` arrive as `null`, not absent** — confirmed against live data, where
   all 7 rows for one shop had both null. Anything reading them has to treat null as empty.
+- **Invoices are a two-step download, and the second step is not under the base URL.** The
+  `invoices` entity lists what exists — `id`, `Belegnr`, `Datum`, `Auftrnr` and the `ordernumber`
+  this plugin sent — honouring only `filter.shopid`, exactly like `orders`. Fetching a document is
+  then a `POST` to **`/api/v1/files/dms/getdocument`** with `{ "id": … }`, which is a *sibling* of
+  the configured `api_base_url` (`…/api/v1/kontor`), not a child of it. `Client::build_url()`
+  resolves `DOCUMENT_ENDPOINT` against the base's parent so there is still one URL in the settings
+  rather than two that could drift onto different hosts; `woo_kontor_sync_document_url` overrides it.
+  - **Its `data` is a base64 string, not a list of rows.** `interpret_response()` drops a `data`
+    that is not an array, so reading a document through the normal path returns an empty result
+    with `success` still true — a download that silently produced no file. `Client::SHAPE_DOCUMENT`
+    is what keeps the payload.
+  - Decoding is **strict** (`base64_decode( $x, true )`), and `Storage::put()` then checks the bytes
+    actually start with `%PDF-`. Loose decoding silently discards what it does not recognise and
+    hands back a shorter file that still looks like a success.
+  - **The listing has no incremental filter**, so every run sees the shop's whole invoice history.
+    What makes the job incremental is the **document id recorded on the order**; without it each run
+    would re-download everything. An order can be invoiced more than once, so `_wksync_invoices`
+    holds a *list*, and nothing already downloaded is ever replaced or deleted — an invoice is a
+    financial record, and a second one is a new document rather than a correction of the last.
+  - A recorded invoice whose file has been deleted counts as **still held**. Re-downloading it is
+    the obvious alternative, but it would mean a shop that deliberately purged old invoices got
+    them all back on the next run.
+- **Invoice PDFs cannot go in the media library.** They carry a customer's name, address and what
+  they bought, and everything under `wp-content/uploads` is served straight off disk to anyone
+  holding the URL. `Invoices\Storage` writes them to a directory whose name carries a per-site
+  random suffix, with `.htaccess`, `web.config` and `index.php` guards and a random component in
+  every filename; `Invoices\Download` is the only way one comes back out.
+  - **Nginx honours none of those guard files, and WordPress offers a plugin no portable directory
+    outside what the web server publishes.** On such a host only the random names protect the files
+    and `Download`'s permission check can be walked around. Assuming otherwise would fail
+    invisibly, so `Storage::is_exposed()` **asks the web server directly**, by fetching a probe file
+    over HTTP once a day, and the settings screen prints the `location` block to paste when the
+    answer is yes. The Local development site is one of these — the probe returns 200 there.
+  - `Storage::resolve()` treats the stored path as untrusted and refuses anything that `realpath()`
+    puts outside the invoice directory. It comes from order meta, and a `../` would otherwise read
+    whatever the web server can.
+  - **Downloads carry the order key, not a nonce.** Three ways to be entitled to an invoice: a shop
+    manager, the logged-in customer, or anyone holding the order key — the same token WooCommerce
+    itself trusts on the order-received page, and the only thing a guest checkout has. A nonce would
+    add nothing (a download changes no state) and would expire the link in an order email within a
+    day of it being sent.
+  - Invoices are **attached to customer emails** and skipped on the admin copies, alongside links in
+    the order view and the emails, because a mail client that hides attachments still has to leave
+    the invoice reachable. `woo_kontor_sync_attach_invoices` narrows which emails carry them.
+  - **Uninstalling deletes neither the files nor the option naming their directory.** They are
+    records the shop may be required to keep, and dropping the option would generate a new directory
+    on reinstall and strand everything already there.
 - **The `categories` entity exists but returns zero rows**, filtered or not, so the `Categories`
   GUIDs on an article could not be resolved to names even if we wanted them. Category mapping is
   not possible.
@@ -275,7 +323,7 @@ Three traps that all fail silently rather than loudly:
   `StockSync::apply()` therefore loads the product, turns stock management on for products this
   plugin imported, and counts anyone else's separately rather than reconfiguring them.
 
-Both jobs default to **Never**, so a fresh install contacts Kontor only when someone chooses a
+Every job defaults to **Never**, so a fresh install contacts Kontor only when someone chooses a
 schedule or presses Run now. Never is interval `0` (`Settings::INTERVAL_NEVER`); treat a missing
 interval in a submission as "keep the stored value", never as `0`, or a partial save silently
 disables a schedule.
@@ -284,12 +332,15 @@ disables a schedule.
 
 The ERP is a remote REST service. Treat it as slow, occasionally unavailable, and never trusted.
 
-Four jobs are implemented: **product sync** (7–30 days), **stock sync** (15 minutes–1 day), **order
-sync** pushing to Kontor, and **delivery sync** pulling status and tracking back.
+Five jobs are implemented: **product sync** (7–30 days), **stock sync** (15 minutes–1 day), **order
+sync** pushing to Kontor, **delivery sync** pulling status and tracking back, and **invoice sync**
+(1 hour–1 day) downloading invoice PDFs. Nothing shorter than an hour for invoices: the listing has
+no incremental filter, so a tighter schedule only re-reads the same history more often.
 
 **No job runs until its preconditions hold** — `Preflight::check()`, called at the top of every
-`start()`. Three gates, cheapest first: the API base URL and key are set; order jobs additionally
-have a shop selected; and the credentials actually authenticate. This is not defensive padding. An
+`start()`. Three gates, cheapest first: the API base URL and key are set; every job that talks to
+Kontor about orders — the push, the delivery import and the invoice import — additionally has a shop
+selected; and the credentials actually authenticate. This is not defensive padding. An
 unauthenticated product sync reads as "Kontor lists no articles", and `finalise()` would then draft
 the entire catalogue. Only *success* is cached (`Preflight::CONNECTION_TTL`, 15 minutes), so a
 frequent job does not re-test every run while a fixed key still takes effect immediately. Saving the

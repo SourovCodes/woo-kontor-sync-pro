@@ -62,6 +62,28 @@ class Client {
 	const PRODUCT_PAGE_SIZE = 200;
 
 	/**
+	 * Endpoint that returns one stored document.
+	 *
+	 * The only endpoint that is not a sibling of /search. It lives beside the search
+	 * base rather than under it, which build_url() accounts for.
+	 */
+	const DOCUMENT_ENDPOINT = 'files/dms/getdocument';
+
+	/**
+	 * Envelope shape returned by the search endpoints: "data" is a list of rows.
+	 */
+	const SHAPE_ROWS = 'rows';
+
+	/**
+	 * Envelope shape returned by getdocument: "data" is a base64 string.
+	 *
+	 * Kept separate because reading it as rows is silent data loss — an envelope
+	 * whose "data" is a string would decode to an empty list with success still true,
+	 * so the caller would see a successful request that downloaded nothing.
+	 */
+	const SHAPE_DOCUMENT = 'document';
+
+	/**
 	 * HTTP status codes worth retrying. Client errors are bugs, not blips.
 	 *
 	 * @var int[]
@@ -196,6 +218,41 @@ class Client {
 	}
 
 	/**
+	 * Fetch the invoices Kontor holds for one shop.
+	 *
+	 * Shaped like the orders entity: only filter.shopid is honoured, there is no
+	 * paging, and every invoice for the shop comes back on each call. Each row is a
+	 * document id, a Belegnr, a Datum and the ordernumber this plugin sent, which is
+	 * what ties it back to a WooCommerce order.
+	 *
+	 * @param string $shop_id Kontor shop GUID.
+	 * @return array|WP_Error Array with "data" and "meta" keys, or WP_Error on failure.
+	 */
+	public function fetch_invoices( $shop_id ) {
+		return $this->search( 'invoices', array( 'filter' => array( 'shopid' => (string) $shop_id ) ) );
+	}
+
+	/**
+	 * Download one stored document.
+	 *
+	 * A different endpoint in every respect: it is not under the search base, it is
+	 * selected by an "id" rather than an entity, and its "data" is a base64 string
+	 * rather than a list of rows.
+	 *
+	 * @param string $document_id Document GUID from an invoice row.
+	 * @return array|WP_Error Array whose "data" is the base64 payload, or WP_Error on failure.
+	 */
+	public function fetch_document( $document_id ) {
+		return $this->request(
+			'POST',
+			self::DOCUMENT_ENDPOINT,
+			array( 'id' => (string) $document_id ),
+			null,
+			self::SHAPE_DOCUMENT
+		);
+	}
+
+	/**
 	 * Upload orders to Kontor.
 	 *
 	 * The only write endpoint, and it does not fail the way the read ones do: the
@@ -277,9 +334,10 @@ class Client {
 	 * @param string      $endpoint        Endpoint path, relative to the configured base URL.
 	 * @param array|null  $body            Optional request body.
 	 * @param string|null $idempotency_key Optional idempotency key for writes.
+	 * @param string      $shape           Envelope shape to expect, SHAPE_ROWS or SHAPE_DOCUMENT.
 	 * @return array|WP_Error Decoded payload, or WP_Error on failure.
 	 */
-	protected function request( $method, $endpoint, $body = null, $idempotency_key = null ) {
+	protected function request( $method, $endpoint, $body = null, $idempotency_key = null, $shape = self::SHAPE_ROWS ) {
 		$url = $this->build_url( $endpoint );
 
 		if ( is_wp_error( $url ) ) {
@@ -316,7 +374,7 @@ class Client {
 
 		for ( $attempt = 1; $attempt <= self::MAX_ATTEMPTS; $attempt++ ) {
 			$response = wp_remote_request( $url, $args );
-			$result   = $this->interpret_response( $response, $method, $label, $attempt );
+			$result   = $this->interpret_response( $response, $method, $label, $attempt, $shape );
 
 			if ( ! is_wp_error( $result ) ) {
 				return $result;
@@ -366,9 +424,10 @@ class Client {
 	 * @param string         $method   HTTP method, for logging.
 	 * @param string         $label    Request label, for logging.
 	 * @param int            $attempt  Attempt number, for logging.
+	 * @param string         $shape    Envelope shape to expect, SHAPE_ROWS or SHAPE_DOCUMENT.
 	 * @return array|WP_Error Decoded payload, or an error carrying a "disposition" of retry or fail.
 	 */
-	protected function interpret_response( $response, $method, $label, $attempt ) {
+	protected function interpret_response( $response, $method, $label, $attempt, $shape = self::SHAPE_ROWS ) {
 		if ( is_wp_error( $response ) ) {
 			$this->log(
 				'error',
@@ -398,8 +457,17 @@ class Client {
 		$succeeded = ( $status >= 200 && $status < 300 ) && ! empty( $decoded['success'] );
 
 		if ( $succeeded ) {
+			/*
+			 * A document envelope carries its payload as a base64 string. Reading it as
+			 * rows would hand the caller an empty list alongside a successful result,
+			 * which is a download that quietly produced no file.
+			 */
+			$data = self::SHAPE_DOCUMENT === $shape
+				? ( isset( $decoded['data'] ) && is_string( $decoded['data'] ) ? $decoded['data'] : '' )
+				: ( isset( $decoded['data'] ) && is_array( $decoded['data'] ) ? $decoded['data'] : array() );
+
 			return array(
-				'data' => isset( $decoded['data'] ) && is_array( $decoded['data'] ) ? $decoded['data'] : array(),
+				'data' => $data,
 				'meta' => isset( $decoded['meta'] ) && is_array( $decoded['meta'] ) ? $decoded['meta'] : array(),
 			);
 		}
@@ -432,6 +500,13 @@ class Client {
 	/**
 	 * Build the absolute request URL.
 	 *
+	 * Every search endpoint hangs off the configured base URL. The document store
+	 * does not: the base ends in Kontor's own segment ("…/api/v1/kontor") and
+	 * getdocument sits beside it ("…/api/v1/files/dms/getdocument"), so appending
+	 * would produce a path that does not exist. It is resolved against the base's
+	 * parent instead, which keeps one URL in the settings rather than two that could
+	 * drift onto different hosts.
+	 *
 	 * @param string $endpoint Endpoint path, relative to the configured base URL.
 	 * @return string|WP_Error Absolute URL, or an error when the plugin is unconfigured.
 	 */
@@ -446,7 +521,47 @@ class Client {
 			);
 		}
 
-		return trailingslashit( $base ) . ltrim( $endpoint, '/' );
+		if ( self::DOCUMENT_ENDPOINT !== $endpoint ) {
+			return trailingslashit( $base ) . ltrim( $endpoint, '/' );
+		}
+
+		$url = trailingslashit( self::parent_url( $base ) ) . $endpoint;
+
+		/**
+		 * Filters the URL the document store is read from.
+		 *
+		 * The default is derived from the API base URL, which holds for the layout
+		 * Kontor ships. An installation that arranges the two differently can point
+		 * this somewhere else without a second setting to keep in step.
+		 *
+		 * @since 0.6.0
+		 *
+		 * @param string $url  Absolute URL of the getdocument endpoint.
+		 * @param string $base Configured API base URL.
+		 */
+		return (string) apply_filters( 'woo_kontor_sync_document_url', $url, $base );
+	}
+
+	/**
+	 * Strip the last path segment from a URL.
+	 *
+	 * Returns the URL unchanged when there is no segment to drop, so a base URL that
+	 * is a bare host does not lose its scheme.
+	 *
+	 * @param string $url URL to take the parent of.
+	 * @return string The parent URL, without a trailing slash.
+	 */
+	protected static function parent_url( $url ) {
+		$url    = untrailingslashit( $url );
+		$cut    = strrpos( $url, '/' );
+		$scheme = strpos( $url, '://' );
+
+		// A bare host: the last slash found is the one in "https://".
+		if ( false === $cut || ( false !== $scheme && $cut <= $scheme + 2 ) ) {
+			return $url;
+		}
+
+		return substr( $url, 0, $cut );
 	}
 
 	/**

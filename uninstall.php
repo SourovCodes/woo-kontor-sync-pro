@@ -26,4 +26,10 @@ delete_expired_transients();
  * The _wksync_* meta recording each object's Kontor ID is deliberately left in
  * place. Deleting it would orphan the records that already exist in the ERP, and
  * reinstalling would then create duplicates.
+ *
+ * The downloaded invoices are left alone for the same reason, and a stronger one:
+ * they are financial records the shop may be required to keep, and deleting a
+ * customer's invoices is not something uninstalling a plugin should do. The option
+ * naming their directory therefore survives too — dropping it would generate a new
+ * directory on reinstall and strand every file already there.
  */

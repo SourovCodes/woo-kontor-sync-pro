@@ -73,6 +73,16 @@ class Scheduler {
 	const ACTION_SYNC_DELIVERY_CHUNK = 'woo_kontor_sync_delivery_chunk';
 
 	/**
+	 * Entry point for the invoice document import.
+	 */
+	const ACTION_SYNC_INVOICES = 'woo_kontor_sync_invoices';
+
+	/**
+	 * Downloads one chunk of invoices, then chains to the next.
+	 */
+	const ACTION_SYNC_INVOICES_CHUNK = 'woo_kontor_sync_invoices_chunk';
+
+	/**
 	 * Transient that rate limits the schedule reconciliation on `init`.
 	 */
 	const SCHEDULE_GUARD = 'wksync_schedule_checked';
@@ -118,6 +128,15 @@ class Scheduler {
 				'intervals'   => 'delivery_sync_intervals',
 				'needs_shop'  => true,
 			),
+			'invoices' => array(
+				'label'       => __( 'Invoice sync', 'woo-kontor-sync-pro' ),
+				'description' => __( 'Downloads invoice PDFs from Kontor and files them against their orders.', 'woo-kontor-sync-pro' ),
+				'direction'   => __( 'From Kontor', 'woo-kontor-sync-pro' ),
+				'action'      => self::ACTION_SYNC_INVOICES,
+				'setting'     => 'invoice_sync_interval',
+				'intervals'   => 'invoice_sync_intervals',
+				'needs_shop'  => true,
+			),
 		);
 	}
 
@@ -139,6 +158,9 @@ class Scheduler {
 
 		add_action( self::ACTION_SYNC_DELIVERY, array( $this, 'handle_delivery' ) );
 		add_action( self::ACTION_SYNC_DELIVERY_CHUNK, array( $this, 'handle_delivery_chunk' ), 10, 2 );
+
+		add_action( self::ACTION_SYNC_INVOICES, array( $this, 'handle_invoices' ) );
+		add_action( self::ACTION_SYNC_INVOICES_CHUNK, array( $this, 'handle_invoices_chunk' ), 10, 2 );
 
 		/*
 		 * An order reaching a pushable status queues an upload. These fire inside a
@@ -390,6 +412,26 @@ class Scheduler {
 	 */
 	public function handle_delivery_chunk( $offset = 0, $run = 0 ) {
 		( new DeliverySync() )->apply_chunk( absint( $offset ), absint( $run ) );
+	}
+
+	/**
+	 * Start an invoice document import.
+	 *
+	 * @return void
+	 */
+	public function handle_invoices() {
+		( new InvoiceSync() )->start();
+	}
+
+	/**
+	 * Download one chunk of invoices.
+	 *
+	 * @param int $offset Number of rows already processed.
+	 * @param int $run    Run identifier.
+	 * @return void
+	 */
+	public function handle_invoices_chunk( $offset = 0, $run = 0 ) {
+		( new InvoiceSync() )->apply_chunk( absint( $offset ), absint( $run ) );
 	}
 
 	/**
