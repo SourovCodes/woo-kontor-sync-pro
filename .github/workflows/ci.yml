@@ -10,8 +10,12 @@ on:
   workflow_dispatch:
 
 # A new push to the same branch makes the run in progress irrelevant.
+#
+# The group is a literal rather than ${{ github.workflow }}, which inside a called
+# workflow resolves to the *caller's* name: this workflow would then land in the same
+# group as the release that called it and cancel the run waiting on it.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
