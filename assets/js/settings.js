@@ -98,6 +98,69 @@
 			} );
 		}
 
+		var makersButton = document.getElementById( 'wksync-fetch-manufacturers' );
+		var makersOutput = document.getElementById( 'wksync-manufacturers-result' );
+		var makersSelect = document.getElementById( 'wksync-manufacturer-ids' );
+		var makersNames = document.getElementById( 'wksync-manufacturer-names' );
+
+		if ( makersButton && makersOutput && makersSelect && makersNames ) {
+			/*
+			 * The names ride along in a hidden field purely so the saved selection still
+			 * reads as names after a reload. Nothing is decided by them server-side, and
+			 * only the selected ones are kept.
+			 */
+			var rememberNames = function () {
+				var names = {};
+
+				Array.prototype.forEach.call( makersSelect.options, function ( option ) {
+					if ( option.selected ) {
+						names[ option.value ] = option.textContent.trim();
+					}
+				} );
+
+				makersNames.value = JSON.stringify( names );
+			};
+
+			makersSelect.addEventListener( 'change', rememberNames );
+
+			makersButton.addEventListener( 'click', function () {
+				report( makersOutput, wksyncSettings.fetchingManufacturers, false );
+
+				send(
+					credentials( 'wksync_fetch_manufacturers', wksyncSettings.manufacturersNonce ),
+					makersButton,
+					makersOutput,
+					wksyncSettings.manufacturersFailed,
+					function ( result ) {
+						var chosen = [];
+						var makers = result.data && result.data.manufacturers
+							? result.data.manufacturers
+							: [];
+
+						Array.prototype.forEach.call( makersSelect.options, function ( option ) {
+							if ( option.selected ) {
+								chosen.push( option.value );
+							}
+						} );
+
+						makersSelect.textContent = '';
+
+						makers.forEach( function ( maker ) {
+							var option = new Option( maker.name, maker.id );
+
+							// Keep the current selection if Kontor still lists it.
+							option.selected = -1 !== chosen.indexOf( maker.id );
+
+							makersSelect.appendChild( option );
+						} );
+
+						rememberNames();
+						report( makersOutput, wksyncSettings.unsavedManufacturers, false );
+					}
+				);
+			} );
+		}
+
 		var shopsButton = document.getElementById( 'wksync-fetch-shops' );
 		var shopsOutput = document.getElementById( 'wksync-shops-result' );
 		var shopSelect = document.getElementById( 'wksync-shop-id' );

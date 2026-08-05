@@ -161,7 +161,7 @@ class OrderSyncTest extends WP_UnitTestCase {
 		$sync    = new OrderSync( null, $this->settings() );
 		$payload = $sync->build_payload( $order );
 
-		$this->assertSame( (string) $order->get_order_number(), $payload['orderNumber'] );
+		$this->assertSame( (string) $order->get_id(), $payload['orderNumber'] );
 		$this->assertSame( 'EUR', $payload['currency'] );
 		$this->assertSame( 'max@example.com', $payload['customerEmail'] );
 		$this->assertSame( 'DE', $payload['billingAddress']['countryCode'] );
@@ -182,6 +182,112 @@ class OrderSyncTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * The deduplication key is the order ID, and the display number rides alongside.
+	 *
+	 * The display number is filterable, so a sequential-order-number plugin installed
+	 * later changes what every existing order calls itself. Keying Kontor's
+	 * deduplication on that would make the same order look new, and would break the
+	 * delivery sync's ability to match rows back.
+	 *
+	 * @return void
+	 */
+	public function test_order_number_is_the_id_and_order_id_is_the_display_number() {
+		$order = $this->make_order();
+
+		add_filter(
+			'woocommerce_order_number',
+			static function () {
+				return 'INV-9001';
+			}
+		);
+
+		$payload = ( new OrderSync( null, $this->settings() ) )->build_payload( $order );
+
+		$this->assertSame( (string) $order->get_id(), $payload['orderNumber'] );
+		$this->assertSame( 'INV-9001', $payload['orderId'] );
+
+		remove_all_filters( 'woocommerce_order_number' );
+	}
+
+	/**
+	 * The recorded order number survives a renumbering plugin arriving later.
+	 *
+	 * @return void
+	 */
+	public function test_recorded_order_number_is_the_pushed_key() {
+		$order = $this->make_order();
+
+		$this->fake_response( $this->upsert_reply( (string) $order->get_id() ) );
+
+		( new OrderSync( null, $this->settings() ) )->push_one( $order->get_id() );
+
+		$refreshed = wc_get_order( $order->get_id() );
+
+		$this->assertSame( (string) $order->get_id(), $refreshed->get_meta( OrderSync::META_ORDER_NUMBER ) );
+	}
+
+	/**
+	 * Every order carries a delivery address, taken from shipping when there is one.
+	 *
+	 * @return void
+	 */
+	public function test_delivery_address_uses_the_shipping_address() {
+		$order = $this->make_order();
+		$order->set_shipping_first_name( 'Erika' );
+		$order->set_shipping_last_name( 'Musterfrau' );
+		$order->set_shipping_address_1( 'Lieferweg 7' );
+		$order->set_shipping_postcode( '10115' );
+		$order->set_shipping_city( 'Berlin' );
+		$order->set_shipping_country( 'DE' );
+		$order->save();
+
+		$payload = ( new OrderSync( null, $this->settings() ) )->build_payload( $order );
+
+		$this->assertSame( 'Lieferweg 7', $payload['deliveryAddress']['street'] );
+		$this->assertSame( 'Berlin', $payload['deliveryAddress']['city'] );
+		$this->assertSame( 'Erika Musterfrau', $payload['deliveryAddress']['name'] );
+
+		// The billing address is unaffected by the delivery address being different.
+		$this->assertSame( 'Musterstraße 1', $payload['billingAddress']['street'] );
+	}
+
+	/**
+	 * An order with no shipping address still carries a delivery address.
+	 *
+	 * WooCommerce leaves shipping empty on a virtual order, or when the customer did
+	 * not ask to ship elsewhere. An order arriving in the ERP with nowhere to send it
+	 * is one nobody can pick and pack.
+	 *
+	 * @return void
+	 */
+	public function test_delivery_address_falls_back_to_billing() {
+		$order   = $this->make_order();
+		$payload = ( new OrderSync( null, $this->settings() ) )->build_payload( $order );
+
+		$this->assertArrayHasKey( 'deliveryAddress', $payload );
+		$this->assertSame( 'Musterstraße 1', $payload['deliveryAddress']['street'] );
+		$this->assertSame( '50667', $payload['deliveryAddress']['zipcode'] );
+		$this->assertSame( 'Köln', $payload['deliveryAddress']['city'] );
+	}
+
+	/**
+	 * A shipping address with only a name is not somewhere a parcel can go.
+	 *
+	 * @return void
+	 */
+	public function test_partial_shipping_address_falls_back_to_billing() {
+		$order = $this->make_order();
+		$order->set_shipping_first_name( 'Erika' );
+		$order->set_shipping_last_name( 'Musterfrau' );
+		$order->save();
+
+		$payload = ( new OrderSync( null, $this->settings() ) )->build_payload( $order );
+
+		$this->assertSame( 'Musterstraße 1', $payload['deliveryAddress']['street'] );
+		$this->assertSame( 'Max Mustermann', $payload['deliveryAddress']['name'] );
+	}
+
+	/**
 	 * The upload user ID is fixed rather than derived or filterable.
 	 *
 	 * The settings screen shows it read-only, so anything able to change it would
@@ -190,7 +296,7 @@ class OrderSyncTest extends WP_UnitTestCase {
 	 * @return void
 	 */
 	public function test_upload_user_id_is_fixed() {
-		$this->assertSame( 'CG', OrderSync::UPLOAD_USER_ID );
+		$this->assertSame( 'WKSP', OrderSync::UPLOAD_USER_ID );
 
 		$order = $this->make_order();
 
@@ -205,7 +311,7 @@ class OrderSyncTest extends WP_UnitTestCase {
 
 		( new OrderSync( null, $this->settings() ) )->push_one( $order->get_id() );
 
-		$this->assertSame( 'CG', $this->captured['body']['meta']['userId'] );
+		$this->assertSame( 'WKSP', $this->captured['body']['meta']['userId'] );
 
 		remove_all_filters( 'woo_kontor_sync_upload_user_id' );
 	}
@@ -268,7 +374,7 @@ class OrderSyncTest extends WP_UnitTestCase {
 		$this->assertSame( self::SHOP_ID, $this->captured['body']['params']['shopid'] );
 
 		// meta.userId is required by the API and fixed by agreement with Kontor.
-		$this->assertSame( 'CG', $this->captured['body']['meta']['userId'] );
+		$this->assertSame( 'WKSP', $this->captured['body']['meta']['userId'] );
 
 		// overwrite_all stays false, which is what makes a duplicate a no-op.
 		$this->assertFalse( $this->captured['body']['params']['overwrite_all'] );

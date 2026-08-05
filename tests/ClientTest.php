@@ -134,6 +134,58 @@ class ClientTest extends WP_UnitTestCase {
 		$this->assertSame( 500, $body['paging']['skip'] );
 		$this->assertSame( 250, $body['paging']['take'] );
 		$this->assertSame( 'B2C', $body['filter']['shoptype'] );
+
+		// No manufacturers chosen means the whole catalogue, not an empty filter.
+		$this->assertArrayNotHasKey( 'herstellerids', $body['filter'] );
+	}
+
+	/**
+	 * Chosen manufacturers are sent as one comma-separated filter value.
+	 *
+	 * The IDs stay strings: they carry leading zeros, and "084" is a different
+	 * manufacturer from "84".
+	 *
+	 * @return void
+	 */
+	public function test_manufacturer_filter_is_sent_as_a_joined_string() {
+		$this->fake_response(
+			200,
+			array(
+				'success' => true,
+				'data'    => array(),
+				'meta'    => array(),
+			)
+		);
+
+		( new Client( $this->settings() ) )->fetch_products( 0, 200, null, array( '084', '104' ) );
+
+		$body = json_decode( $this->captured['args']['body'], true );
+
+		$this->assertSame( '084,104', $body['filter']['herstellerids'] );
+		$this->assertSame( 'B2C', $body['filter']['shoptype'] );
+	}
+
+	/**
+	 * The manufacturer entity is sent without paging or filter.
+	 *
+	 * @return void
+	 */
+	public function test_manufacturer_request_carries_no_paging_or_filter() {
+		$this->fake_response(
+			200,
+			array(
+				'success' => true,
+				'data'    => array(),
+				'meta'    => array(),
+			)
+		);
+
+		( new Client( $this->settings() ) )->fetch_manufacturers();
+
+		$this->assertSame(
+			array( 'entity' => 'manufacturer' ),
+			json_decode( $this->captured['args']['body'], true )
+		);
 	}
 
 	/**

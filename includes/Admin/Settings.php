@@ -95,6 +95,8 @@ class Settings {
 			'shoptype'               => 'B2B',
 			'shop_id'                => '',
 			'shop_name'              => '',
+			'manufacturer_ids'       => array(),
+			'manufacturer_names'     => array(),
 			'image_base_url'         => '',
 			'product_sync_interval'  => self::INTERVAL_NEVER,
 			'stock_sync_interval'    => self::INTERVAL_NEVER,
@@ -199,6 +201,7 @@ class Settings {
 		add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_assets' ) );
 		add_action( 'wp_ajax_wksync_test_connection', array( $this, 'handle_test_connection' ) );
 		add_action( 'wp_ajax_wksync_fetch_shops', array( $this, 'handle_fetch_shops' ) );
+		add_action( 'wp_ajax_wksync_fetch_manufacturers', array( $this, 'handle_fetch_manufacturers' ) );
 		add_action( 'admin_post_wksync_run_job', array( $this, 'handle_run_job' ) );
 	}
 
@@ -258,15 +261,19 @@ class Settings {
 			'wksync-settings',
 			'wksyncSettings',
 			array(
-				'ajaxUrl'       => admin_url( 'admin-ajax.php' ),
-				'nonce'         => wp_create_nonce( 'wksync_test_connection' ),
-				'testing'       => __( 'Testing connection…', 'woo-kontor-sync-pro' ),
-				'failed'        => __( 'The connection test could not be completed.', 'woo-kontor-sync-pro' ),
-				'shopsNonce'    => wp_create_nonce( 'wksync_fetch_shops' ),
-				'fetchingShops' => __( 'Fetching shops…', 'woo-kontor-sync-pro' ),
-				'shopsFailed'   => __( 'The shop list could not be fetched.', 'woo-kontor-sync-pro' ),
-				'noShop'        => __( '— No shop selected —', 'woo-kontor-sync-pro' ),
-				'unsavedShop'   => __( 'Shops loaded. Choose one, then save the settings.', 'woo-kontor-sync-pro' ),
+				'ajaxUrl'               => admin_url( 'admin-ajax.php' ),
+				'nonce'                 => wp_create_nonce( 'wksync_test_connection' ),
+				'testing'               => __( 'Testing connection…', 'woo-kontor-sync-pro' ),
+				'failed'                => __( 'The connection test could not be completed.', 'woo-kontor-sync-pro' ),
+				'shopsNonce'            => wp_create_nonce( 'wksync_fetch_shops' ),
+				'fetchingShops'         => __( 'Fetching shops…', 'woo-kontor-sync-pro' ),
+				'shopsFailed'           => __( 'The shop list could not be fetched.', 'woo-kontor-sync-pro' ),
+				'noShop'                => __( '— No shop selected —', 'woo-kontor-sync-pro' ),
+				'unsavedShop'           => __( 'Shops loaded. Choose one, then save the settings.', 'woo-kontor-sync-pro' ),
+				'manufacturersNonce'    => wp_create_nonce( 'wksync_fetch_manufacturers' ),
+				'fetchingManufacturers' => __( 'Fetching manufacturers…', 'woo-kontor-sync-pro' ),
+				'manufacturersFailed'   => __( 'The manufacturer list could not be fetched.', 'woo-kontor-sync-pro' ),
+				'unsavedManufacturers'  => __( 'Manufacturers loaded. Choose the ones to import, then save the settings.', 'woo-kontor-sync-pro' ),
 			)
 		);
 	}
@@ -290,6 +297,7 @@ class Settings {
 		$submitted_key = isset( $input['api_key'] ) ? self::sanitize_api_key( $input['api_key'] ) : '';
 		$shoptype      = isset( $input['shoptype'] ) ? sanitize_text_field( $input['shoptype'] ) : '';
 		$shop          = $this->pick_shop( $input, $existing );
+		$manufacturers = $this->pick_manufacturers( $input, $existing );
 
 		return array(
 			'api_base_url'           => isset( $input['api_base_url'] ) ? esc_url_raw( trim( $input['api_base_url'] ) ) : '',
@@ -297,6 +305,8 @@ class Settings {
 			'shoptype'               => array_key_exists( $shoptype, self::shoptypes() ) ? $shoptype : $existing['shoptype'],
 			'shop_id'                => $shop['shop_id'],
 			'shop_name'              => $shop['shop_name'],
+			'manufacturer_ids'       => $manufacturers['manufacturer_ids'],
+			'manufacturer_names'     => $manufacturers['manufacturer_names'],
 			'image_base_url'         => isset( $input['image_base_url'] ) ? esc_url_raw( trim( $input['image_base_url'] ) ) : '',
 			'product_sync_interval'  => $this->pick_interval( $input, 'product_sync_interval', self::product_sync_intervals(), $existing ),
 			'stock_sync_interval'    => $this->pick_interval( $input, 'stock_sync_interval', self::stock_sync_intervals(), $existing ),
@@ -408,6 +418,105 @@ class Settings {
 	}
 
 	/**
+	 * Validate the submitted manufacturer selection.
+	 *
+	 * An empty selection means "import every manufacturer", which is also what a
+	 * fresh install has, so absent and empty cannot both mean the same thing here:
+	 * a multi-select with nothing chosen submits no field at all, and treating that
+	 * as "clear" would make any partial submission silently widen the import. The
+	 * form therefore carries a marker field that is always present, and only a
+	 * submission carrying it is allowed to clear the list.
+	 *
+	 * @param array $input    Raw submitted settings.
+	 * @param array $existing Currently stored settings.
+	 * @return array The manufacturer_ids and manufacturer_names to store.
+	 */
+	protected function pick_manufacturers( array $input, array $existing ) {
+		$stored = array(
+			'manufacturer_ids'   => isset( $existing['manufacturer_ids'] ) ? (array) $existing['manufacturer_ids'] : array(),
+			'manufacturer_names' => isset( $existing['manufacturer_names'] ) ? (array) $existing['manufacturer_names'] : array(),
+		);
+
+		if ( empty( $input['manufacturer_choice'] ) ) {
+			return $stored;
+		}
+
+		$submitted = isset( $input['manufacturer_ids'] ) ? (array) $input['manufacturer_ids'] : array();
+		$ids       = array();
+
+		foreach ( $submitted as $id ) {
+			$id = trim( (string) $id );
+
+			if ( self::is_manufacturer_id( $id ) ) {
+				$ids[] = $id;
+			}
+		}
+
+		$ids = array_values( array_unique( $ids ) );
+
+		return array(
+			'manufacturer_ids'   => $ids,
+			'manufacturer_names' => $this->pick_manufacturer_names( $input, $stored['manufacturer_names'], $ids ),
+		);
+	}
+
+	/**
+	 * Validate the labels submitted alongside the manufacturer selection.
+	 *
+	 * The names are carried in a hidden field purely so the saved selection still
+	 * reads as names after a reload, without asking Kontor again. Nothing is decided
+	 * by them, and a name for an ID that was not selected is discarded rather than
+	 * accumulated.
+	 *
+	 * @param array $input    Raw submitted settings.
+	 * @param array $stored   Names currently stored.
+	 * @param array $selected Manufacturer IDs that survived validation.
+	 * @return array Map of manufacturer ID to display name.
+	 */
+	protected function pick_manufacturer_names( array $input, array $stored, array $selected ) {
+		$submitted = isset( $input['manufacturer_names'] ) ? json_decode( (string) $input['manufacturer_names'], true ) : array();
+
+		if ( ! is_array( $submitted ) ) {
+			$submitted = array();
+		}
+
+		$names = array();
+
+		foreach ( $selected as $id ) {
+			// Stripped rather than passed through sanitize_text_field(), which would eat
+			// a percent octet in a manufacturer name.
+			$name = isset( $submitted[ $id ] ) && is_scalar( $submitted[ $id ] )
+				? trim( wp_strip_all_tags( (string) $submitted[ $id ] ) )
+				: '';
+
+			if ( '' === $name && isset( $stored[ $id ] ) ) {
+				$name = (string) $stored[ $id ];
+			}
+
+			if ( '' !== $name ) {
+				$names[ $id ] = $name;
+			}
+		}
+
+		return $names;
+	}
+
+	/**
+	 * Whether a value has the shape of a Kontor manufacturer ID.
+	 *
+	 * Kept as a string and never cast: the IDs carry leading zeros, so "084" would
+	 * collide with "84" the moment it became an integer. A comma is rejected because
+	 * the IDs are joined with commas into the API filter, where one embedded in a
+	 * value would read as two manufacturers.
+	 *
+	 * @param string $value Value to check.
+	 * @return bool True when the value could be a manufacturer ID.
+	 */
+	public static function is_manufacturer_id( $value ) {
+		return 1 === preg_match( '/^[A-Za-z0-9._-]{1,64}$/', (string) $value );
+	}
+
+	/**
 	 * Whether a value has the shape of a Kontor shop ID.
 	 *
 	 * Kontor returns canonical GUIDs, such as
@@ -512,6 +621,99 @@ class Settings {
 				),
 			)
 		);
+	}
+
+	/**
+	 * Fetch the list of manufacturers from Kontor for the settings screen.
+	 *
+	 * Fetched on demand rather than cached, for the same reason as the shop list: a
+	 * stored copy would quietly go stale, and the one thing worse than an empty list
+	 * is a list that is confidently wrong.
+	 *
+	 * @return void
+	 */
+	public function handle_fetch_manufacturers() {
+		check_ajax_referer( 'wksync_fetch_manufacturers', 'nonce' );
+
+		if ( ! current_user_can( self::CAPABILITY ) ) {
+			wp_send_json_error( array( 'message' => __( 'You do not have permission to do that.', 'woo-kontor-sync-pro' ) ), 403 );
+		}
+
+		$client = new Client( $this->credentials_from_request() );
+		$result = $client->fetch_manufacturers();
+
+		if ( is_wp_error( $result ) ) {
+			$code = Client::detail( $result, 'error_code' );
+
+			wp_send_json_error(
+				array(
+					'message' => '' === $code
+						? $result->get_error_message()
+						: sprintf( '%s (%s)', $result->get_error_message(), $code ),
+				)
+			);
+		}
+
+		$manufacturers = self::manufacturers_from_response( $result );
+
+		if ( empty( $manufacturers ) ) {
+			wp_send_json_error( array( 'message' => __( 'Kontor returned no manufacturers for this key.', 'woo-kontor-sync-pro' ) ) );
+		}
+
+		wp_send_json_success(
+			array(
+				'manufacturers' => $manufacturers,
+				'message'       => sprintf(
+					/* translators: %s: number of manufacturers found. */
+					_n( 'Found %s manufacturer.', 'Found %s manufacturers.', count( $manufacturers ), 'woo-kontor-sync-pro' ),
+					number_format_i18n( count( $manufacturers ) )
+				),
+			)
+		);
+	}
+
+	/**
+	 * Reduce a manufacturers response to id and name pairs.
+	 *
+	 * Rows arrive one per article on some accounts rather than one per manufacturer,
+	 * so duplicates are collapsed on the ID. A row without a usable ID is dropped: it
+	 * could not be filtered on, so offering it as a choice would be offering a filter
+	 * that silently returns nothing.
+	 *
+	 * @param array $response Decoded envelope from the manufacturer entity.
+	 * @return array List of arrays with "id" and "name" keys, sorted by name.
+	 */
+	public static function manufacturers_from_response( array $response ) {
+		$rows          = isset( $response['data'] ) && is_array( $response['data'] ) ? $response['data'] : array();
+		$manufacturers = array();
+
+		foreach ( $rows as $row ) {
+			if ( ! is_array( $row ) || ! isset( $row['Herstellerid'] ) ) {
+				continue;
+			}
+
+			$id = trim( (string) $row['Herstellerid'] );
+
+			if ( ! self::is_manufacturer_id( $id ) || isset( $manufacturers[ $id ] ) ) {
+				continue;
+			}
+
+			$name = isset( $row['Hersteller'] ) ? trim( wp_strip_all_tags( (string) $row['Hersteller'] ) ) : '';
+
+			$manufacturers[ $id ] = array(
+				'id'   => $id,
+				'name' => '' === $name ? $id : $name,
+			);
+		}
+
+		uasort(
+			$manufacturers,
+			static function ( $left, $right ) {
+				return strnatcasecmp( $left['name'], $right['name'] );
+			}
+		);
+
+		return array_values( $manufacturers );
 	}
 
 	/**
@@ -773,6 +975,52 @@ class Settings {
 				<table class="form-table" role="presentation">
 					<tr>
 						<th scope="row">
+							<label for="wksync-manufacturer-ids"><?php echo esc_html__( 'Manufacturers', 'woo-kontor-sync-pro' ); ?></label>
+						</th>
+						<td>
+							<?php
+							/*
+							 * Always submitted, so an empty selection can be told apart from a
+							 * submission that never had the field. Without it, choosing nothing
+							 * would look identical to a partial save and could never clear the
+							 * filter.
+							 */
+							?>
+							<input type="hidden" name="<?php echo esc_attr( self::OPTION_KEY ); ?>[manufacturer_choice]" value="1"/>
+							<select
+								id="wksync-manufacturer-ids"
+								name="<?php echo esc_attr( self::OPTION_KEY ); ?>[manufacturer_ids][]"
+								multiple
+								size="8"
+								class="regular-text"
+							>
+								<?php foreach ( (array) $settings['manufacturer_ids'] as $manufacturer_id ) : ?>
+									<option value="<?php echo esc_attr( $manufacturer_id ); ?>" selected>
+										<?php echo esc_html( self::manufacturer_label( $settings, $manufacturer_id ) ); ?>
+									</option>
+								<?php endforeach; ?>
+							</select>
+							<button type="button" class="button" id="wksync-fetch-manufacturers">
+								<?php echo esc_html__( 'Fetch manufacturers', 'woo-kontor-sync-pro' ); ?>
+							</button>
+							<input
+								type="hidden"
+								id="wksync-manufacturer-names"
+								name="<?php echo esc_attr( self::OPTION_KEY ); ?>[manufacturer_names]"
+								value="<?php echo esc_attr( (string) wp_json_encode( (array) $settings['manufacturer_names'] ) ); ?>"
+							/>
+							<p class="description">
+								<?php echo esc_html__( 'Limits the product sync to these manufacturers. Select none to import the whole catalogue.', 'woo-kontor-sync-pro' ); ?>
+							</p>
+							<p class="description">
+								<strong><?php echo esc_html__( 'Narrowing this drafts products.', 'woo-kontor-sync-pro' ); ?></strong>
+								<?php echo esc_html__( 'Articles the filter excludes are no longer in the feed, so the next product sync drafts the ones it previously imported. Widening the filter again republishes them.', 'woo-kontor-sync-pro' ); ?>
+							</p>
+							<p class="description" id="wksync-manufacturers-result" aria-live="polite"></p>
+						</td>
+					</tr>
+					<tr>
+						<th scope="row">
 							<label for="wksync-image-base-url"><?php echo esc_html__( 'Image base URL', 'woo-kontor-sync-pro' ); ?></label>
 						</th>
 						<td>
@@ -861,6 +1109,24 @@ class Settings {
 			<?php $this->render_jobs_table(); ?>
 		</div>
 		<?php
+	}
+
+	/**
+	 * The label to show for a stored manufacturer selection.
+	 *
+	 * Falls back to the ID when no name was stored alongside it, so a selection made
+	 * before the names existed still renders as something rather than as a blank row.
+	 *
+	 * @param array  $settings        Current settings.
+	 * @param string $manufacturer_id Manufacturer ID to label.
+	 * @return string Display label.
+	 */
+	protected static function manufacturer_label( array $settings, $manufacturer_id ) {
+		$names = isset( $settings['manufacturer_names'] ) ? (array) $settings['manufacturer_names'] : array();
+
+		return isset( $names[ $manufacturer_id ] ) && '' !== $names[ $manufacturer_id ]
+			? (string) $names[ $manufacturer_id ]
+			: (string) $manufacturer_id;
 	}
 
 	/**

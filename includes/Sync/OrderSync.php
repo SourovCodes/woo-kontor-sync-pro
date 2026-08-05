@@ -48,9 +48,10 @@ class OrderSync {
 	/**
 	 * Meta holding the order number sent as the deduplication key.
 	 *
-	 * Recorded because get_order_number() is filterable: a sequential-order-number
-	 * plugin installed later would change what the order calls itself, and the
-	 * delivery sync still has to match the value Kontor was actually given.
+	 * That key is the order ID, which never changes. It is still recorded rather
+	 * than recomputed, so the delivery sync matches on the value Kontor was actually
+	 * given even if an order sent by an older version of this plugin used something
+	 * else.
 	 */
 	const META_ORDER_NUMBER = '_wksync_order_number';
 
@@ -67,7 +68,7 @@ class OrderSync {
 	 * settings screen shows it as read-only and a filter would make that display a
 	 * lie about what is actually sent.
 	 */
-	const UPLOAD_USER_ID = 'CG';
+	const UPLOAD_USER_ID = 'WKSP';
 
 	/**
 	 * How many orders to send in one request.
@@ -413,8 +414,21 @@ class OrderSync {
 	 * @return array Order in the shape the upsert endpoint expects.
 	 */
 	public function build_payload( $order ) {
-		$number = (string) $order->get_order_number();
-		$date   = $order->get_date_created();
+		/*
+		 * The two order fields carry different values on purpose.
+		 *
+		 * orderNumber is Kontor's deduplication key and the value the delivery sync
+		 * matches rows back on, so it has to be stable for the life of the order: the
+		 * order ID is, and get_order_number() is not — it is filterable, and installing
+		 * a sequential-order-number plugin would change what every existing order calls
+		 * itself.
+		 *
+		 * orderId carries what the shop displays, so an order can still be found in the
+		 * ERP by the number the customer and the shop manager both see.
+		 */
+		$number  = (string) $order->get_id();
+		$display = (string) $order->get_order_number();
+		$date    = $order->get_date_created();
 
 		/*
 		 * orderPlatformid is optional and deliberately not sent: it identifies the
@@ -422,32 +436,28 @@ class OrderSync {
 		 * Inventing one would put a meaningless string on every order in the ERP.
 		 */
 		$payload = array(
-			'orderId'        => $number,
-			'orderNumber'    => $number,
-			'orderDate'      => $date ? gmdate( 'Y-m-d\TH:i:s\Z', $date->getTimestamp() ) : gmdate( 'Y-m-d\TH:i:s\Z' ),
-			'currency'       => $order->get_currency(),
-			'customerName'   => trim( $order->get_formatted_billing_full_name() ),
-			'customerEmail'  => $order->get_billing_email(),
-			'customerPhone'  => $order->get_billing_phone(),
-			'customerGroup'  => isset( $this->settings['shoptype'] ) ? (string) $this->settings['shoptype'] : '',
-			'language'       => substr( get_locale(), 0, 2 ),
-			'billingAddress' => $this->address( $order, 'billing' ),
-			'shippingTotal'  => (float) $order->get_shipping_total(),
-			'paymentMethod'  => $order->get_payment_method(),
-			'shippingMethod' => $order->get_shipping_method(),
-			'remarks'        => $order->get_customer_note(),
-			'items'          => $this->items( $order ),
+			'orderId'         => $display,
+			'orderNumber'     => $number,
+			'orderDate'       => $date ? gmdate( 'Y-m-d\TH:i:s\Z', $date->getTimestamp() ) : gmdate( 'Y-m-d\TH:i:s\Z' ),
+			'currency'        => $order->get_currency(),
+			'customerName'    => trim( $order->get_formatted_billing_full_name() ),
+			'customerEmail'   => $order->get_billing_email(),
+			'customerPhone'   => $order->get_billing_phone(),
+			'customerGroup'   => isset( $this->settings['shoptype'] ) ? (string) $this->settings['shoptype'] : '',
+			'language'        => substr( get_locale(), 0, 2 ),
+			'billingAddress'  => $this->address( $order, 'billing' ),
+			'deliveryAddress' => $this->delivery_address( $order ),
+			'shippingTotal'   => (float) $order->get_shipping_total(),
+			'paymentMethod'   => $order->get_payment_method(),
+			'shippingMethod'  => $order->get_shipping_method(),
+			'remarks'         => $order->get_customer_note(),
+			'items'           => $this->items( $order ),
 		);
 
 		$customer_number = $order->get_customer_id();
 
 		if ( $customer_number ) {
 			$payload['customerNumber'] = (string) $customer_number;
-		}
-
-		// Only send a delivery address when there is one; Kontor falls back to billing.
-		if ( $order->get_shipping_address_1() || $order->get_shipping_postcode() ) {
-			$payload['deliveryAddress'] = $this->address( $order, 'shipping' );
 		}
 
 		/**
@@ -459,6 +469,29 @@ class OrderSync {
 		 * @param WC_Order $order   Order it was mapped from.
 		 */
 		return (array) apply_filters( 'woo_kontor_sync_order_payload', $payload, $order );
+	}
+
+	/**
+	 * Map the address the order ships to.
+	 *
+	 * Always sent, and always populated: WooCommerce leaves the shipping address
+	 * empty on a virtual order, or on one where the customer did not tick "ship to a
+	 * different address", and an order arriving in the ERP with no delivery address
+	 * is one nobody can pick and pack. Billing is where it goes in that case, which
+	 * is what WooCommerce itself falls back to on the order screen.
+	 *
+	 * Deciding on the street and postcode rather than on the whole address: a partial
+	 * shipping address with only a name filled in is not somewhere a parcel can be
+	 * sent.
+	 *
+	 * @param WC_Order $order Order to read.
+	 * @return array Address in the shape the API expects.
+	 */
+	protected function delivery_address( $order ) {
+		$has_shipping = '' !== trim( (string) $order->get_shipping_address_1() )
+			|| '' !== trim( (string) $order->get_shipping_postcode() );
+
+		return $this->address( $order, $has_shipping ? 'shipping' : 'billing' );
 	}
 
 	/**

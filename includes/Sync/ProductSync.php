@@ -50,10 +50,13 @@ class ProductSync {
 	 * Fields this sync actually consumes.
 	 *
 	 * The change hash is built from these alone, so churn in fields we deliberately
-	 * ignore — Ek, Categories and Herstellerid — cannot trigger a pointless rewrite
-	 * of every product. Ek is the purchase price and is not imported; the Categories
-	 * GUIDs cannot be resolved, because Kontor's categories entity returns no rows;
-	 * brands are matched on the manufacturer name alone.
+	 * ignore — Ek and Categories — cannot trigger a pointless rewrite of every
+	 * product. Ek is the purchase price and is not imported, and the Categories GUIDs
+	 * cannot be resolved, because Kontor's categories entity returns no rows.
+	 *
+	 * Herstellerid is in the list because brands are matched on it. A manufacturer
+	 * moved to a different ID has to reach Brands::resolve() to be followed, and an
+	 * article skipped as unchanged never gets there.
 	 *
 	 * @var string[]
 	 */
@@ -70,6 +73,7 @@ class ProductSync {
 		'Artean',
 		'Mpn',
 		'Hersteller',
+		'Herstellerid',
 		'MainImageURL',
 	);
 
@@ -82,6 +86,15 @@ class ProductSync {
 	 * Meta holding a hash of the image filenames last sideloaded.
 	 */
 	const META_IMAGE_HASH = '_wksync_image_hash';
+
+	/**
+	 * Attachment meta holding the URL an imported image came from.
+	 *
+	 * Doubles as the marker for "this plugin downloaded this file": nothing else
+	 * writes it, so it is what separates our media from the shop's own when an
+	 * attachment is a candidate for deletion.
+	 */
+	const META_IMAGE_SOURCE = '_wksync_image_source';
 
 	/**
 	 * Marks a product that this sync drafted, rather than a person.
@@ -170,7 +183,7 @@ class ProductSync {
 			return;
 		}
 
-		$response = $this->client->fetch_products( $skip, Client::PRODUCT_PAGE_SIZE );
+		$response = $this->client->fetch_products( $skip, Client::PRODUCT_PAGE_SIZE, null, $this->manufacturers() );
 
 		if ( is_wp_error( $response ) ) {
 			Status::fail( self::JOB, $response->get_error_message() );
@@ -367,11 +380,30 @@ class ProductSync {
 			return 'failed';
 		}
 
-		Brands::assign( $saved_id, $this->text( $row, 'Hersteller', '' ) );
+		Brands::assign( $saved_id, $this->text( $row, 'Hersteller', '' ), $this->text( $row, 'Herstellerid', '' ) );
 
 		$this->sideload_images( $product, $row );
 
 		return $is_create ? 'created' : 'updated';
+	}
+
+	/**
+	 * The manufacturer IDs the import is restricted to.
+	 *
+	 * An empty list means the whole catalogue, which is what a fresh install has.
+	 *
+	 * Narrowing this is a destructive-looking but correct operation: the excluded
+	 * articles stop arriving, so finalise() drafts the products it imported for them,
+	 * exactly as it would if Kontor had dropped them. Widening it again republishes
+	 * them, because restore_if_sync_drafted() only ever undoes this sync's own
+	 * drafting.
+	 *
+	 * @return array Manufacturer IDs, as strings.
+	 */
+	protected function manufacturers() {
+		$ids = isset( $this->settings['manufacturer_ids'] ) ? (array) $this->settings['manufacturer_ids'] : array();
+
+		return array_values( array_filter( array_map( 'strval', $ids ), 'strlen' ) );
 	}
 
 	/**
@@ -508,7 +540,9 @@ class ProductSync {
 	 *
 	 * Kontor returns bare filenames rather than URLs, so this only runs when an
 	 * image base URL has been configured. The filename list is hashed so unchanged
-	 * images are never downloaded twice.
+	 * images are never downloaded twice, and any file already in the media library is
+	 * reused rather than fetched again — the same photograph is shared across
+	 * articles often enough that downloading per product would multiply the library.
 	 *
 	 * @param WC_Product_Simple $product Product to attach images to.
 	 * @param array             $row     Article row from the API.
@@ -545,18 +579,26 @@ class ProductSync {
 		require_once ABSPATH . 'wp-admin/includes/media.php';
 		require_once ABSPATH . 'wp-admin/includes/image.php';
 
+		$previous       = $this->attached_image_ids( $product );
 		$attachment_ids = array();
 
 		foreach ( $files as $file ) {
-			$attachment_id = media_sideload_image( trailingslashit( $base ) . ltrim( $file, '/' ), $product->get_id(), null, 'id' );
+			$url           = trailingslashit( $base ) . ltrim( $file, '/' );
+			$attachment_id = $this->attachment_for_source( $url );
 
-			if ( is_wp_error( $attachment_id ) ) {
-				$this->log(
-					'warning',
-					sprintf( 'Could not sideload image %s for article %s: %s', $file, $product->get_sku(), $attachment_id->get_error_message() )
-				);
+			if ( ! $attachment_id ) {
+				$attachment_id = media_sideload_image( $url, $product->get_id(), null, 'id' );
 
-				continue;
+				if ( is_wp_error( $attachment_id ) ) {
+					$this->log(
+						'warning',
+						sprintf( 'Could not sideload image %s for article %s: %s', $file, $product->get_sku(), $attachment_id->get_error_message() )
+					);
+
+					continue;
+				}
+
+				update_post_meta( (int) $attachment_id, self::META_IMAGE_SOURCE, $url );
 			}
 
 			$attachment_ids[] = (int) $attachment_id;
@@ -566,10 +608,104 @@ class ProductSync {
 			return;
 		}
 
-		$product->set_image_id( array_shift( $attachment_ids ) );
-		$product->set_gallery_image_ids( $attachment_ids );
+		$gallery = $attachment_ids;
+
+		$product->set_image_id( array_shift( $gallery ) );
+		$product->set_gallery_image_ids( $gallery );
 		$product->update_meta_data( self::META_IMAGE_HASH, $hash );
 		$product->save();
+
+		// After the save, so an image kept from the previous set reads as in use.
+		$this->discard_unused_images( array_diff( $previous, $attachment_ids ) );
+	}
+
+	/**
+	 * The attachments a product currently uses, featured image first.
+	 *
+	 * @param WC_Product_Simple $product Product to read.
+	 * @return int[] Attachment IDs.
+	 */
+	protected function attached_image_ids( $product ) {
+		$ids = array_merge( array( (int) $product->get_image_id() ), array_map( 'intval', $product->get_gallery_image_ids() ) );
+
+		return array_values( array_filter( $ids ) );
+	}
+
+	/**
+	 * Find an image this plugin has already downloaded from a URL.
+	 *
+	 * @param string $url Source URL.
+	 * @return int Attachment ID, or 0 when the file has not been imported yet.
+	 */
+	protected function attachment_for_source( $url ) {
+		$existing = get_posts(
+			array(
+				'post_type'        => 'attachment',
+				'post_status'      => 'any',
+				'numberposts'      => 1,
+				'fields'           => 'ids',
+				'suppress_filters' => false,
+				// phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key -- The source URL only exists in meta, and this runs in a background job.
+				'meta_key'         => self::META_IMAGE_SOURCE,
+				// phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_value -- See above.
+				'meta_value'       => $url,
+			)
+		);
+
+		return empty( $existing ) ? 0 : (int) $existing[0];
+	}
+
+	/**
+	 * Delete images this plugin imported that nothing uses any more.
+	 *
+	 * Two conditions, both required. The attachment has to carry our source meta, so
+	 * media the shop uploaded is never touched. And it has to be referenced by no
+	 * product at all, because deduplication means one file can be the featured image
+	 * of one article and a gallery entry of another — deleting on "this product
+	 * dropped it" alone would tear the image out of every other product using it.
+	 *
+	 * @param int[] $attachment_ids Attachments the product no longer uses.
+	 * @return void
+	 */
+	protected function discard_unused_images( array $attachment_ids ) {
+		foreach ( $attachment_ids as $attachment_id ) {
+			if ( '' === (string) get_post_meta( $attachment_id, self::META_IMAGE_SOURCE, true ) ) {
+				continue;
+			}
+
+			if ( $this->image_in_use( $attachment_id ) ) {
+				continue;
+			}
+
+			wp_delete_attachment( $attachment_id, true );
+		}
+	}
+
+	/**
+	 * Whether any product still points at an attachment.
+	 *
+	 * The gallery is stored as a comma-separated list, so it is matched with
+	 * FIND_IN_SET rather than LIKE: LIKE '%12%' also matches the gallery "123", and
+	 * the image that comparison protects is not the one being asked about.
+	 *
+	 * @param int $attachment_id Attachment to check.
+	 * @return bool True when a product references it.
+	 */
+	protected function image_in_use( $attachment_id ) {
+		global $wpdb;
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- No API answers "which products use this attachment"; the result is a deletion decision and must not be cached.
+		$count = $wpdb->get_var(
+			$wpdb->prepare(
+				"SELECT COUNT(*) FROM {$wpdb->postmeta}
+				WHERE ( meta_key = '_thumbnail_id' AND meta_value = %d )
+				OR ( meta_key = '_product_image_gallery' AND FIND_IN_SET( %d, meta_value ) )",
+				$attachment_id,
+				$attachment_id
+			)
+		);
+
+		return (int) $count > 0;
 	}
 
 	/**

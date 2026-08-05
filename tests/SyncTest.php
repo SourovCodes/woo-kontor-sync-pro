@@ -248,15 +248,15 @@ class SyncTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * A manufacturer renamed in the ERP moves the product to a new brand.
+	 * A manufacturer renamed in the ERP renames the brand it already has.
 	 *
-	 * Brands are matched on the name alone, so a rename cannot be recognised as one:
-	 * the product follows the new name and the old term is left behind. Matching on
-	 * Herstellerid is what would rename the existing term instead.
+	 * Herstellerid is what makes this recognisable as a rename. Matching on the name
+	 * alone cannot tell a renamed manufacturer from a new one, so every product would
+	 * move to a fresh term and leave the old one behind, unused.
 	 *
 	 * @return void
 	 */
-	public function test_renamed_manufacturer_creates_a_second_brand() {
+	public function test_renamed_manufacturer_renames_the_existing_brand() {
 		$sync = new ProductSync( null, array( 'image_base_url' => '' ) );
 		$sync->import_article( $this->article(), 1000 );
 
@@ -266,27 +266,85 @@ class SyncTest extends WP_UnitTestCase {
 
 		$after = wp_get_object_terms( wc_get_product_id_by_sku( 'abel-AB12' ), Brands::TAXONOMY );
 
-		// The product carries only the new brand.
+		// The same term, under its new name.
 		$this->assertCount( 1, $after );
 		$this->assertSame( 'Abel Wooden Toys BV', $after[0]->name );
-		$this->assertNotSame( $first[0]->term_id, $after[0]->term_id );
+		$this->assertSame( $first[0]->term_id, $after[0]->term_id );
 
-		// The old term survives, now unused.
-		$this->assertInstanceOf( \WP_Term::class, get_term( $first[0]->term_id, Brands::TAXONOMY ) );
+		// No second brand was left behind.
+		$this->assertEmpty(
+			get_terms(
+				array(
+					'taxonomy'   => Brands::TAXONOMY,
+					'hide_empty' => false,
+					'name'       => 'Abel Woodentoys',
+				)
+			)
+		);
 	}
 
 	/**
-	 * A changed Herstellerid alone is not a change.
+	 * A manufacturer re-keyed to a different Herstellerid keeps its brand.
 	 *
-	 * The ID is not consulted, so it must not sit in the change hash either.
+	 * The name is what settles this: a manufacturer arriving under a new ID but the
+	 * same name is the ERP renumbering it, not a second company, and splitting the
+	 * brand in two would be worse than following the move. The existing term is
+	 * adopted and re-stamped with the new ID, so the next rename is still recognised.
+	 *
+	 * The article has to be re-examined for any of that to happen, which is why the
+	 * ID sits in the change hash rather than being ignored as it once was.
 	 *
 	 * @return void
 	 */
-	public function test_manufacturer_id_is_not_considered() {
+	public function test_changed_manufacturer_id_is_a_change() {
 		$sync = new ProductSync( null, array( 'image_base_url' => '' ) );
 
 		$this->assertSame( 'created', $sync->import_article( $this->article(), 1000 ) );
-		$this->assertSame( 'skipped', $sync->import_article( $this->article( array( 'Herstellerid' => '084' ) ), 1001 ) );
+
+		$first = wp_get_object_terms( wc_get_product_id_by_sku( 'abel-AB12' ), Brands::TAXONOMY );
+
+		$this->assertSame( '104', get_term_meta( $first[0]->term_id, Brands::TERM_META_ID, true ) );
+
+		// Not skipped: the ID moving is a change worth looking at.
+		$this->assertSame( 'updated', $sync->import_article( $this->article( array( 'Herstellerid' => '084' ) ), 1001 ) );
+
+		$after = wp_get_object_terms( wc_get_product_id_by_sku( 'abel-AB12' ), Brands::TAXONOMY );
+
+		$this->assertCount( 1, $after );
+		$this->assertSame( $first[0]->term_id, $after[0]->term_id );
+		$this->assertSame( '084', get_term_meta( $after[0]->term_id, Brands::TERM_META_ID, true ) );
+	}
+
+	/**
+	 * Manufacturer IDs are matched as strings, so a leading zero is significant.
+	 *
+	 * Casting to an integer would collide "084" with "84" and merge two unrelated
+	 * manufacturers into one brand.
+	 *
+	 * @return void
+	 */
+	public function test_leading_zeros_do_not_collide() {
+		$padded = Brands::resolve( 'Padded Manufacturer', '084' );
+		$plain  = Brands::resolve( 'Plain Manufacturer', '84' );
+
+		$this->assertNotSame( 0, $padded );
+		$this->assertNotSame( $padded, $plain );
+		$this->assertSame( '084', get_term_meta( $padded, Brands::TERM_META_ID, true ) );
+		$this->assertSame( '84', get_term_meta( $plain, Brands::TERM_META_ID, true ) );
+	}
+
+	/**
+	 * A brand term that predates the ID being recorded is adopted, not duplicated.
+	 *
+	 * @return void
+	 */
+	public function test_existing_brand_without_an_id_is_adopted() {
+		$created = wp_insert_term( 'Abel Woodentoys', Brands::TAXONOMY );
+
+		$resolved = Brands::resolve( 'Abel Woodentoys', '104' );
+
+		$this->assertSame( (int) $created['term_id'], $resolved );
+		$this->assertSame( '104', get_term_meta( $resolved, Brands::TERM_META_ID, true ) );
 	}
 
 	/**

@@ -8,6 +8,7 @@
 namespace WooKontorSync;
 
 use WooKontorSync\Admin\Settings;
+use WooKontorSync\Frontend\Tracking;
 use WooKontorSync\Sync\Scheduler;
 
 defined( 'ABSPATH' ) || exit;
@@ -64,6 +65,10 @@ final class Plugin {
 		add_action( 'init', array( $this, 'load_textdomain' ) );
 
 		( new Scheduler() )->register();
+
+		// Not gated on is_admin(): order emails render wherever the status changed,
+		// including inside the background job the delivery sync runs in.
+		( new Tracking() )->register();
 
 		if ( is_admin() ) {
 			( new Settings() )->register();

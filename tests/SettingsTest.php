@@ -256,6 +256,166 @@ class SettingsTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A chosen set of manufacturers is stored with the labels that go with them.
+	 *
+	 * @return void
+	 */
+	public function test_manufacturer_selection_is_stored() {
+		$sanitised = ( new Settings() )->sanitize(
+			array(
+				'manufacturer_choice' => '1',
+				'manufacturer_ids'    => array( '084', '104' ),
+				'manufacturer_names'  => wp_json_encode(
+					array(
+						'084' => 'Abel Woodentoys',
+						'104' => 'Grimm’s',
+					)
+				),
+			)
+		);
+
+		$this->assertSame( array( '084', '104' ), $sanitised['manufacturer_ids'] );
+		$this->assertSame( 'Abel Woodentoys', $sanitised['manufacturer_names']['084'] );
+	}
+
+	/**
+	 * Manufacturer IDs keep their leading zeros.
+	 *
+	 * Casting to an integer would collide "084" with "84" and silently import a
+	 * different manufacturer's catalogue.
+	 *
+	 * @return void
+	 */
+	public function test_manufacturer_ids_are_not_cast_to_integers() {
+		$sanitised = ( new Settings() )->sanitize(
+			array(
+				'manufacturer_choice' => '1',
+				'manufacturer_ids'    => array( '084' ),
+			)
+		);
+
+		$this->assertSame( array( '084' ), $sanitised['manufacturer_ids'] );
+	}
+
+	/**
+	 * Malformed manufacturer IDs are dropped rather than stored.
+	 *
+	 * A comma would read as two manufacturers once the IDs are joined into the API
+	 * filter.
+	 *
+	 * @return void
+	 */
+	public function test_malformed_manufacturer_ids_are_dropped() {
+		$this->assertTrue( Settings::is_manufacturer_id( '084' ) );
+		$this->assertFalse( Settings::is_manufacturer_id( '' ) );
+		$this->assertFalse( Settings::is_manufacturer_id( '84,104' ) );
+		$this->assertFalse( Settings::is_manufacturer_id( 'a b' ) );
+
+		$sanitised = ( new Settings() )->sanitize(
+			array(
+				'manufacturer_choice' => '1',
+				'manufacturer_ids'    => array( '084', '84,104', '' ),
+			)
+		);
+
+		$this->assertSame( array( '084' ), $sanitised['manufacturer_ids'] );
+	}
+
+	/**
+	 * A submission without the marker field keeps the stored manufacturers.
+	 *
+	 * A multi-select with nothing chosen submits no field at all, so absent cannot
+	 * mean "clear" — that would let any partial save silently widen the import to the
+	 * whole catalogue.
+	 *
+	 * @return void
+	 */
+	public function test_absent_manufacturer_field_keeps_the_stored_selection() {
+		update_option(
+			Settings::OPTION_KEY,
+			array(
+				'manufacturer_ids'   => array( '104' ),
+				'manufacturer_names' => array( '104' => 'Grimm’s' ),
+			)
+		);
+
+		$sanitised = ( new Settings() )->sanitize( array( 'shoptype' => 'B2C' ) );
+
+		$this->assertSame( array( '104' ), $sanitised['manufacturer_ids'] );
+	}
+
+	/**
+	 * The marker field with no selection clears the filter.
+	 *
+	 * @return void
+	 */
+	public function test_marker_without_a_selection_clears_the_filter() {
+		update_option( Settings::OPTION_KEY, array( 'manufacturer_ids' => array( '104' ) ) );
+
+		$sanitised = ( new Settings() )->sanitize( array( 'manufacturer_choice' => '1' ) );
+
+		$this->assertSame( array(), $sanitised['manufacturer_ids'] );
+	}
+
+	/**
+	 * A label for a manufacturer that was not selected is discarded.
+	 *
+	 * @return void
+	 */
+	public function test_unselected_manufacturer_labels_are_discarded() {
+		$sanitised = ( new Settings() )->sanitize(
+			array(
+				'manufacturer_choice' => '1',
+				'manufacturer_ids'    => array( '084' ),
+				'manufacturer_names'  => wp_json_encode(
+					array(
+						'084' => 'Abel Woodentoys',
+						'999' => 'Never chosen',
+					)
+				),
+			)
+		);
+
+		$this->assertSame( array( '084' => 'Abel Woodentoys' ), $sanitised['manufacturer_names'] );
+	}
+
+	/**
+	 * Manufacturer rows are reduced to id and name pairs, deduplicated by ID.
+	 *
+	 * @return void
+	 */
+	public function test_manufacturers_are_read_from_the_response() {
+		$manufacturers = Settings::manufacturers_from_response(
+			array(
+				'data' => array(
+					array(
+						'Herstellerid' => '104',
+						'Hersteller'   => 'Grimm’s',
+					),
+					array(
+						'Herstellerid' => '084',
+						'Hersteller'   => 'Abel Woodentoys',
+					),
+					// The same manufacturer arriving twice is one choice, not two.
+					array(
+						'Herstellerid' => '104',
+						'Hersteller'   => 'Grimm’s',
+					),
+					// No usable ID, so it could never be filtered on.
+					array( 'Hersteller' => 'Nameless' ),
+				),
+			)
+		);
+
+		$this->assertCount( 2, $manufacturers );
+
+		// Sorted by name, so the list reads the way the admin expects.
+		$this->assertSame( '084', $manufacturers[0]['id'] );
+		$this->assertSame( 'Abel Woodentoys', $manufacturers[0]['name'] );
+		$this->assertSame( '104', $manufacturers[1]['id'] );
+	}
+
+	/**
 	 * A chosen shop is stored with the label that goes with it.
 	 *
 	 * @return void

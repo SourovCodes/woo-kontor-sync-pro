@@ -133,19 +133,51 @@ of them wrong produces silently wrong data rather than an error:
   EDU, while `Ek` stays constant across all three. **`UVP` is the product price.** `Ek` is the
   purchase price and is **not imported at all** — mapping it to the price would sell the whole
   catalogue at wholesale.
-- **`Ek`, `Categories` and `Herstellerid` are deliberately ignored**, and none is part of the change
-  hash. The hash covers only the fields in `ProductSync::$mapped_fields`; hashing the whole row would
-  rewrite every product whenever purchase prices moved.
+- **`Ek` and `Categories` are deliberately ignored**, and neither is part of the change hash. The
+  hash covers only the fields in `ProductSync::$mapped_fields`; hashing the whole row would rewrite
+  every product whenever purchase prices moved. `Herstellerid` *is* in the hash, because brands are
+  matched on it — an article skipped as unchanged never reaches `Brands::resolve()`, so a
+  manufacturer that moved would never be followed.
 - **`Hersteller` becomes a WooCommerce brand** (`product_brand`, core since WooCommerce 9.6). 28
-  distinct manufacturers map 1:1 to names, and only 2 rows in 500 carry no manufacturer at all —
+  distinct manufacturers appear in the first 500 articles and map 1:1 to names; the `manufacturer`
+  entity lists **114** across the whole account. Only 2 rows in 500 carry no manufacturer at all —
   those products keep whatever brand they already had rather than being cleared.
-- **Brands are matched on the manufacturer name, not on `Herstellerid`.** This is a deliberate
-  simplification, and it has one cost: a manufacturer renamed in the ERP is indistinguishable from a
-  new one, so the product moves to a new brand and the old term is left behind unused. If that
-  becomes a problem, matching on `Herstellerid` in term meta is the fix — and if you reinstate it,
-  **keep the IDs as strings**: they carry leading zeros (`084`), so casting to int would collide
-  `084` with `84`. The IDs always arrive alongside the name (1998 of 2000 sampled rows carry both,
-  none has one without the other), so the data supports it whenever it is wanted.
+- **Brands are matched on `Herstellerid`**, recorded in term meta as `Brands::TERM_META_ID`, with the
+  name as the fallback when no ID is available. That is what makes a rename in the ERP a rename here
+  rather than a second brand term with the old one stranded beside it. **Keep the IDs as strings**:
+  they carry leading zeros (`084`), so casting to int would collide `084` with `84`. The IDs arrive
+  alongside the name in 1998 of 2000 sampled rows, and none has one without the other.
+  - A term found by *name* is adopted and stamped with the ID, which is what pulls brand terms
+    created before this existed into the scheme.
+  - A manufacturer arriving under a **new ID but the same name** keeps its existing term and
+    re-stamps it. The ERP renumbering a manufacturer is far more likely than two companies sharing
+    a name, and splitting the brand in two would be the worse failure.
+  - The **slug is never changed** on a rename. Changing it would break any URL already pointing at
+    the brand archive, and a stale slug alongside a new name works perfectly well.
+- **The product sync can be restricted to chosen manufacturers** via `filter.herstellerids`, sent as
+  one comma-separated string. The choices come from the **`manufacturer` entity**, which takes no
+  paging and returns `Herstellerid` / `Hersteller` pairs, fetched on demand by the **Fetch
+  manufacturers** button (`wksync_fetch_manufacturers`, nonce plus `manage_woocommerce`). An empty
+  selection means the whole catalogue. Confirmed against the live API: the entity returns 114 rows,
+  and filtering on three of them takes the catalogue from 4386 articles to 118.
+  - **Narrowing the filter drafts products.** Excluded articles simply stop arriving, so
+    `finalise()` drafts the ones it previously imported, exactly as if Kontor had dropped them.
+    Widening it again republishes them, because `restore_if_sync_drafted()` only ever undoes this
+    sync's own drafting. This is correct, and it is also surprising, so the settings screen says so.
+  - A multi-select with nothing chosen submits **no field at all**, so "absent" cannot mean "clear"
+    — that would let a partial save silently widen the import to the whole catalogue. The form
+    carries a `manufacturer_choice` marker that is always present, and only a submission carrying it
+    may clear the list. Same reasoning as the intervals and the shop.
+- **Images are deduplicated on their source URL**, recorded on the attachment as
+  `ProductSync::META_IMAGE_SOURCE`. The same photograph is shared across articles often enough that
+  downloading per product would multiply the media library. That meta doubles as the marker for
+  "this plugin downloaded this file".
+  - An image the product no longer uses is deleted only when it carries that marker **and** no
+    product references it at all. Deduplication means one file can be the featured image of one
+    article and a gallery entry of another, so "this product dropped it" is not "nobody wants it".
+  - The in-use check matches the gallery with **`FIND_IN_SET`, never `LIKE`**. The gallery is a
+    comma-separated list, and `LIKE '%12%'` matches the gallery `123` — the dangerous half being
+    attachment 123 looking in use because 12 sits somewhere in a list.
 - **`paging.take` is capped at 2000** server-side, silently. Requesting 5000 returns 2000, so a
   pager that trusts its own page size skips records. `Client::MAX_PAGE_SIZE` enforces the cap, and
   `ProductSync::import_page()` advances `skip` by the rows actually returned rather than by the page
@@ -167,7 +199,7 @@ of them wrong produces silently wrong data rather than an error:
   needs `meta.userId` plus `params.shopid`. **Its top-level `success` stays `true` even when every
   order in the batch was rejected** — the per-row `status` (`ok` / `fehler`) is the only real signal.
   Reading the envelope alone would silently lose orders.
-- **`meta.userId` is fixed to `CG`** (`OrderSync::UPLOAD_USER_ID`), agreed with Kontor. The API
+- **`meta.userId` is fixed to `WKSP`** (`OrderSync::UPLOAD_USER_ID`), agreed with Kontor. The API
   requires the field but does not validate it. It is a constant rather than a setting or a filter:
   the settings screen shows it read-only, and anything able to change it would make that display
   disagree with what is actually sent. The field there carries no `name` attribute, so it is never
@@ -185,9 +217,20 @@ of them wrong produces silently wrong data rather than an error:
   back, capped around 1000 rows. A missing or unknown-but-well-formed shop ID returns an empty list,
   but a **malformed one is an HTTP 500**, which is why `shop_id` is validated as a GUID before it is
   ever sent.
+- **`orderNumber` is the WooCommerce order ID; `orderId` carries the display number.** They are
+  different fields on purpose. `orderNumber` is Kontor's deduplication key and the value delivery
+  rows are matched back on, so it has to be stable for the life of the order — the ID is, and
+  `get_order_number()` is not, being filterable and rewritten wholesale the day a
+  sequential-order-number plugin is installed. `orderId` carries what the shop displays, so an order
+  is still findable in the ERP by the number the customer and the shop manager both see.
 - **Delivery rows are matched on the order number this plugin sent**, recorded as
-  `_wksync_order_number` at push time. Matching on `get_order_number()` would break the day a
-  sequential-order-number plugin is installed and the order starts calling itself something else.
+  `_wksync_order_number` at push time rather than recomputed, so orders pushed by an earlier version
+  still match on whatever they were actually sent as.
+- **`deliveryAddress` is always sent**, falling back to the billing address when the order has no
+  shipping street or postcode — which is what WooCommerce leaves on a virtual order, or on one where
+  the customer did not tick "ship to a different address". An order reaching the ERP with nowhere to
+  send it is one nobody can pick and pack. A shipping address carrying only a name is treated as
+  absent for the same reason.
 - **`provider` and `trackinginfo` arrive as `null`, not absent** — confirmed against live data, where
   all 7 rows for one shop had both null. Anything reading them has to treat null as empty.
 - **The `categories` entity exists but returns zero rows**, filtered or not, so the `Categories`
@@ -265,6 +308,14 @@ calling it queues real work: it is not a way to test whether a job would be allo
   sends real outbound email, so it only ever moves an order *forwards*: something cancelled or
   refunded is left alone rather than resurrected. `DeliverySync::should_complete()` is the one place
   that decides this.
+- **The tracking details are shown to the customer**, by `Frontend\Tracking`: the My Account order
+  view, the order-received page, and the order emails in both HTML and plain text. Without it the
+  carrier, tracking number and tracking URL sit in order meta where only someone editing the order
+  in the admin would see them, which is not who a tracking link is for. It is registered outside the
+  `is_admin()` branch on purpose — emails render wherever the status changed, including inside the
+  background job the delivery sync runs in. Admin copies of the emails are skipped. Remember that
+  `provider` and `trackinginfo` arrive as `null` rather than absent, so a synced but unshipped order
+  has the meta present and empty; the tracking number is what decides there is anything to show.
 - **SKU is the only key**, for both product and stock sync. It holds Kontor's article number
   (`Artnr`), Kontor is the source of truth for it, and nothing else is ever matched on: not the EAN
   (which repeats across articles, so it *cannot* be a key), not `Artzentralnr`, not the product

@@ -103,14 +103,26 @@ class Client {
 	 * The shop type does not change which articles come back; it changes their
 	 * pricing. UVP is the shop type's selling price, while Ek stays constant.
 	 *
-	 * @param int         $skip     Number of records to skip.
-	 * @param int         $take     Page size, capped at MAX_PAGE_SIZE.
-	 * @param string|null $shoptype Optional shop type override.
+	 * @param int         $skip          Number of records to skip.
+	 * @param int         $take          Page size, capped at MAX_PAGE_SIZE.
+	 * @param string|null $shoptype      Optional shop type override.
+	 * @param array       $manufacturers Manufacturer IDs to restrict the catalogue to; empty for all.
 	 * @return array|WP_Error Array with "data" and "meta" keys, or WP_Error on failure.
 	 */
-	public function fetch_products( $skip = 0, $take = self::PRODUCT_PAGE_SIZE, $shoptype = null ) {
+	public function fetch_products( $skip = 0, $take = self::PRODUCT_PAGE_SIZE, $shoptype = null, array $manufacturers = array() ) {
 		if ( null === $shoptype ) {
 			$shoptype = isset( $this->settings['shoptype'] ) ? (string) $this->settings['shoptype'] : 'B2B';
+		}
+
+		$filter = array( 'shoptype' => $shoptype );
+
+		/*
+		 * Sent as one comma-separated string rather than a list, which is the shape the
+		 * API accepts. The IDs stay strings: they carry leading zeros, and "084" is not
+		 * the same manufacturer as "84".
+		 */
+		if ( ! empty( $manufacturers ) ) {
+			$filter['herstellerids'] = implode( ',', array_map( 'strval', $manufacturers ) );
 		}
 
 		return $this->search(
@@ -120,9 +132,21 @@ class Client {
 					'skip' => max( 0, absint( $skip ) ),
 					'take' => min( self::MAX_PAGE_SIZE, max( 1, absint( $take ) ) ),
 				),
-				'filter' => array( 'shoptype' => $shoptype ),
+				'filter' => $filter,
 			)
 		);
+	}
+
+	/**
+	 * Fetch the manufacturers Kontor knows about.
+	 *
+	 * Takes no paging, like stock and shops. Each row carries a Herstellerid and the
+	 * Hersteller display name, which is the same pairing that arrives on an article.
+	 *
+	 * @return array|WP_Error Array with "data" and "meta" keys, or WP_Error on failure.
+	 */
+	public function fetch_manufacturers() {
+		return $this->search( 'manufacturer' );
 	}
 
 	/**
