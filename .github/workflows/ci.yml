@@ -183,7 +183,7 @@ jobs:
 
       - name: Upload the coverage report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-report
           path: |
@@ -209,7 +209,7 @@ jobs:
       # Proves on every pull request that the release artefact can still be produced,
       # and leaves an installable build to test by hand.
       - name: Upload the build
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: woo-kontor-sync-pro-zip
           path: dist/*.zip
