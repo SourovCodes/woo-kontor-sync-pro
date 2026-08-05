@@ -103,6 +103,9 @@ into an incident. Never ship a change that skips one.
   public, read-only data.
 - **Never log credentials.** Kontor tokens, API keys and full request headers must be redacted before
   they reach the log.
+- **Never commit a real credential**, including as a test fixture. Fixtures must be synthetic values
+  that reproduce the *shape* of the real thing — mixed case, punctuation, non-ASCII, a percent
+  octet — and nothing more. A key pasted into a test file is a leak the moment it is committed.
 
 ## WooCommerce specifics
 
