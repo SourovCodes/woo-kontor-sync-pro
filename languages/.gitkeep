@@ -1,0 +1,4 @@
+# Generated translation files live here.
+#
+# Regenerate the POT file with:
+#   ./bin/wp i18n make-pot . languages/woo-kontor-sync-pro.pot --domain=woo-kontor-sync-pro
