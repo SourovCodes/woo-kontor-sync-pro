@@ -147,8 +147,13 @@ of them wrong produces silently wrong data rather than an error:
   `084` with `84`. The IDs always arrive alongside the name (1998 of 2000 sampled rows carry both,
   none has one without the other), so the data supports it whenever it is wanted.
 - **`paging.take` is capped at 2000** server-side, silently. Requesting 5000 returns 2000, so a
-  pager that trusts its own page size skips records. `Client::MAX_PAGE_SIZE` enforces the cap;
-  the catalogue is walked at 500 per page.
+  pager that trusts its own page size skips records. `Client::MAX_PAGE_SIZE` enforces the cap, and
+  `ProductSync::import_page()` advances `skip` by the rows actually returned rather than by the page
+  size it asked for, which is what keeps the walk correct when a page comes back short.
+- **The catalogue is walked at 200 per page** (`Client::PRODUCT_PAGE_SIZE`), one page per Action
+  Scheduler action — about 22 actions for 4386 articles. The limit is our write speed, not the API:
+  saving 500 products took around 78 seconds, long enough to risk being cut short on a slow host.
+  Raise this and the failure mode is a truncated pass, not an API error.
 - **The `stock` entity takes no paging and no filter.** One request returns a level for every
   article (~2945 rows in ~65ms). Sending paging to it is not an error, just pointless.
 - **The `categories` entity exists but returns zero rows**, filtered or not, so the `Categories`
