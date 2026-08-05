@@ -18,8 +18,12 @@ defined( 'ABSPATH' ) || exit;
  * Imports the Kontor article catalogue into WooCommerce products.
  *
  * The catalogue is several thousand articles, so a run is split across chained
- * Action Scheduler actions: one action per page, then a finalising pass. Products
- * are matched on SKU, which is Kontor's article number (Artnr).
+ * Action Scheduler actions: one action per page, then a finalising pass.
+ *
+ * Kontor is the source of truth, and SKU — Kontor's article number, Artnr — is the
+ * only key considered. An article with no Artnr is a failed row rather than
+ * something to match on another field, and no second identifier is stored, so
+ * there is nothing that could quietly become a competing key.
  */
 class ProductSync {
 
@@ -29,17 +33,16 @@ class ProductSync {
 	const JOB = 'products';
 
 	/**
-	 * Meta holding Kontor's central article number.
-	 */
-	const META_KONTOR_ID = '_wksync_kontor_id';
-
-	/**
 	 * Meta holding a hash of the last payload seen for this article.
 	 */
 	const META_HASH = '_wksync_sync_hash';
 
 	/**
 	 * Meta holding the run that last saw this article.
+	 *
+	 * Doubles as the marker for "this plugin imported this product": every import
+	 * writes it and nothing else does, so its presence is what separates our
+	 * products from a shop manager's own.
 	 */
 	const META_SYNCED_AT = '_wksync_synced_at';
 
@@ -47,15 +50,15 @@ class ProductSync {
 	 * Fields this sync actually consumes.
 	 *
 	 * The change hash is built from these alone, so churn in fields we deliberately
-	 * ignore — Ek and Categories — cannot trigger a pointless rewrite of every
-	 * product. Ek is the purchase price and is not imported; the Categories GUIDs
-	 * cannot be resolved, because Kontor's categories entity returns no rows.
+	 * ignore — Ek, Categories and Herstellerid — cannot trigger a pointless rewrite
+	 * of every product. Ek is the purchase price and is not imported; the Categories
+	 * GUIDs cannot be resolved, because Kontor's categories entity returns no rows;
+	 * brands are matched on the manufacturer name alone.
 	 *
 	 * @var string[]
 	 */
 	private static $mapped_fields = array(
 		'Artnr',
-		'Artzentralnr',
 		'Shoptype',
 		'Shoptitel',
 		'Bez1',
@@ -67,7 +70,6 @@ class ProductSync {
 		'Artean',
 		'Mpn',
 		'Hersteller',
-		'Herstellerid',
 		'MainImageURL',
 	);
 
@@ -242,12 +244,14 @@ class ProductSync {
 				'posts_per_page'   => self::FINALISE_BATCH,
 				'fields'           => 'ids',
 				'suppress_filters' => false,
+
+				/*
+				 * Products carrying an older run stamp are ours and were not in this
+				 * run's feed. A product without the stamp has never been synced, so it
+				 * belongs to the shop manager and cannot match this comparison at all.
+				 */
 				// phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query -- Runs in a background job; there is no other way to find products this run did not stamp.
 				'meta_query'       => array(
-					array(
-						'key'     => self::META_KONTOR_ID,
-						'compare' => 'EXISTS',
-					),
 					array(
 						'key'     => self::META_SYNCED_AT,
 						'value'   => $run,
@@ -338,7 +342,6 @@ class ProductSync {
 
 		$this->apply_fields( $product, $row );
 
-		$product->update_meta_data( self::META_KONTOR_ID, $this->text( $row, 'Artzentralnr', $sku ) );
 		$product->update_meta_data( self::META_HASH, $hash );
 		$product->update_meta_data( self::META_SYNCED_AT, $run );
 		$product->update_meta_data( self::META_MPN, $this->text( $row, 'Mpn', '' ) );
@@ -351,7 +354,7 @@ class ProductSync {
 			return 'failed';
 		}
 
-		Brands::assign( $saved_id, $this->text( $row, 'Herstellerid', '' ), $this->text( $row, 'Hersteller', '' ) );
+		Brands::assign( $saved_id, $this->text( $row, 'Hersteller', '' ) );
 
 		$this->sideload_images( $product, $row );
 
@@ -460,6 +463,9 @@ class ProductSync {
 	 * WC_Data_Exception on a duplicate. Kontor's feed genuinely repeats EANs across
 	 * articles, so the value has to be checked before it is set: without this, one
 	 * repeated barcode aborts the entire page of products being imported.
+	 *
+	 * The lookup here is a collision check and nothing more. The EAN is never a
+	 * matching key — it is not unique in the feed, so it could not be one.
 	 *
 	 * @param WC_Product_Simple $product Product being populated.
 	 * @param string            $ean     EAN from the feed, possibly empty.

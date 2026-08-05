@@ -74,6 +74,86 @@ class SyncTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * SKU is the only key: a shared EAN does not match an article to a product.
+	 *
+	 * EANs repeat across articles in the feed, so matching on one would attach an
+	 * article to whichever unrelated product happened to claim the barcode first.
+	 *
+	 * @return void
+	 */
+	public function test_sku_is_the_only_matching_key() {
+		$other = new WC_Product_Simple();
+		$other->set_sku( 'SOMETHING-ELSE' );
+		$other->set_global_unique_id( '8945005491168' );
+		$other->set_regular_price( '5.00' );
+		$other->save();
+
+		$sync = new ProductSync( null, array( 'image_base_url' => '' ) );
+
+		// The article shares that EAN but has its own Artnr, so it is a new product.
+		$this->assertSame( 'created', $sync->import_article( $this->article(), 1000 ) );
+
+		$imported = wc_get_product_id_by_sku( 'abel-AB12' );
+
+		$this->assertGreaterThan( 0, $imported );
+		$this->assertNotSame( $other->get_id(), $imported );
+
+		// The unrelated product keeps its own price and its claim on the EAN.
+		$refreshed = wc_get_product( $other->get_id() );
+		$this->assertSame( '5.00', $refreshed->get_regular_price() );
+		$this->assertSame( '8945005491168', $refreshed->get_global_unique_id() );
+	}
+
+	/**
+	 * No identifier other than the SKU is stored on the product.
+	 *
+	 * A second Kontor ID kept on the side is a key waiting to be used. The SKU is
+	 * the article number, so anything else would only ever disagree with it.
+	 *
+	 * @return void
+	 */
+	public function test_no_second_identifier_is_stored() {
+		$sync = new ProductSync( null, array( 'image_base_url' => '' ) );
+		$sync->import_article( $this->article( array( 'Artzentralnr' => 'CENTRAL-999' ) ), 1000 );
+
+		$product = wc_get_product( wc_get_product_id_by_sku( 'abel-AB12' ) );
+
+		$this->assertSame( 'abel-AB12', $product->get_sku() );
+		$this->assertSame( '', (string) $product->get_meta( '_wksync_kontor_id' ) );
+
+		foreach ( $product->get_meta_data() as $meta ) {
+			$this->assertNotSame( 'CENTRAL-999', (string) $meta->value, 'Artzentralnr leaked into meta ' . $meta->key );
+		}
+	}
+
+	/**
+	 * A changed Artzentralnr alone is not a change.
+	 *
+	 * @return void
+	 */
+	public function test_central_article_number_is_not_considered() {
+		$sync = new ProductSync( null, array( 'image_base_url' => '' ) );
+
+		$this->assertSame( 'created', $sync->import_article( $this->article(), 1000 ) );
+		$this->assertSame( 'skipped', $sync->import_article( $this->article( array( 'Artzentralnr' => 'CHANGED' ) ), 1001 ) );
+	}
+
+	/**
+	 * An article with no Artnr fails rather than falling back to another field.
+	 *
+	 * @return void
+	 */
+	public function test_article_without_a_sku_fails() {
+		$sync = new ProductSync( null, array( 'image_base_url' => '' ) );
+
+		$this->assertSame( 'failed', $sync->import_article( $this->article( array( 'Artnr' => '' ) ), 1000 ) );
+		$this->assertSame( 'failed', $sync->import_article( $this->article( array( 'Artnr' => null ) ), 1000 ) );
+
+		// Nothing was created from the EAN or the central article number.
+		$this->assertSame( 0, wc_get_product_id_by_global_unique_id( '8945005491168' ) );
+	}
+
+	/**
 	 * UVP is the product price, and Ek is not imported at all.
 	 *
 	 * @return void
@@ -135,9 +215,6 @@ class SyncTest extends WP_UnitTestCase {
 
 		$this->assertCount( 1, $brands );
 		$this->assertSame( 'Abel Woodentoys', $brands[0]->name );
-
-		// Herstellerid is kept on the term so a rename can find it again.
-		$this->assertSame( '104', get_term_meta( $brands[0]->term_id, Brands::TERM_META_ID, true ) );
 	}
 
 	/**
@@ -170,13 +247,15 @@ class SyncTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * A manufacturer renamed in the ERP renames the brand instead of duplicating it.
+	 * A manufacturer renamed in the ERP moves the product to a new brand.
 	 *
-	 * Matching is on Herstellerid, which is why this works.
+	 * Brands are matched on the name alone, so a rename cannot be recognised as one:
+	 * the product follows the new name and the old term is left behind. Matching on
+	 * Herstellerid is what would rename the existing term instead.
 	 *
 	 * @return void
 	 */
-	public function test_renamed_manufacturer_updates_the_existing_brand() {
+	public function test_renamed_manufacturer_creates_a_second_brand() {
 		$sync = new ProductSync( null, array( 'image_base_url' => '' ) );
 		$sync->import_article( $this->article(), 1000 );
 
@@ -186,25 +265,27 @@ class SyncTest extends WP_UnitTestCase {
 
 		$after = wp_get_object_terms( wc_get_product_id_by_sku( 'abel-AB12' ), Brands::TAXONOMY );
 
+		// The product carries only the new brand.
 		$this->assertCount( 1, $after );
-		$this->assertSame( $first[0]->term_id, $after[0]->term_id );
 		$this->assertSame( 'Abel Wooden Toys BV', $after[0]->name );
+		$this->assertNotSame( $first[0]->term_id, $after[0]->term_id );
+
+		// The old term survives, now unused.
+		$this->assertInstanceOf( \WP_Term::class, get_term( $first[0]->term_id, Brands::TAXONOMY ) );
 	}
 
 	/**
-	 * Manufacturer IDs keep their leading zeros.
+	 * A changed Herstellerid alone is not a change.
 	 *
-	 * Kontor sends IDs such as "084"; treating them as integers would collide 084
-	 * with 84.
+	 * The ID is not consulted, so it must not sit in the change hash either.
 	 *
 	 * @return void
 	 */
-	public function test_manufacturer_ids_keep_leading_zeros() {
-		$term_id = Brands::resolve( '084', 'BubbleLab' );
+	public function test_manufacturer_id_is_not_considered() {
+		$sync = new ProductSync( null, array( 'image_base_url' => '' ) );
 
-		$this->assertGreaterThan( 0, $term_id );
-		$this->assertSame( '084', get_term_meta( $term_id, Brands::TERM_META_ID, true ) );
-		$this->assertNotSame( $term_id, Brands::resolve( '84', 'Some Other Maker' ) );
+		$this->assertSame( 'created', $sync->import_article( $this->article(), 1000 ) );
+		$this->assertSame( 'skipped', $sync->import_article( $this->article( array( 'Herstellerid' => '084' ) ), 1001 ) );
 	}
 
 	/**
@@ -431,7 +512,7 @@ class SyncTest extends WP_UnitTestCase {
 		$product->set_sku( 'KONTOR-OWNED' );
 		$product->set_manage_stock( false );
 		$product->set_stock_status( 'instock' );
-		$product->update_meta_data( '_wksync_kontor_id', 'KONTOR-OWNED' );
+		$product->update_meta_data( ProductSync::META_SYNCED_AT, 999 );
 		$product->save();
 
 		$counts = ( new StockSync( null, array() ) )->apply( array( 'KONTOR-OWNED' => 0 ) );

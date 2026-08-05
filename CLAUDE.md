@@ -133,15 +133,19 @@ of them wrong produces silently wrong data rather than an error:
   EDU, while `Ek` stays constant across all three. **`UVP` is the product price.** `Ek` is the
   purchase price and is **not imported at all** — mapping it to the price would sell the whole
   catalogue at wholesale.
-- **`Ek` and `Categories` are deliberately ignored**, and neither is part of the change hash. The
-  hash covers only the fields in `ProductSync::$mapped_fields`; hashing the whole row would rewrite
-  every product whenever purchase prices moved.
-- **`Hersteller` and `Herstellerid` become WooCommerce brands** (`product_brand`, core since
-  WooCommerce 9.6). They always arrive together — 1998 of 2000 sampled rows carry both, none has one
-  without the other — and 28 distinct manufacturers map 1:1 to names. `Herstellerid` is stored as
-  term meta and is what terms are matched on, so a manufacturer renamed in the ERP renames the
-  existing brand instead of leaving a duplicate. **Keep the IDs as strings**: they carry leading
-  zeros (`084`), so casting to int would collide `084` with `84`.
+- **`Ek`, `Categories` and `Herstellerid` are deliberately ignored**, and none is part of the change
+  hash. The hash covers only the fields in `ProductSync::$mapped_fields`; hashing the whole row would
+  rewrite every product whenever purchase prices moved.
+- **`Hersteller` becomes a WooCommerce brand** (`product_brand`, core since WooCommerce 9.6). 28
+  distinct manufacturers map 1:1 to names, and only 2 rows in 500 carry no manufacturer at all —
+  those products keep whatever brand they already had rather than being cleared.
+- **Brands are matched on the manufacturer name, not on `Herstellerid`.** This is a deliberate
+  simplification, and it has one cost: a manufacturer renamed in the ERP is indistinguishable from a
+  new one, so the product moves to a new brand and the old term is left behind unused. If that
+  becomes a problem, matching on `Herstellerid` in term meta is the fix — and if you reinstate it,
+  **keep the IDs as strings**: they carry leading zeros (`084`), so casting to int would collide
+  `084` with `84`. The IDs always arrive alongside the name (1998 of 2000 sampled rows carry both,
+  none has one without the other), so the data supports it whenever it is wanted.
 - **`paging.take` is capped at 2000** server-side, silently. Requesting 5000 returns 2000, so a
   pager that trusts its own page size skips records. `Client::MAX_PAGE_SIZE` enforces the cap;
   the catalogue is walked at 500 per page.
@@ -202,8 +206,16 @@ Two jobs are implemented, both pulling from Kontor: **product sync** (7–30 day
   network errors; do not retry 4xx client errors — those are bugs, and they belong in the log.
 - **Idempotency keys on every write** so a retried request cannot double-post an order to the ERP.
   Store the key alongside the remote ID.
-- **Store the remote ID** as `_wksync_kontor_id` meta on the local object, plus `_wksync_synced_at`
-  and `_wksync_sync_hash`, so reconciliation can tell "never synced" from "synced and unchanged".
+- **SKU is the only key**, for both product and stock sync. It holds Kontor's article number
+  (`Artnr`), Kontor is the source of truth for it, and nothing else is ever matched on: not the EAN
+  (which repeats across articles, so it *cannot* be a key), not `Artzentralnr`, not the product
+  title. An article with no `Artnr` is a failed row, never a row to match some other way. Do not
+  store a second Kontor identifier on the product either — the SKU already is the identifier, and a
+  spare one kept "for reconciliation" is a competing key waiting to be used.
+- **Stamp what was synced, not what it is called**: `_wksync_synced_at` and `_wksync_sync_hash` let
+  reconciliation tell "never synced" from "synced and unchanged". `_wksync_synced_at` doubles as the
+  marker for products this plugin owns — every import writes it and nothing else does — which is
+  what `ProductSync::finalise()` and `StockSync::apply()` test before touching a product.
 - **Log through `wc_get_logger()`** with `array( 'source' => 'woo-kontor-sync' )`, so output lands in
   WooCommerce → Status → Logs. Log the decision and the identifiers, never the payload's secrets.
 - **Validate every response** before use. A field being present in the API docs is not a guarantee it

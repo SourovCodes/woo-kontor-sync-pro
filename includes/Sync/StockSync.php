@@ -14,7 +14,11 @@ use WooKontorSync\Sync\ProductSync;
 defined( 'ABSPATH' ) || exit;
 
 /**
- * Applies Kontor's stock levels to WooCommerce products, matched on SKU.
+ * Applies Kontor's stock levels to WooCommerce products.
+ *
+ * Products are matched on SKU against Kontor's Artnr, which is the only key this
+ * sync considers. A level whose article number matches no SKU is counted as
+ * missing rather than guessed at from any other field.
  *
  * The stock entity is cheap and unpaged: one request returns a level for every
  * article. Applying those levels is the expensive half, so the payload is cached
@@ -193,7 +197,7 @@ class StockSync {
 			 * than changing settings a shop manager chose.
 			 */
 			if ( ! $product->get_manage_stock() ) {
-				if ( ! $product->get_meta( ProductSync::META_KONTOR_ID ) ) {
+				if ( ! $product->get_meta( ProductSync::META_SYNCED_AT ) ) {
 					++$counts['unmanaged'];
 					continue;
 				}
