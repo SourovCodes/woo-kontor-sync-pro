@@ -7,6 +7,7 @@
 
 namespace WooKontorSync\Sync;
 
+use WP_Error;
 use WooKontorSync\Admin\Settings;
 
 defined( 'ABSPATH' ) || exit;
@@ -52,6 +53,26 @@ class Scheduler {
 	const ACTION_SYNC_STOCK_CHUNK = 'woo_kontor_sync_stock_chunk';
 
 	/**
+	 * Entry point for the order upload sweep.
+	 */
+	const ACTION_SYNC_ORDERS = 'woo_kontor_sync_orders';
+
+	/**
+	 * Uploads a single order, queued when it reaches a pushable status.
+	 */
+	const ACTION_SYNC_ORDER = 'woo_kontor_sync_order';
+
+	/**
+	 * Entry point for the delivery information import.
+	 */
+	const ACTION_SYNC_DELIVERY = 'woo_kontor_sync_delivery';
+
+	/**
+	 * Applies one chunk of delivery rows, then chains to the next.
+	 */
+	const ACTION_SYNC_DELIVERY_CHUNK = 'woo_kontor_sync_delivery_chunk';
+
+	/**
 	 * Transient that rate limits the schedule reconciliation on `init`.
 	 */
 	const SCHEDULE_GUARD = 'wksync_schedule_checked';
@@ -79,6 +100,24 @@ class Scheduler {
 				'setting'     => 'stock_sync_interval',
 				'intervals'   => 'stock_sync_intervals',
 			),
+			'orders'   => array(
+				'label'       => __( 'Order sync', 'woo-kontor-sync-pro' ),
+				'description' => __( 'Sends paid orders to Kontor. Orders are normally sent as they are paid; this sweep catches any that were missed.', 'woo-kontor-sync-pro' ),
+				'direction'   => __( 'To Kontor', 'woo-kontor-sync-pro' ),
+				'action'      => self::ACTION_SYNC_ORDERS,
+				'setting'     => 'order_sync_interval',
+				'intervals'   => 'order_sync_intervals',
+				'needs_shop'  => true,
+			),
+			'delivery' => array(
+				'label'       => __( 'Delivery sync', 'woo-kontor-sync-pro' ),
+				'description' => __( 'Brings order status and tracking details back from Kontor. Completing an order emails the customer.', 'woo-kontor-sync-pro' ),
+				'direction'   => __( 'From Kontor', 'woo-kontor-sync-pro' ),
+				'action'      => self::ACTION_SYNC_DELIVERY,
+				'setting'     => 'delivery_sync_interval',
+				'intervals'   => 'delivery_sync_intervals',
+				'needs_shop'  => true,
+			),
 		);
 	}
 
@@ -95,10 +134,27 @@ class Scheduler {
 		add_action( self::ACTION_SYNC_STOCK, array( $this, 'handle_stock' ) );
 		add_action( self::ACTION_SYNC_STOCK_CHUNK, array( $this, 'handle_stock_chunk' ), 10, 2 );
 
+		add_action( self::ACTION_SYNC_ORDERS, array( $this, 'handle_orders' ) );
+		add_action( self::ACTION_SYNC_ORDER, array( $this, 'handle_order' ), 10, 1 );
+
+		add_action( self::ACTION_SYNC_DELIVERY, array( $this, 'handle_delivery' ) );
+		add_action( self::ACTION_SYNC_DELIVERY_CHUNK, array( $this, 'handle_delivery_chunk' ), 10, 2 );
+
+		/*
+		 * An order reaching a pushable status queues an upload. These fire inside a
+		 * request the customer is waiting on, so the handler only ever enqueues.
+		 */
+		foreach ( OrderSync::pushable_statuses() as $status ) {
+			add_action( 'woocommerce_order_status_' . $status, array( $this, 'handle_order_status' ), 10, 1 );
+		}
+
 		add_action( 'init', array( $this, 'ensure_recurring_actions' ) );
 
 		// Changing an interval on the settings screen has to move the queued action.
 		add_action( 'update_option_' . Settings::OPTION_KEY, array( $this, 'reschedule' ) );
+
+		// A saved key says nothing about whether the previous one worked.
+		add_action( 'update_option_' . Settings::OPTION_KEY, array( Preflight::class, 'forget_connection' ) );
 	}
 
 	/**
@@ -176,20 +232,44 @@ class Scheduler {
 	/**
 	 * Queue a job to run as soon as the queue is next processed.
 	 *
+	 * Refuses rather than queue an action that could only fail on arrival, so the
+	 * admin screen can say why nothing happened. Only the local checks run here —
+	 * whether Kontor actually accepts the credentials is settled by the job itself,
+	 * which records the answer in its status rather than holding up this request.
+	 *
 	 * @param string $job Job key from get_jobs().
-	 * @return bool True when the job was queued.
+	 * @return true|WP_Error True when the job was queued.
 	 */
 	public static function trigger( $job ) {
 		$jobs = self::get_jobs();
 
 		if ( ! isset( $jobs[ $job ] ) || ! self::is_available() ) {
-			return false;
+			return new WP_Error(
+				'wksync_unavailable',
+				__( 'The job could not be queued. Check that WooCommerce is active.', 'woo-kontor-sync-pro' )
+			);
 		}
 
-		// Refuse rather than queue an action that would be discarded on arrival, so
-		// the admin screen can say why nothing happened.
 		if ( Status::is_running( $job ) ) {
-			return false;
+			return new WP_Error(
+				'wksync_already_running',
+				__( 'That job is already running.', 'woo-kontor-sync-pro' )
+			);
+		}
+
+		$settings    = Settings::get_settings();
+		$credentials = Preflight::credentials( $settings );
+
+		if ( is_wp_error( $credentials ) ) {
+			return $credentials;
+		}
+
+		if ( ! empty( $jobs[ $job ]['needs_shop'] ) ) {
+			$shop = Preflight::shop( $settings );
+
+			if ( is_wp_error( $shop ) ) {
+				return $shop;
+			}
 		}
 
 		as_enqueue_async_action( $jobs[ $job ]['action'], array(), self::GROUP );
@@ -261,6 +341,55 @@ class Scheduler {
 	 */
 	public function handle_stock_chunk( $offset = 0, $run = 0 ) {
 		( new StockSync() )->apply_chunk( absint( $offset ), absint( $run ) );
+	}
+
+	/**
+	 * Sweep for orders that have not reached Kontor.
+	 *
+	 * @return void
+	 */
+	public function handle_orders() {
+		( new OrderSync() )->start();
+	}
+
+	/**
+	 * Upload a single order.
+	 *
+	 * @param int $order_id Order to send.
+	 * @return void
+	 */
+	public function handle_order( $order_id = 0 ) {
+		( new OrderSync() )->push_one( absint( $order_id ) );
+	}
+
+	/**
+	 * Queue an order for upload after it reaches a pushable status.
+	 *
+	 * @param int $order_id Order that changed status.
+	 * @return void
+	 */
+	public function handle_order_status( $order_id = 0 ) {
+		( new OrderSync() )->enqueue( absint( $order_id ) );
+	}
+
+	/**
+	 * Start a delivery information import.
+	 *
+	 * @return void
+	 */
+	public function handle_delivery() {
+		( new DeliverySync() )->start();
+	}
+
+	/**
+	 * Apply one chunk of delivery rows.
+	 *
+	 * @param int $offset Number of rows already applied.
+	 * @param int $run    Run identifier.
+	 * @return void
+	 */
+	public function handle_delivery_chunk( $offset = 0, $run = 0 ) {
+		( new DeliverySync() )->apply_chunk( absint( $offset ), absint( $run ) );
 	}
 
 	/**

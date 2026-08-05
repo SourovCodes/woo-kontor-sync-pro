@@ -8,6 +8,7 @@
 namespace WooKontorSync\Admin;
 
 use WooKontorSync\Api\Client;
+use WooKontorSync\Sync\OrderSync;
 use WooKontorSync\Sync\Scheduler;
 use WooKontorSync\Sync\Status;
 
@@ -89,14 +90,16 @@ class Settings {
 	 */
 	public static function default_settings() {
 		return array(
-			'api_base_url'          => 'https://sp3api.kontor-crm.de/api/v1/kontor',
-			'api_key'               => '',
-			'shoptype'              => 'B2B',
-			'shop_id'               => '',
-			'shop_name'             => '',
-			'image_base_url'        => '',
-			'product_sync_interval' => self::INTERVAL_NEVER,
-			'stock_sync_interval'   => self::INTERVAL_NEVER,
+			'api_base_url'           => 'https://sp3api.kontor-crm.de/api/v1/kontor',
+			'api_key'                => '',
+			'shoptype'               => 'B2B',
+			'shop_id'                => '',
+			'shop_name'              => '',
+			'image_base_url'         => '',
+			'product_sync_interval'  => self::INTERVAL_NEVER,
+			'stock_sync_interval'    => self::INTERVAL_NEVER,
+			'order_sync_interval'    => self::INTERVAL_NEVER,
+			'delivery_sync_interval' => self::INTERVAL_NEVER,
 		);
 	}
 
@@ -140,6 +143,42 @@ class Settings {
 		return array(
 			self::INTERVAL_NEVER   => __( 'Never — only when run manually', 'woo-kontor-sync-pro' ),
 			15 * MINUTE_IN_SECONDS => __( 'Every 15 minutes', 'woo-kontor-sync-pro' ),
+			30 * MINUTE_IN_SECONDS => __( 'Every 30 minutes', 'woo-kontor-sync-pro' ),
+			HOUR_IN_SECONDS        => __( 'Every hour', 'woo-kontor-sync-pro' ),
+			3 * HOUR_IN_SECONDS    => __( 'Every 3 hours', 'woo-kontor-sync-pro' ),
+			6 * HOUR_IN_SECONDS    => __( 'Every 6 hours', 'woo-kontor-sync-pro' ),
+			12 * HOUR_IN_SECONDS   => __( 'Every 12 hours', 'woo-kontor-sync-pro' ),
+			DAY_IN_SECONDS         => __( 'Once a day', 'woo-kontor-sync-pro' ),
+		);
+	}
+
+	/**
+	 * Allowed intervals for the order upload sweep.
+	 *
+	 * Orders are normally sent the moment they are paid, by the status hook. This
+	 * sweep only catches what that missed, so it does not need to be frequent.
+	 *
+	 * @return array Map of seconds to label.
+	 */
+	public static function order_sync_intervals() {
+		return array(
+			self::INTERVAL_NEVER   => __( 'Never — only when run manually', 'woo-kontor-sync-pro' ),
+			15 * MINUTE_IN_SECONDS => __( 'Every 15 minutes', 'woo-kontor-sync-pro' ),
+			30 * MINUTE_IN_SECONDS => __( 'Every 30 minutes', 'woo-kontor-sync-pro' ),
+			HOUR_IN_SECONDS        => __( 'Every hour', 'woo-kontor-sync-pro' ),
+			6 * HOUR_IN_SECONDS    => __( 'Every 6 hours', 'woo-kontor-sync-pro' ),
+			DAY_IN_SECONDS         => __( 'Once a day', 'woo-kontor-sync-pro' ),
+		);
+	}
+
+	/**
+	 * Allowed intervals for the delivery information import.
+	 *
+	 * @return array Map of seconds to label.
+	 */
+	public static function delivery_sync_intervals() {
+		return array(
+			self::INTERVAL_NEVER   => __( 'Never — only when run manually', 'woo-kontor-sync-pro' ),
 			30 * MINUTE_IN_SECONDS => __( 'Every 30 minutes', 'woo-kontor-sync-pro' ),
 			HOUR_IN_SECONDS        => __( 'Every hour', 'woo-kontor-sync-pro' ),
 			3 * HOUR_IN_SECONDS    => __( 'Every 3 hours', 'woo-kontor-sync-pro' ),
@@ -253,14 +292,16 @@ class Settings {
 		$shop          = $this->pick_shop( $input, $existing );
 
 		return array(
-			'api_base_url'          => isset( $input['api_base_url'] ) ? esc_url_raw( trim( $input['api_base_url'] ) ) : '',
-			'api_key'               => '' === $submitted_key ? $existing['api_key'] : $submitted_key,
-			'shoptype'              => array_key_exists( $shoptype, self::shoptypes() ) ? $shoptype : $existing['shoptype'],
-			'shop_id'               => $shop['shop_id'],
-			'shop_name'             => $shop['shop_name'],
-			'image_base_url'        => isset( $input['image_base_url'] ) ? esc_url_raw( trim( $input['image_base_url'] ) ) : '',
-			'product_sync_interval' => $this->pick_interval( $input, 'product_sync_interval', self::product_sync_intervals(), $existing ),
-			'stock_sync_interval'   => $this->pick_interval( $input, 'stock_sync_interval', self::stock_sync_intervals(), $existing ),
+			'api_base_url'           => isset( $input['api_base_url'] ) ? esc_url_raw( trim( $input['api_base_url'] ) ) : '',
+			'api_key'                => '' === $submitted_key ? $existing['api_key'] : $submitted_key,
+			'shoptype'               => array_key_exists( $shoptype, self::shoptypes() ) ? $shoptype : $existing['shoptype'],
+			'shop_id'                => $shop['shop_id'],
+			'shop_name'              => $shop['shop_name'],
+			'image_base_url'         => isset( $input['image_base_url'] ) ? esc_url_raw( trim( $input['image_base_url'] ) ) : '',
+			'product_sync_interval'  => $this->pick_interval( $input, 'product_sync_interval', self::product_sync_intervals(), $existing ),
+			'stock_sync_interval'    => $this->pick_interval( $input, 'stock_sync_interval', self::stock_sync_intervals(), $existing ),
+			'order_sync_interval'    => $this->pick_interval( $input, 'order_sync_interval', self::order_sync_intervals(), $existing ),
+			'delivery_sync_interval' => $this->pick_interval( $input, 'delivery_sync_interval', self::delivery_sync_intervals(), $existing ),
 		);
 	}
 
@@ -556,17 +597,38 @@ class Settings {
 		check_admin_referer( 'wksync_run_job_' . $job );
 
 		$queued = Scheduler::trigger( $job );
-
-		wp_safe_redirect(
-			add_query_arg(
-				array(
-					'page'          => self::PAGE_SLUG,
-					'wksync_queued' => $queued ? $job : 'failed',
-				),
-				admin_url( 'admin.php' )
-			)
+		$args   = array(
+			'page'          => self::PAGE_SLUG,
+			'wksync_queued' => is_wp_error( $queued ) ? 'failed' : $job,
 		);
+
+		/*
+		 * The reason travels as a code rather than a message: a message in the URL
+		 * would have to be re-escaped on the way out and could be edited into
+		 * anything by whoever holds the link.
+		 */
+		if ( is_wp_error( $queued ) ) {
+			$args['wksync_reason'] = $queued->get_error_code();
+		}
+
+		wp_safe_redirect( add_query_arg( $args, admin_url( 'admin.php' ) ) );
 		exit;
+	}
+
+	/**
+	 * The reasons a job can refuse to be queued.
+	 *
+	 * Looked up from the code in the URL so nothing user-supplied is ever echoed.
+	 *
+	 * @return array Map of error code to message.
+	 */
+	protected function refusal_messages() {
+		return array(
+			'wksync_unavailable'     => __( 'The job could not be queued. Check that WooCommerce is active.', 'woo-kontor-sync-pro' ),
+			'wksync_already_running' => __( 'That job is already running.', 'woo-kontor-sync-pro' ),
+			'wksync_not_configured'  => __( 'Set the API base URL and API key before running a sync.', 'woo-kontor-sync-pro' ),
+			'wksync_no_shop'         => __( 'Choose a Kontor shop before syncing orders.', 'woo-kontor-sync-pro' ),
+		);
 	}
 
 	/**
@@ -674,6 +736,29 @@ class Settings {
 						</td>
 					</tr>
 					<tr>
+						<th scope="row">
+							<label for="wksync-upload-user-id"><?php echo esc_html__( 'Upload user ID', 'woo-kontor-sync-pro' ); ?></label>
+						</th>
+						<td>
+							<?php
+							/*
+							 * Shown for reference only. It carries no name attribute, so it is
+							 * never submitted and sanitize() has nothing to validate — the value
+							 * lives in OrderSync::UPLOAD_USER_ID and cannot drift from what is
+							 * actually sent.
+							 */
+							?>
+							<input
+								type="text"
+								class="regular-text code"
+								id="wksync-upload-user-id"
+								value="<?php echo esc_attr( OrderSync::UPLOAD_USER_ID ); ?>"
+								readonly
+							/>
+							<p class="description"><?php echo esc_html__( 'Sent with every order upload as meta.userId. Fixed by agreement with Kontor and not editable here.', 'woo-kontor-sync-pro' ); ?></p>
+						</td>
+					</tr>
+					<tr>
 						<th scope="row"><?php echo esc_html__( 'Connection test', 'woo-kontor-sync-pro' ); ?></th>
 						<td>
 							<button type="button" class="button" id="wksync-test-connection">
@@ -733,6 +818,38 @@ class Settings {
 								(int) $settings['stock_sync_interval']
 							);
 							?>
+						</td>
+					</tr>
+					<tr>
+						<th scope="row">
+							<label for="wksync-order-sync-interval"><?php echo esc_html__( 'Order sync', 'woo-kontor-sync-pro' ); ?></label>
+						</th>
+						<td>
+							<?php
+							$this->render_interval_select(
+								'wksync-order-sync-interval',
+								'order_sync_interval',
+								self::order_sync_intervals(),
+								(int) $settings['order_sync_interval']
+							);
+							?>
+							<p class="description"><?php echo esc_html__( 'Orders are sent to Kontor as they are paid. This sweep only catches ones that were missed, and needs a shop selected.', 'woo-kontor-sync-pro' ); ?></p>
+						</td>
+					</tr>
+					<tr>
+						<th scope="row">
+							<label for="wksync-delivery-sync-interval"><?php echo esc_html__( 'Delivery sync', 'woo-kontor-sync-pro' ); ?></label>
+						</th>
+						<td>
+							<?php
+							$this->render_interval_select(
+								'wksync-delivery-sync-interval',
+								'delivery_sync_interval',
+								self::delivery_sync_intervals(),
+								(int) $settings['delivery_sync_interval']
+							);
+							?>
+							<p class="description"><?php echo esc_html__( 'Pulls tracking details back from Kontor and needs a shop selected. An order Kontor reports as completed is completed here too, which emails the customer.', 'woo-kontor-sync-pro' ); ?></p>
 						</td>
 					</tr>
 				</table>
@@ -862,9 +979,17 @@ class Settings {
 		$jobs = Scheduler::get_jobs();
 
 		if ( ! isset( $jobs[ $queued ] ) ) {
+			// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only display flag set by our own redirect; the action itself was nonce-checked.
+			$reason   = isset( $_GET['wksync_reason'] ) ? sanitize_key( wp_unslash( $_GET['wksync_reason'] ) ) : '';
+			$messages = $this->refusal_messages();
+
 			printf(
 				'<div class="notice notice-error is-dismissible"><p>%s</p></div>',
-				esc_html__( 'The job could not be queued. It may already be running, or WooCommerce may be inactive.', 'woo-kontor-sync-pro' )
+				esc_html(
+					isset( $messages[ $reason ] )
+						? $messages[ $reason ]
+						: __( 'The job could not be queued. It may already be running, or WooCommerce may be inactive.', 'woo-kontor-sync-pro' )
+				)
 			);
 
 			return;

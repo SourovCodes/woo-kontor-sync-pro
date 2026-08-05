@@ -8,6 +8,7 @@
 namespace WooKontorSync\Tests;
 
 use WC_Product_Simple;
+use WooKontorSync\Admin\Settings;
 use WooKontorSync\Sync\Brands;
 use WooKontorSync\Sync\ProductSync;
 use WooKontorSync\Sync\Scheduler;
@@ -452,7 +453,7 @@ class SyncTest extends WP_UnitTestCase {
 
 		// The run stamp is unchanged, so no new run took over.
 		$this->assertSame( $first, Status::get( ProductSync::JOB )['started'] );
-		$this->assertFalse( Scheduler::trigger( 'products' ) );
+		$this->assertSame( 'wksync_already_running', Scheduler::trigger( 'products' )->get_error_code() );
 	}
 
 	/**
@@ -461,6 +462,14 @@ class SyncTest extends WP_UnitTestCase {
 	 * @return void
 	 */
 	public function test_stale_run_does_not_block_forever() {
+		update_option(
+			Settings::OPTION_KEY,
+			array(
+				'api_base_url' => 'https://erp.example.test/api/v1/kontor',
+				'api_key'      => 'test-key-123',
+			)
+		);
+
 		Status::start( ProductSync::JOB );
 
 		$all                        = get_option( Status::OPTION_KEY );

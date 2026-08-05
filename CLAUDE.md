@@ -163,6 +163,33 @@ of them wrong produces silently wrong data rather than an error:
   from a cached copy that could go stale silently. Product and stock sync do not use the shop at
   all; it identifies the store when **orders are pushed and delivery information is pulled back**,
   so both of those need it set before they can run.
+- **`/upsert` is the only write endpoint**, selected by `name: orders` rather than `entity`, and it
+  needs `meta.userId` plus `params.shopid`. **Its top-level `success` stays `true` even when every
+  order in the batch was rejected** — the per-row `status` (`ok` / `fehler`) is the only real signal.
+  Reading the envelope alone would silently lose orders.
+- **`meta.userId` is fixed to `CG`** (`OrderSync::UPLOAD_USER_ID`), agreed with Kontor. The API
+  requires the field but does not validate it. It is a constant rather than a setting or a filter:
+  the settings screen shows it read-only, and anything able to change it would make that display
+  disagree with what is actually sent. The field there carries no `name` attribute, so it is never
+  submitted and `sanitize()` has nothing to validate.
+- **`orderPlatformid` is optional and deliberately not sent.** It identifies the platform to Kontor
+  and no value has been agreed for this integration; inventing one would stamp a meaningless string
+  on every order in the ERP.
+- **`overwrite_all` stays `false`, and that is the idempotency mechanism.** Kontor deduplicates on
+  `orderNumber`: re-sending an order already there comes back as `fehler` / *Dublette* rather than
+  creating a second one. `OrderSync` therefore treats a Dublette as **success** — the order is in the
+  ERP, which is the goal — instead of retrying it forever. Kontor does not return the existing
+  `Auftrnr` in that reply; the delivery sync backfills it.
+- **The `orders` entity honours only `filter.shopid`.** Order number, status and date filters are
+  accepted and silently ignored, so there is no incremental fetch — every order for the shop comes
+  back, capped around 1000 rows. A missing or unknown-but-well-formed shop ID returns an empty list,
+  but a **malformed one is an HTTP 500**, which is why `shop_id` is validated as a GUID before it is
+  ever sent.
+- **Delivery rows are matched on the order number this plugin sent**, recorded as
+  `_wksync_order_number` at push time. Matching on `get_order_number()` would break the day a
+  sequential-order-number plugin is installed and the order starts calling itself something else.
+- **`provider` and `trackinginfo` arrive as `null`, not absent** — confirmed against live data, where
+  all 7 rows for one shop had both null. Anything reading them has to treat null as empty.
 - **The `categories` entity exists but returns zero rows**, filtered or not, so the `Categories`
   GUIDs on an article could not be resolved to names even if we wanted them. Category mapping is
   not possible.
@@ -202,9 +229,21 @@ disables a schedule.
 
 The ERP is a remote REST service. Treat it as slow, occasionally unavailable, and never trusted.
 
-Two jobs are implemented, both pulling from Kontor: **product sync** (7–30 days) and **stock sync**
-(15 minutes–1 day). Order push and delivery-information pull are planned and not built; the
-`shop_id` they will need is already configurable, so neither has to add a setting later.
+Four jobs are implemented: **product sync** (7–30 days), **stock sync** (15 minutes–1 day), **order
+sync** pushing to Kontor, and **delivery sync** pulling status and tracking back.
+
+**No job runs until its preconditions hold** — `Preflight::check()`, called at the top of every
+`start()`. Three gates, cheapest first: the API base URL and key are set; order jobs additionally
+have a shop selected; and the credentials actually authenticate. This is not defensive padding. An
+unauthenticated product sync reads as "Kontor lists no articles", and `finalise()` would then draft
+the entire catalogue. Only *success* is cached (`Preflight::CONNECTION_TTL`, 15 minutes), so a
+frequent job does not re-test every run while a fixed key still takes effect immediately. Saving the
+settings clears the cache.
+
+`Scheduler::trigger()` repeats the local gates so **Run now** can refuse with a reason instead of
+queueing something that can only fail. It returns `true|WP_Error`, and the error *code* — never a
+message — travels in the redirect, so nothing user-supplied is echoed back into the page. Note that
+calling it queues real work: it is not a way to test whether a job would be allowed to run.
 
 - **Schedule with Action Scheduler**, which ships inside WooCommerce — `as_schedule_single_action()`,
   `as_schedule_recurring_action()`, `as_next_scheduled_action()`. Do not use raw `wp_cron`: it has no
@@ -218,7 +257,14 @@ Two jobs are implemented, both pulling from Kontor: **product sync** (7–30 day
 - **Retry with exponential backoff** and a bounded attempt count. Retry 429, 502, 503, 504 and
   network errors; do not retry 4xx client errors — those are bugs, and they belong in the log.
 - **Idempotency keys on every write** so a retried request cannot double-post an order to the ERP.
-  Store the key alongside the remote ID.
+  The real guarantee is Kontor's own `orderNumber` deduplication described above; the
+  `Idempotency-Key` header is belt and braces for a retry that never reaches the application layer.
+- **The delivery sync completes orders, which emails customers.** An order Kontor reports as
+  `completed` is transitioned to completed in WooCommerce, firing WooCommerce's "Order complete"
+  mail. That is deliberate — it is the moment the shop wants that mail sent — but it means this job
+  sends real outbound email, so it only ever moves an order *forwards*: something cancelled or
+  refunded is left alone rather than resurrected. `DeliverySync::should_complete()` is the one place
+  that decides this.
 - **SKU is the only key**, for both product and stock sync. It holds Kontor's article number
   (`Artnr`), Kontor is the source of truth for it, and nothing else is ever matched on: not the EAN
   (which repeats across articles, so it *cannot* be a key), not `Artzentralnr`, not the product

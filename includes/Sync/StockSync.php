@@ -83,6 +83,15 @@ class StockSync {
 			return;
 		}
 
+		$ready = Preflight::check( self::JOB, $this->settings, $this->client );
+
+		if ( is_wp_error( $ready ) ) {
+			Status::fail( self::JOB, $ready->get_error_message() );
+			$this->log( 'error', 'Stock sync refused to start: ' . $ready->get_error_message() );
+
+			return;
+		}
+
 		$run      = Status::start( self::JOB );
 		$response = $this->client->fetch_stock();
 

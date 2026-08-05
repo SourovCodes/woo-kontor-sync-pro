@@ -132,6 +132,19 @@ class ProductSync {
 			return;
 		}
 
+		/*
+		 * Never walk the catalogue unconfigured. An unauthenticated run would read as
+		 * "Kontor lists nothing", and finalise() would then draft the entire shop.
+		 */
+		$ready = Preflight::check( self::JOB, $this->settings, $this->client );
+
+		if ( is_wp_error( $ready ) ) {
+			Status::fail( self::JOB, $ready->get_error_message() );
+			$this->log( 'error', 'Product sync refused to start: ' . $ready->get_error_message() );
+
+			return;
+		}
+
 		$run = Status::start( self::JOB );
 
 		Scheduler::chain(

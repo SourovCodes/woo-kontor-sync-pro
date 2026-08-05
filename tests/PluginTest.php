@@ -133,16 +133,24 @@ class PluginTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * The two implemented jobs are registered and each maps to an interval setting.
+	 * Every job is registered and maps to an interval setting.
 	 *
 	 * @return void
 	 */
 	public function test_registered_jobs() {
 		$jobs = Scheduler::get_jobs();
 
-		$this->assertSame( array( 'products', 'stock' ), array_keys( $jobs ) );
+		$this->assertSame( array( 'products', 'stock', 'orders', 'delivery' ), array_keys( $jobs ) );
 		$this->assertSame( 'product_sync_interval', $jobs['products']['setting'] );
 		$this->assertSame( 'stock_sync_interval', $jobs['stock']['setting'] );
+		$this->assertSame( 'order_sync_interval', $jobs['orders']['setting'] );
+		$this->assertSame( 'delivery_sync_interval', $jobs['delivery']['setting'] );
+
+		// Only the two order jobs depend on a shop being chosen.
+		$this->assertArrayNotHasKey( 'needs_shop', $jobs['products'] );
+		$this->assertArrayNotHasKey( 'needs_shop', $jobs['stock'] );
+		$this->assertTrue( $jobs['orders']['needs_shop'] );
+		$this->assertTrue( $jobs['delivery']['needs_shop'] );
 
 		foreach ( $jobs as $job ) {
 			$this->assertTrue( has_action( $job['action'] ) > 0, $job['action'] . ' has no handler' );
@@ -155,8 +163,8 @@ class PluginTest extends WP_UnitTestCase {
 	 * @return void
 	 */
 	public function test_unknown_job_cannot_be_triggered() {
-		$this->assertFalse( Scheduler::trigger( 'orders' ) );
-		$this->assertFalse( Scheduler::trigger( '' ) );
+		$this->assertSame( 'wksync_unavailable', Scheduler::trigger( 'customers' )->get_error_code() );
+		$this->assertSame( 'wksync_unavailable', Scheduler::trigger( '' )->get_error_code() );
 	}
 
 	/**

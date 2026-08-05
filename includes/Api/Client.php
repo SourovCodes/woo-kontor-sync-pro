@@ -154,6 +154,66 @@ class Client {
 	}
 
 	/**
+	 * Fetch order status and delivery information for one shop.
+	 *
+	 * The orders entity honours only filter.shopid — every other filter key is
+	 * silently ignored, so there is no point narrowing by order number or date. A
+	 * missing or unknown-but-well-formed shop ID comes back as an empty list, but a
+	 * malformed one is an HTTP 500, which is why the caller must validate the GUID
+	 * before getting here.
+	 *
+	 * The result set is capped around 1000 rows server-side.
+	 *
+	 * @param string $shop_id Kontor shop GUID.
+	 * @return array|WP_Error Array with "data" and "meta" keys, or WP_Error on failure.
+	 */
+	public function fetch_orders( $shop_id ) {
+		return $this->search( 'orders', array( 'filter' => array( 'shopid' => (string) $shop_id ) ) );
+	}
+
+	/**
+	 * Upload orders to Kontor.
+	 *
+	 * The only write endpoint, and it does not fail the way the read ones do: the
+	 * top-level success stays true even when every order in the batch was rejected.
+	 * The caller has to inspect each row of the reply, which is what
+	 * OrderSync::interpret_rows() is for.
+	 *
+	 * Deduplication is Kontor's own, on orderNumber, with overwrite_all left false:
+	 * re-sending an order already there is answered with a per-row "Dublette" rather
+	 * than creating a second one. That is what makes a retry safe.
+	 *
+	 * @param array  $orders   Orders in the API's shape, already mapped.
+	 * @param string $shop_id  Kontor shop GUID.
+	 * @param string $user_id  Value for the required meta.userId.
+	 * @return array|WP_Error Array with "data" and "meta" keys, or WP_Error on failure.
+	 */
+	public function push_orders( array $orders, $shop_id, $user_id ) {
+		$body = array(
+			'name'   => 'orders',
+			'meta'   => array( 'userId' => (string) $user_id ),
+			'params' => array(
+				'shopid'        => (string) $shop_id,
+				'overwrite_all' => false,
+				'orders'        => array_values( $orders ),
+			),
+		);
+
+		/*
+		 * The idempotency key covers the order numbers in the batch. Kontor dedupes on
+		 * orderNumber regardless, so this is belt and braces for a retry that never
+		 * reaches the application layer.
+		 */
+		$numbers = array();
+
+		foreach ( $orders as $order ) {
+			$numbers[] = isset( $order['orderNumber'] ) ? (string) $order['orderNumber'] : '';
+		}
+
+		return $this->request( 'POST', 'upsert', $body, md5( (string) $shop_id . '|' . implode( ',', $numbers ) ) );
+	}
+
+	/**
 	 * Check that the configured base URL and API key work.
 	 *
 	 * Asks for a single product so the round trip stays cheap.
@@ -218,7 +278,16 @@ class Client {
 			$args['body'] = wp_json_encode( $body );
 		}
 
-		$label      = isset( $body['entity'] ) ? $endpoint . ':' . $body['entity'] : $endpoint;
+		// Reads are selected by "entity", the single write endpoint by "name".
+		$selector = '';
+
+		if ( isset( $body['entity'] ) ) {
+			$selector = (string) $body['entity'];
+		} elseif ( isset( $body['name'] ) ) {
+			$selector = (string) $body['name'];
+		}
+
+		$label      = '' === $selector ? $endpoint : $endpoint . ':' . $selector;
 		$last_error = null;
 
 		for ( $attempt = 1; $attempt <= self::MAX_ATTEMPTS; $attempt++ ) {
