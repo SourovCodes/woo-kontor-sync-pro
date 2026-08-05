@@ -7,8 +7,11 @@ on:
   # Dry run: builds and verifies the artefact without publishing anything.
   workflow_dispatch:
 
+# A literal group, matching ci.yml, so the CI run this one calls cannot collide with
+# it. Releases are never cancelled in flight: a half-published tag is worse than a
+# queued one.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: release-${{ github.ref }}
   cancel-in-progress: false
 
 permissions:
