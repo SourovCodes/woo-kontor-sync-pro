@@ -30,6 +30,27 @@ class Scheduler {
 	const GROUP = 'woo-kontor-sync';
 
 	/**
+	 * Action Scheduler's own default priority, and what every action here uses.
+	 */
+	const PRIORITY_DEFAULT = 10;
+
+	/**
+	 * Priority for image downloads, which yield to everything else.
+	 *
+	 * Action Scheduler claims by priority, then by insertion order, so without this
+	 * the page action queued at the end of a page sits behind the two hundred image
+	 * actions queued during it: the catalogue walk advances one page per image
+	 * backlog rather than one page per read, and finalise() waits behind the last
+	 * page's downloads. Sunk below the default, the walk runs straight through and
+	 * the downloads drain after it — which is the order that matters, because the
+	 * catalogue is right without them.
+	 *
+	 * Lower numbers run first. Nothing preempts a claimed batch, so a page action can
+	 * still wait out images already in flight.
+	 */
+	const PRIORITY_IMAGES = 20;
+
+	/**
 	 * Entry point for a full product sync.
 	 */
 	const ACTION_SYNC_PRODUCTS = 'woo_kontor_sync_products';
@@ -634,16 +655,17 @@ class Scheduler {
 	/**
 	 * Queue a follow-up action for the current run.
 	 *
-	 * @param string $hook Action hook to queue.
-	 * @param array  $args Arguments to pass along.
+	 * @param string $hook     Action hook to queue.
+	 * @param array  $args     Arguments to pass along.
+	 * @param int    $priority Claim priority, lower first. Defaults to Action Scheduler's own.
 	 * @return void
 	 */
-	public static function chain( $hook, array $args ) {
+	public static function chain( $hook, array $args, $priority = self::PRIORITY_DEFAULT ) {
 		if ( ! self::is_available() ) {
 			return;
 		}
 
-		as_enqueue_async_action( $hook, $args, self::GROUP );
+		as_enqueue_async_action( $hook, $args, self::GROUP, false, (int) $priority );
 	}
 
 	/**

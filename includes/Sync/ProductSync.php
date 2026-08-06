@@ -713,6 +713,10 @@ class ProductSync {
 	 * finalise() never runs. Chained separately the catalogue walk stays bound by
 	 * write speed alone, and a slow image can only ever delay itself.
 	 *
+	 * Separate is not enough on its own, because Action Scheduler claims in insertion
+	 * order and a page queues its images before it queues the next page. They carry
+	 * Scheduler::PRIORITY_IMAGES so the whole walk is claimed ahead of them.
+	 *
 	 * @param int   $product_id Product the images belong to.
 	 * @param array $row        Article row from the API.
 	 * @param int   $run        Run identifier.
@@ -736,7 +740,8 @@ class ProductSync {
 				'product_id' => (int) $product_id,
 				'files'      => $files,
 				'run'        => (int) $run,
-			)
+			),
+			Scheduler::PRIORITY_IMAGES
 		);
 	}
 

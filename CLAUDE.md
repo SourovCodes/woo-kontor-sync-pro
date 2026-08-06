@@ -197,6 +197,16 @@ of them wrong produces silently wrong data rather than an error:
     limit of an ordinary host, where the action is killed, Action Scheduler abandons the chain and
     `finalise()` never runs. Split out, the catalogue walk is bound by write speed alone (~35s a
     page) and a slow image can only delay itself.
+    - **A separate action is not enough on its own — they also carry
+      `Scheduler::PRIORITY_IMAGES` (20), below the default 10 everything else uses.** Action
+      Scheduler claims by `priority, attempts, scheduled_date, action_id`, and a page queues its
+      images *before* it queues the next page, so at equal priority page N+1 sat behind all ~200 of
+      page N's downloads: the walk advanced one page per image backlog rather than one page per
+      read, and `finalise()` waited out the last page's tail. Sunk below the default, the whole walk
+      is claimed first and the downloads drain after it. Priority orders *claiming*, not execution,
+      so a page action can still wait out a batch of images already in flight — one batch, not the
+      backlog. Every other job's chunks outrank images for the same reason: a stock sync due every
+      fifteen minutes must not queue behind a first run's four thousand downloads.
   - **Image actions outlive the run that queued them.** `Status::finish()` leaves the run stamp
     alone, so the tail of downloads still passes `is_current_run()` after the walk has reported
     success; only a *new* run supersedes them. The job therefore reports complete while images are
