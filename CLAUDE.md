@@ -450,9 +450,23 @@ calling it queues real work: it is not a way to test whether a job would be allo
 - **SKU is the only key**, for both product and stock sync. It holds Kontor's article number
   (`Artnr`), Kontor is the source of truth for it, and nothing else is ever matched on: not the EAN
   (which repeats across articles, so it *cannot* be a key), not `Artzentralnr`, not the product
-  title. An article with no `Artnr` is a failed row, never a row to match some other way. Do not
-  store a second Kontor identifier on the product either — the SKU already is the identifier, and a
-  spare one kept "for reconciliation" is a competing key waiting to be used.
+  title. Do not store a second Kontor identifier on the product either — the SKU already is the
+  identifier, and a spare one kept "for reconciliation" is a competing key waiting to be used.
+  - **An article with no `Artnr` is passed over** (`no_sku`), never matched some other way and never
+    created either: with nothing to recognise it by, the next run would import it a second time.
+  - **An `Artnr` held by more than one product is passed over too** (`duplicate_sku`), and nothing is
+    written. `ProductSync::products_for_sku()` is core's own lookup without its `LIMIT 1`, because
+    `wc_get_product_id_by_sku()` answers "which product" and the question here is "how many".
+    WooCommerce rejects a duplicate SKU on save, so this should never fire — but a migration, a CSV
+    import, anything short-circuiting `wc_product_pre_has_unique_sku` and any code writing `_sku`
+    directly all produce them, and the alternative is the sync quietly picking a side and leaving
+    the other product drifting.
+  - The run stamp still moves on the products involved (`ProductSync::keep_alive()`), or
+    `finalise()` would read them as articles Kontor dropped and unpublish both while the article is
+    still in the feed. Only products *already* carrying the stamp are touched: it doubles as the
+    marker for "this plugin imported this", so stamping a shop manager's product would adopt it.
+  - Both counts are reported in the run summary as well as the log. They are data faults only a
+    person can fix, and the summary line is the one place anybody looks.
 - **Stamp what was synced, not what it is called**: `_wksync_synced_at` and `_wksync_sync_hash` let
   reconciliation tell "never synced" from "synced and unchanged". `_wksync_synced_at` doubles as the
   marker for products this plugin owns — every import writes it and nothing else does — which is

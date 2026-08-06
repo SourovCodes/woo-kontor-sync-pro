@@ -21,9 +21,10 @@ defined( 'ABSPATH' ) || exit;
  * Action Scheduler actions: one action per page, then a finalising pass.
  *
  * Kontor is the source of truth, and SKU — Kontor's article number, Artnr — is the
- * only key considered. An article with no Artnr is a failed row rather than
- * something to match on another field, and no second identifier is stored, so
- * there is nothing that could quietly become a competing key.
+ * only key considered. An article with no Artnr is passed over rather than matched
+ * on another field, an Artnr held by more than one product is passed over rather
+ * than guessed at, and no second identifier is stored, so there is nothing that
+ * could quietly become a competing key.
  */
 class ProductSync {
 
@@ -206,10 +207,12 @@ class ProductSync {
 		$total = isset( $response['meta']['totalCount'] ) ? (int) $response['meta']['totalCount'] : 0;
 
 		$counts = array(
-			'created' => 0,
-			'updated' => 0,
-			'skipped' => 0,
-			'failed'  => 0,
+			'created'       => 0,
+			'updated'       => 0,
+			'skipped'       => 0,
+			'no_sku'        => 0,
+			'duplicate_sku' => 0,
+			'failed'        => 0,
 		);
 
 		foreach ( $rows as $row ) {
@@ -324,17 +327,33 @@ class ProductSync {
 
 		$counts = Status::get( self::JOB )['counts'];
 
-		Status::finish(
-			self::JOB,
-			sprintf(
-				/* translators: 1: created count, 2: updated count, 3: unchanged count, 4: drafted count. */
-				__( '%1$d created, %2$d updated, %3$d unchanged, %4$d drafted.', 'woo-kontor-sync-pro' ),
-				isset( $counts['created'] ) ? (int) $counts['created'] : 0,
-				isset( $counts['updated'] ) ? (int) $counts['updated'] : 0,
-				isset( $counts['skipped'] ) ? (int) $counts['skipped'] : 0,
-				isset( $counts['drafted'] ) ? (int) $counts['drafted'] : 0
-			)
+		$message = sprintf(
+			/* translators: 1: created count, 2: updated count, 3: unchanged count, 4: drafted count. */
+			__( '%1$d created, %2$d updated, %3$d unchanged, %4$d drafted.', 'woo-kontor-sync-pro' ),
+			isset( $counts['created'] ) ? (int) $counts['created'] : 0,
+			isset( $counts['updated'] ) ? (int) $counts['updated'] : 0,
+			isset( $counts['skipped'] ) ? (int) $counts['skipped'] : 0,
+			isset( $counts['drafted'] ) ? (int) $counts['drafted'] : 0
 		);
+
+		$no_sku    = isset( $counts['no_sku'] ) ? (int) $counts['no_sku'] : 0;
+		$duplicate = isset( $counts['duplicate_sku'] ) ? (int) $counts['duplicate_sku'] : 0;
+
+		/*
+		 * Both are data problems in the feed or the shop that only a person can fix, so
+		 * they are said out loud rather than left for whoever thinks to open the log.
+		 * Only when there are any: a clean run should read as a clean run.
+		 */
+		if ( $no_sku > 0 || $duplicate > 0 ) {
+			$message .= ' ' . sprintf(
+				/* translators: 1: articles with no article number, 2: articles whose article number matched more than one product. */
+				__( 'Passed over %1$d with no article number and %2$d matching more than one product; see the log.', 'woo-kontor-sync-pro' ),
+				$no_sku,
+				$duplicate
+			);
+		}
+
+		Status::finish( self::JOB, $message );
 	}
 
 	/**
@@ -342,17 +361,56 @@ class ProductSync {
 	 *
 	 * @param array $row Article row from the API.
 	 * @param int   $run Run identifier.
-	 * @return string One of "created", "updated", "skipped" or "failed".
+	 * @return string One of "created", "updated", "skipped", "no_sku", "duplicate_sku" or "failed".
 	 */
 	public function import_article( array $row, $run ) {
 		$sku = isset( $row['Artnr'] ) ? trim( (string) $row['Artnr'] ) : '';
 
+		/*
+		 * The SKU is the only key, so an article without one cannot be matched to a
+		 * product and must not be created either: the next run would have nothing to
+		 * recognise it by and would import it a second time. Passing over the row is
+		 * the only outcome that stays correct on every run.
+		 */
 		if ( '' === $sku ) {
-			return 'failed';
+			$this->log(
+				'warning',
+				sprintf(
+					'Skipped an article with no article number (EAN %1$s, name %2$s): SKU is the only key.',
+					'' === $this->text( $row, 'Artean', '' ) ? '(none)' : $this->text( $row, 'Artean', '' ),
+					'' === $this->text( $row, 'Bez1', '' ) ? '(none)' : $this->text( $row, 'Bez1', '' )
+				)
+			);
+
+			return 'no_sku';
+		}
+
+		$matches = $this->products_for_sku( $sku );
+
+		/*
+		 * Two products answering to one article number is a shop that needs repairing,
+		 * not a product to update. Picking one would write Kontor's data onto whichever
+		 * happened to sort first and leave the other drifting; creating a third would
+		 * make it worse. Nothing is written, and the log names the products so someone
+		 * can go and resolve it.
+		 */
+		if ( count( $matches ) > 1 ) {
+			$this->log(
+				'error',
+				sprintf(
+					'Skipped article %1$s: products %2$s all carry that SKU. Nothing was written; leave one product holding the article number.',
+					$sku,
+					implode( ', ', $matches )
+				)
+			);
+
+			$this->keep_alive( $matches, $run );
+
+			return 'duplicate_sku';
 		}
 
 		$hash       = $this->hash( $row );
-		$product_id = wc_get_product_id_by_sku( $sku );
+		$product_id = empty( $matches ) ? 0 : $matches[0];
 		$existing   = $product_id ? wc_get_product( $product_id ) : null;
 		$restored   = $existing ? $this->restore_if_sync_drafted( $existing ) : false;
 
@@ -403,6 +461,70 @@ class ProductSync {
 		$this->queue_images( $saved_id, $row, $run );
 
 		return $is_create ? 'created' : 'updated';
+	}
+
+	/**
+	 * Every product answering to a SKU.
+	 *
+	 * WooCommerce's own wc_get_product_id_by_sku() stops at the first row, which is
+	 * the one thing that cannot happen here: knowing whether a second product holds
+	 * the same article number is the whole point of the lookup. The query is core's,
+	 * without its LIMIT 1.
+	 *
+	 * WooCommerce rejects a duplicate SKU on save, so this should never find two —
+	 * but "should never" is not "cannot". A migration, a CSV import, anything
+	 * short-circuiting wc_product_pre_has_unique_sku, and any code writing _sku
+	 * directly all produce them, and the sync is what would otherwise quietly pick a
+	 * side.
+	 *
+	 * @param string $sku Article number to look for.
+	 * @return int[] Product IDs, oldest first.
+	 */
+	protected function products_for_sku( $sku ) {
+		global $wpdb;
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Core's lookup answers "which product", never "how many"; the result decides whether a product is written to and must not be served from cache.
+		$ids = $wpdb->get_col(
+			$wpdb->prepare(
+				"SELECT posts.ID
+				FROM {$wpdb->posts} AS posts
+				INNER JOIN {$wpdb->wc_product_meta_lookup} AS lookup ON posts.ID = lookup.product_id
+				WHERE posts.post_type IN ( 'product', 'product_variation' )
+				AND posts.post_status != 'trash'
+				AND lookup.sku = %s
+				ORDER BY posts.ID ASC",
+				$sku
+			)
+		);
+
+		return array_map( 'intval', (array) $ids );
+	}
+
+	/**
+	 * Move the run stamp on products a duplicate SKU stopped us writing to.
+	 *
+	 * Nothing about the products changes, but the stamp has to keep up. finalise()
+	 * drafts anything this plugin imported that the current run did not stamp, so
+	 * passing over a duplicated article number entirely would unpublish both products
+	 * for an article Kontor is still listing — turning a line in the log into a hole
+	 * in the shop, which is a far worse answer to the same ambiguity.
+	 *
+	 * Only products already carrying the stamp are touched. It doubles as the marker
+	 * for "this plugin imported this product", so stamping a shop manager's own
+	 * product would adopt it and hand finalise() the right to draft it later.
+	 *
+	 * @param int[] $product_ids Products sharing the SKU.
+	 * @param int   $run         Run identifier.
+	 * @return void
+	 */
+	protected function keep_alive( array $product_ids, $run ) {
+		foreach ( $product_ids as $product_id ) {
+			if ( '' === (string) get_post_meta( $product_id, self::META_SYNCED_AT, true ) ) {
+				continue;
+			}
+
+			update_post_meta( $product_id, self::META_SYNCED_AT, $run );
+		}
 	}
 
 	/**

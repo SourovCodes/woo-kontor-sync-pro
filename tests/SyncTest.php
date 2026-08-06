@@ -140,18 +140,150 @@ class SyncTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * An article with no Artnr fails rather than falling back to another field.
+	 * An article with no Artnr is passed over, not matched on another field.
 	 *
 	 * @return void
 	 */
-	public function test_article_without_a_sku_fails() {
+	public function test_article_without_a_sku_is_skipped() {
 		$sync = new ProductSync( null, array( 'image_base_url' => '' ) );
 
-		$this->assertSame( 'failed', $sync->import_article( $this->article( array( 'Artnr' => '' ) ), 1000 ) );
-		$this->assertSame( 'failed', $sync->import_article( $this->article( array( 'Artnr' => null ) ), 1000 ) );
+		$this->assertSame( 'no_sku', $sync->import_article( $this->article( array( 'Artnr' => '' ) ), 1000 ) );
+		$this->assertSame( 'no_sku', $sync->import_article( $this->article( array( 'Artnr' => null ) ), 1000 ) );
+		$this->assertSame( 'no_sku', $sync->import_article( $this->article( array( 'Artnr' => '   ' ) ), 1000 ) );
 
 		// Nothing was created from the EAN or the central article number.
 		$this->assertSame( 0, wc_get_product_id_by_global_unique_id( '8945005491168' ) );
+		$this->assertSame( array(), wc_get_products( array( 'limit' => -1 ) ) );
+	}
+
+	/**
+	 * A SKU held by two products stops the article dead.
+	 *
+	 * Updating one of them would write Kontor's data onto whichever sorted first and
+	 * leave the other drifting, and creating a third would make it worse.
+	 *
+	 * @return void
+	 */
+	public function test_duplicate_sku_updates_nothing() {
+		$first  = $this->product_with_duplicate_sku( 'abel-AB12', '5.00' );
+		$second = $this->product_with_duplicate_sku( 'abel-AB12', '6.00' );
+
+		$sync = new ProductSync( null, array( 'image_base_url' => '' ) );
+
+		$this->assertSame( 'duplicate_sku', $sync->import_article( $this->article(), 1000 ) );
+
+		// Neither was written to, and no third product was created for the article.
+		$this->assertSame( '5.00', wc_get_product( $first )->get_regular_price() );
+		$this->assertSame( '6.00', wc_get_product( $second )->get_regular_price() );
+		$this->assertCount( 2, wc_get_products( array( 'limit' => -1 ) ) );
+	}
+
+	/**
+	 * A duplicate SKU is reported, with the products named.
+	 *
+	 * Nothing else tells the shop the article is being passed over, and the products
+	 * have to be named or there is nothing to go and look at.
+	 *
+	 * @return void
+	 */
+	public function test_duplicate_sku_is_logged() {
+		$first  = $this->product_with_duplicate_sku( 'abel-AB12', '5.00' );
+		$second = $this->product_with_duplicate_sku( 'abel-AB12', '6.00' );
+
+		$logged = array();
+
+		$capture = static function ( $message ) use ( &$logged ) {
+			$logged[] = $message;
+
+			return $message;
+		};
+
+		add_filter( 'woocommerce_logger_log_message', $capture );
+		( new ProductSync( null, array( 'image_base_url' => '' ) ) )->import_article( $this->article(), 1000 );
+		remove_filter( 'woocommerce_logger_log_message', $capture );
+
+		$reported = implode( "\n", $logged );
+
+		$this->assertStringContainsString( 'abel-AB12', $reported );
+		$this->assertStringContainsString( (string) $first, $reported );
+		$this->assertStringContainsString( (string) $second, $reported );
+	}
+
+	/**
+	 * A duplicate SKU does not get the products drafted by finalise().
+	 *
+	 * The run stamp still has to move on products this plugin imported: without it the
+	 * finalising pass reads them as articles Kontor dropped and unpublishes both, for
+	 * an article that is still in the feed.
+	 *
+	 * @return void
+	 */
+	public function test_duplicate_sku_keeps_imported_products_published() {
+		$sync = new ProductSync( null, array( 'image_base_url' => '' ) );
+
+		// An earlier run imported the article, so the product is this plugin's.
+		$sync->import_article( $this->article(), 1000 );
+
+		$imported = wc_get_product_id_by_sku( 'abel-AB12' );
+
+		// A second product turns up holding the same article number.
+		$clone = $this->product_with_duplicate_sku( 'abel-AB12', '6.00' );
+		$run   = Status::start( ProductSync::JOB );
+
+		$this->assertSame( 'duplicate_sku', $sync->import_article( $this->article(), $run ) );
+
+		$sync->finalise( $run );
+
+		$this->assertSame( 'publish', wc_get_product( $imported )->get_status() );
+		$this->assertSame( 'publish', wc_get_product( $clone )->get_status() );
+		$this->assertSame( (string) $run, (string) get_post_meta( $imported, '_wksync_synced_at', true ) );
+	}
+
+	/**
+	 * A duplicate SKU does not adopt a product the shop manager created.
+	 *
+	 * The run stamp doubles as the marker for "this plugin imported this product", so
+	 * writing it onto someone else's product would hand finalise() the right to draft
+	 * it the moment the article leaves the feed.
+	 *
+	 * @return void
+	 */
+	public function test_duplicate_sku_does_not_adopt_a_shop_managers_product() {
+		$first  = $this->product_with_duplicate_sku( 'abel-AB12', '5.00' );
+		$second = $this->product_with_duplicate_sku( 'abel-AB12', '6.00' );
+
+		( new ProductSync( null, array( 'image_base_url' => '' ) ) )->import_article( $this->article(), 1000 );
+
+		$this->assertSame( '', (string) get_post_meta( $first, '_wksync_synced_at', true ) );
+		$this->assertSame( '', (string) get_post_meta( $second, '_wksync_synced_at', true ) );
+	}
+
+	/**
+	 * Create a product holding a SKU another product already uses.
+	 *
+	 * WooCommerce refuses a duplicate SKU on save, which is why the sync should never
+	 * meet one — but migrations, CSV imports and anything writing the meta directly
+	 * produce them anyway, and that is the case under test. The uniqueness check is
+	 * short-circuited through core's own filter rather than by writing the meta behind
+	 * WooCommerce's back, so the lookup table ends up populated exactly as it would be
+	 * on a real shop carrying the fault.
+	 *
+	 * @param string $sku   SKU to force onto the product.
+	 * @param string $price Regular price, so a rewrite by the sync is visible.
+	 * @return int Product ID.
+	 */
+	private function product_with_duplicate_sku( $sku, $price ) {
+		add_filter( 'wc_product_pre_has_unique_sku', '__return_true' );
+
+		$product = new WC_Product_Simple();
+		$product->set_sku( $sku );
+		$product->set_regular_price( $price );
+		$product->set_status( 'publish' );
+		$id = $product->save();
+
+		remove_filter( 'wc_product_pre_has_unique_sku', '__return_true' );
+
+		return $id;
 	}
 
 	/**
@@ -409,14 +541,48 @@ class SyncTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * An article with no article number cannot be matched, so it is rejected.
+	 * Articles the run passed over are reported in the summary, not only the log.
+	 *
+	 * Both are data problems only a person can fix, and the summary line is the one
+	 * place anybody looks.
 	 *
 	 * @return void
 	 */
-	public function test_article_without_a_number_fails() {
+	public function test_summary_reports_articles_that_were_passed_over() {
 		$sync = new ProductSync( null, array( 'image_base_url' => '' ) );
+		$run  = Status::start( ProductSync::JOB );
 
-		$this->assertSame( 'failed', $sync->import_article( $this->article( array( 'Artnr' => '' ) ), 1000 ) );
+		Status::progress(
+			ProductSync::JOB,
+			array(
+				'created'       => 3,
+				'no_sku'        => 2,
+				'duplicate_sku' => 1,
+			)
+		);
+
+		$sync->finalise( $run );
+
+		$this->assertStringContainsString(
+			'Passed over 2 with no article number and 1 matching more than one product',
+			Status::get( ProductSync::JOB )['message']
+		);
+	}
+
+	/**
+	 * A run that passed over nothing says nothing about it.
+	 *
+	 * @return void
+	 */
+	public function test_clean_run_summary_stays_clean() {
+		$sync = new ProductSync( null, array( 'image_base_url' => '' ) );
+		$run  = Status::start( ProductSync::JOB );
+
+		Status::progress( ProductSync::JOB, array( 'created' => 3 ) );
+
+		$sync->finalise( $run );
+
+		$this->assertSame( '3 created, 0 updated, 0 unchanged, 0 drafted.', Status::get( ProductSync::JOB )['message'] );
 	}
 
 	/**

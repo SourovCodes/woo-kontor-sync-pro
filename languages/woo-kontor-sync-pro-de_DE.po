@@ -531,7 +531,7 @@ msgid "No Kontor shop has been selected. Choose one on the settings screen befor
 msgstr "Es wurde kein Kontor-Shop ausgewählt. Wähle auf der Einstellungsseite einen aus, bevor du Bestellungen synchronisierst."
 
 #. translators: 1: created count, 2: updated count, 3: unchanged count, 4: drafted count.
-#: includes/Sync/ProductSync.php:331
+#: includes/Sync/ProductSync.php:332
 #, php-format
 msgid "%1$d created, %2$d updated, %3$d unchanged, %4$d drafted."
 msgstr "%1$d erstellt, %2$d aktualisiert, %3$d unverändert, %4$d auf Entwurf gesetzt."
@@ -796,3 +796,9 @@ msgstr "ein schwerwiegender Fehler"
 #, php-format
 msgid "The run stopped because a background task ended unexpectedly: %s"
 msgstr "Der Durchlauf wurde abgebrochen, weil eine Hintergrundaufgabe unerwartet beendet wurde: %s"
+
+#. translators: 1: articles with no article number, 2: articles whose article number matched more than one product.
+#: includes/Sync/ProductSync.php:350
+#, php-format
+msgid "Passed over %1$d with no article number and %2$d matching more than one product; see the log."
+msgstr "%1$d ohne Artikelnummer und %2$d mit mehr als einem passenden Produkt übersprungen; siehe Log."
