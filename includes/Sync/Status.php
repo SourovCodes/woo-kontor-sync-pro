@@ -96,6 +96,52 @@ class Status {
 	}
 
 	/**
+	 * Mark every in-flight job as failed.
+	 *
+	 * A run only ever leaves the "running" state from inside one of its own chained
+	 * actions. Cancelling the queue therefore strands the status: nothing is left to
+	 * call finish() or fail(), and the job reads as running until STALE_AFTER expires
+	 * — six hours during which the admin screen lies and Scheduler::trigger() refuses
+	 * every attempt to start it again. Whoever cancels the work owns closing the
+	 * status behind it.
+	 *
+	 * The raw state is what is tested rather than is_running(), so a run that is
+	 * already stale is closed out too instead of being left to look in-flight.
+	 *
+	 * @param string $message Reason to record against each abandoned run.
+	 * @return array Job keys that were abandoned.
+	 */
+	public static function abandon( $message ) {
+		$all = get_option( self::OPTION_KEY, array() );
+
+		if ( ! is_array( $all ) ) {
+			return array();
+		}
+
+		$abandoned = array();
+
+		foreach ( $all as $job => $status ) {
+			if ( ! is_array( $status ) || ! isset( $status['state'] ) || 'running' !== $status['state'] ) {
+				continue;
+			}
+
+			$status['state']    = 'failed';
+			$status['finished'] = time();
+			$status['message']  = $message;
+
+			$all[ $job ] = wp_parse_args( $status, self::defaults() );
+			$abandoned[] = $job;
+		}
+
+		// One write for the lot; the option holds every job.
+		if ( ! empty( $abandoned ) ) {
+			update_option( self::OPTION_KEY, $all, false );
+		}
+
+		return $abandoned;
+	}
+
+	/**
 	 * How long a job may sit in the "running" state before it is presumed dead.
 	 *
 	 * A crashed run must not block the job forever.

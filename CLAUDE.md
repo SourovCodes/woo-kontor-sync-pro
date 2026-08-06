@@ -394,6 +394,27 @@ calling it queues real work: it is not a way to test whether a job would be allo
   retry semantics, no concurrency control, and no admin visibility.
 - **Chain long runs across actions.** A job that walks thousands of records queues a follow-up
   action per page or chunk rather than looping in one request. See `ProductSync::import_page()`.
+- **Whoever breaks a chain owns closing the status behind it.** A run only ever leaves the
+  `running` state from inside one of its own chained actions, so anything that destroys the chain
+  strands the job: the admin screen reports it as running and `Scheduler::trigger()` refuses to
+  start another until `Status::STALE_AFTER` (6 hours) expires. Two things close it instead.
+  `Deactivator::deactivate()` calls `Status::abandon()` before emptying the queue — deactivating
+  mid-sync is otherwise a six-hour phantom. And `Scheduler` listens to Action Scheduler's own
+  verdicts (`action_scheduler_failed_execution`, `action_scheduler_failed_action`,
+  `action_scheduler_unexpected_shutdown`), because a page action that throws is never retried and
+  the chain simply ends there. `Scheduler::job_for_action()` decides which job an action belongs
+  to, and deliberately **omits `ACTION_SYNC_PRODUCT_IMAGES`** — images outlive their run and the
+  catalogue is already right without them, so a failed download must not turn a finished product
+  sync into a failed one — and `ACTION_SYNC_ORDER`, which is one checkout's upload rather than the
+  sweep. A failure carrying a superseded `run`, or arriving after the job reported its own reason,
+  is ignored.
+- **`Scheduler::SCHEDULE_GUARD` means "the queue matches the settings"**, which is why
+  `unschedule_all()` deletes it: it stops being true the moment the queue is emptied, and leaving
+  it set makes `ensure_recurring_actions()` return early for the rest of the hour. A plugin
+  deactivated and immediately reactivated would otherwise sit with no recurring actions at all,
+  with the settings screen still showing every interval as configured. `Activator::activate()` goes
+  further and calls `Scheduler::restore_schedules()`, so the schedules are back before the next
+  `init` rather than after it.
 - **Never sync inside a request that a customer is waiting on.** Checkout and order-status hooks
   enqueue an action; they do not call Kontor.
 - **HTTP via `wp_remote_request()`** with an explicit `timeout` (`Client::REQUEST_TIMEOUT`, 30s), a

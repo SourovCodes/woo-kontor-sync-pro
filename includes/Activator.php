@@ -8,6 +8,7 @@
 namespace WooKontorSync;
 
 use WooKontorSync\Admin\Settings;
+use WooKontorSync\Sync\Scheduler;
 
 defined( 'ABSPATH' ) || exit;
 
@@ -31,6 +32,14 @@ final class Activator {
 		add_option( Settings::OPTION_KEY, Settings::default_settings(), '', false );
 
 		add_option( 'woo_kontor_sync_version', WKSYNC_VERSION, '', false );
+
+		/*
+		 * Deactivation cancelled every queued action, and nothing else puts them back
+		 * until the schedule check next runs. Reactivating has to restore the schedules
+		 * the settings ask for, or the jobs stay silent while the screen shows their
+		 * intervals as configured.
+		 */
+		Scheduler::restore_schedules();
 
 		/**
 		 * Fires after the plugin has finished its activation routine.

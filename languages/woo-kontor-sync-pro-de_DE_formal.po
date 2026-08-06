@@ -195,12 +195,12 @@ msgstr[0] "%s Hersteller gefunden."
 msgstr[1] "%s Hersteller gefunden."
 
 #: includes/Admin/Settings.php:869
-#: includes/Sync/Scheduler.php:280
+#: includes/Sync/Scheduler.php:321
 msgid "The job could not be queued. Check that WooCommerce is active."
 msgstr "Der Job konnte nicht eingereiht werden. Prüfen Sie, ob WooCommerce aktiv ist."
 
 #: includes/Admin/Settings.php:870
-#: includes/Sync/Scheduler.php:287
+#: includes/Sync/Scheduler.php:328
 msgid "That job is already running."
 msgstr "Dieser Job läuft bereits."
 
@@ -325,17 +325,17 @@ msgid "Schedules"
 msgstr "Zeitpläne"
 
 #: includes/Admin/Settings.php:1110
-#: includes/Sync/Scheduler.php:106
+#: includes/Sync/Scheduler.php:108
 msgid "Product sync"
 msgstr "Produktsynchronisation"
 
 #: includes/Admin/Settings.php:1125
-#: includes/Sync/Scheduler.php:114
+#: includes/Sync/Scheduler.php:116
 msgid "Stock sync"
 msgstr "Bestandssynchronisation"
 
 #: includes/Admin/Settings.php:1140
-#: includes/Sync/Scheduler.php:122
+#: includes/Sync/Scheduler.php:124
 msgid "Order sync"
 msgstr "Bestellsynchronisation"
 
@@ -344,7 +344,7 @@ msgid "Orders are sent to Kontor as they are paid. This sweep only catches ones 
 msgstr "Bestellungen werden an Kontor gesendet, sobald sie bezahlt sind. Dieser Durchlauf erfasst nur übersehene Bestellungen und benötigt einen ausgewählten Shop."
 
 #: includes/Admin/Settings.php:1156
-#: includes/Sync/Scheduler.php:131
+#: includes/Sync/Scheduler.php:133
 msgid "Delivery sync"
 msgstr "Liefersynchronisation"
 
@@ -536,30 +536,30 @@ msgstr "Es wurde kein Kontor-Shop ausgewählt. Wählen Sie auf der Einstellungss
 msgid "%1$d created, %2$d updated, %3$d unchanged, %4$d drafted."
 msgstr "%1$d erstellt, %2$d aktualisiert, %3$d unverändert, %4$d auf Entwurf gesetzt."
 
-#: includes/Sync/Scheduler.php:107
+#: includes/Sync/Scheduler.php:109
 msgid "Imports articles, titles, descriptions and prices from Kontor."
 msgstr "Importiert Artikel, Titel, Beschreibungen und Preise aus Kontor."
 
-#: includes/Sync/Scheduler.php:108
-#: includes/Sync/Scheduler.php:116
-#: includes/Sync/Scheduler.php:133
-#: includes/Sync/Scheduler.php:142
+#: includes/Sync/Scheduler.php:110
+#: includes/Sync/Scheduler.php:118
+#: includes/Sync/Scheduler.php:135
+#: includes/Sync/Scheduler.php:144
 msgid "From Kontor"
 msgstr "Aus Kontor"
 
-#: includes/Sync/Scheduler.php:115
+#: includes/Sync/Scheduler.php:117
 msgid "Updates stock levels for every article Kontor reports."
 msgstr "Aktualisiert die Lagerbestände für jeden von Kontor gemeldeten Artikel."
 
-#: includes/Sync/Scheduler.php:123
+#: includes/Sync/Scheduler.php:125
 msgid "Sends paid orders to Kontor. Orders are normally sent as they are paid; this sweep catches any that were missed."
 msgstr "Sendet bezahlte Bestellungen an Kontor. Bestellungen werden normalerweise gesendet, sobald sie bezahlt sind, dieser Durchlauf erfasst übersehene."
 
-#: includes/Sync/Scheduler.php:124
+#: includes/Sync/Scheduler.php:126
 msgid "To Kontor"
 msgstr "An Kontor"
 
-#: includes/Sync/Scheduler.php:132
+#: includes/Sync/Scheduler.php:134
 msgid "Brings order status and tracking details back from Kontor. Completing an order emails the customer."
 msgstr "Holt Bestellstatus und Sendungsdaten aus Kontor zurück. Das Abschließen einer Bestellung sendet dem Kunden eine E-Mail."
 
@@ -596,7 +596,7 @@ msgid "Enable High-Performance Order Storage"
 msgstr "High-Performance Order Storage aktivieren"
 
 #: includes/Admin/Settings.php:1172
-#: includes/Sync/Scheduler.php:140
+#: includes/Sync/Scheduler.php:142
 msgid "Invoice sync"
 msgstr "Rechnungssynchronisation"
 
@@ -712,7 +712,7 @@ msgstr "Rechnung %s von Kontor heruntergeladen."
 msgid "%1$d invoices downloaded, %2$d failed, %3$d not found locally."
 msgstr "%1$d Rechnungen heruntergeladen, %2$d fehlgeschlagen, %3$d lokal nicht gefunden."
 
-#: includes/Sync/Scheduler.php:141
+#: includes/Sync/Scheduler.php:143
 msgid "Downloads invoice PDFs from Kontor and files them against their orders."
 msgstr "Lädt Rechnungs-PDFs von Kontor herunter und ordnet sie ihren Bestellungen zu."
 
@@ -768,3 +768,31 @@ msgstr "Was sich in einer Version geändert hat, steht bei der Veröffentlichung
 #: includes/Updates/Updater.php:192
 msgid "release notes on GitHub"
 msgstr "Versionshinweise auf GitHub"
+
+#: includes/Deactivator.php:35
+msgid "Interrupted: the plugin was deactivated while this run was in progress."
+msgstr "Abgebrochen: Das Plugin wurde deaktiviert, während dieser Durchlauf lief."
+
+#: includes/Sync/Scheduler.php:507
+msgid "an unknown error"
+msgstr "ein unbekannter Fehler"
+
+#. translators: %s: error message.
+#: includes/Sync/Scheduler.php:512
+#, php-format
+msgid "The run stopped because a background task failed: %s"
+msgstr "Der Durchlauf wurde abgebrochen, weil eine Hintergrundaufgabe fehlgeschlagen ist: %s"
+
+#: includes/Sync/Scheduler.php:525
+msgid "The run stopped because a background task took too long and was abandoned."
+msgstr "Der Durchlauf wurde abgebrochen, weil eine Hintergrundaufgabe zu lange gedauert hat und aufgegeben wurde."
+
+#: includes/Sync/Scheduler.php:537
+msgid "a fatal error"
+msgstr "ein schwerwiegender Fehler"
+
+#. translators: %s: error message.
+#: includes/Sync/Scheduler.php:542
+#, php-format
+msgid "The run stopped because a background task ended unexpectedly: %s"
+msgstr "Der Durchlauf wurde abgebrochen, weil eine Hintergrundaufgabe unerwartet beendet wurde: %s"

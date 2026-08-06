@@ -7,8 +7,10 @@
 
 namespace WooKontorSync\Sync;
 
+use Exception;
 use WP_Error;
 use WooKontorSync\Admin\Settings;
+use WooKontorSync\Api\Client;
 
 defined( 'ABSPATH' ) || exit;
 
@@ -149,6 +151,36 @@ class Scheduler {
 	}
 
 	/**
+	 * The job a queued action belongs to.
+	 *
+	 * Only the actions that make up a run are listed. ACTION_SYNC_PRODUCT_IMAGES is
+	 * left out on purpose: image downloads outlive the run that queued them and the
+	 * catalogue is already correct without them, so a failed image must not turn a
+	 * finished product sync into a failed one. ACTION_SYNC_ORDER is left out for the
+	 * same kind of reason — it is a single order queued at checkout, not part of the
+	 * sweep the "orders" status describes.
+	 *
+	 * @param string $hook Action hook.
+	 * @return string Job key, or an empty string when the action is not part of a run.
+	 */
+	public static function job_for_action( $hook ) {
+		$jobs = array(
+			self::ACTION_SYNC_PRODUCTS          => 'products',
+			self::ACTION_SYNC_PRODUCTS_PAGE     => 'products',
+			self::ACTION_SYNC_PRODUCTS_FINALISE => 'products',
+			self::ACTION_SYNC_STOCK             => 'stock',
+			self::ACTION_SYNC_STOCK_CHUNK       => 'stock',
+			self::ACTION_SYNC_ORDERS            => 'orders',
+			self::ACTION_SYNC_DELIVERY          => 'delivery',
+			self::ACTION_SYNC_DELIVERY_CHUNK    => 'delivery',
+			self::ACTION_SYNC_INVOICES          => 'invoices',
+			self::ACTION_SYNC_INVOICES_CHUNK    => 'invoices',
+		);
+
+		return isset( $jobs[ $hook ] ) ? $jobs[ $hook ] : '';
+	}
+
+	/**
 	 * Register the Action Scheduler hooks.
 	 *
 	 * @return void
@@ -178,6 +210,15 @@ class Scheduler {
 		foreach ( OrderSync::pushable_statuses() as $status ) {
 			add_action( 'woocommerce_order_status_' . $status, array( $this, 'handle_order_status' ), 10, 1 );
 		}
+
+		/*
+		 * A run reports its own outcome from inside its chained actions. When one of
+		 * those dies the chain dies with it and there is nothing left to record the
+		 * failure, so Action Scheduler's own verdict has to close the status instead.
+		 */
+		add_action( 'action_scheduler_failed_execution', array( $this, 'handle_failed_execution' ), 10, 2 );
+		add_action( 'action_scheduler_failed_action', array( $this, 'handle_timed_out_action' ), 10, 1 );
+		add_action( 'action_scheduler_unexpected_shutdown', array( $this, 'handle_unexpected_shutdown' ), 10, 2 );
 
 		add_action( 'init', array( $this, 'ensure_recurring_actions' ) );
 
@@ -456,6 +497,123 @@ class Scheduler {
 	}
 
 	/**
+	 * Close out a run whose action threw.
+	 *
+	 * @param int       $action_id Action that failed.
+	 * @param Exception $exception What it threw.
+	 * @return void
+	 */
+	public function handle_failed_execution( $action_id = 0, $exception = null ) {
+		$reason = $exception instanceof Exception ? $exception->getMessage() : __( 'an unknown error', 'woo-kontor-sync-pro' );
+
+		$this->abandon_run(
+			$action_id,
+			/* translators: %s: error message. */
+			sprintf( __( 'The run stopped because a background task failed: %s', 'woo-kontor-sync-pro' ), $reason )
+		);
+	}
+
+	/**
+	 * Close out a run whose action ran past Action Scheduler's timeout.
+	 *
+	 * @param int $action_id Action that was given up on.
+	 * @return void
+	 */
+	public function handle_timed_out_action( $action_id = 0 ) {
+		$this->abandon_run(
+			$action_id,
+			__( 'The run stopped because a background task took too long and was abandoned.', 'woo-kontor-sync-pro' )
+		);
+	}
+
+	/**
+	 * Close out a run whose action ended the request outright.
+	 *
+	 * @param int   $action_id Action that was running.
+	 * @param array $error     The PHP error that ended the request.
+	 * @return void
+	 */
+	public function handle_unexpected_shutdown( $action_id = 0, $error = array() ) {
+		$reason = isset( $error['message'] ) ? (string) $error['message'] : __( 'a fatal error', 'woo-kontor-sync-pro' );
+
+		$this->abandon_run(
+			$action_id,
+			/* translators: %s: error message. */
+			sprintf( __( 'The run stopped because a background task ended unexpectedly: %s', 'woo-kontor-sync-pro' ), $reason )
+		);
+	}
+
+	/**
+	 * Record that a run died with the action that was carrying it.
+	 *
+	 * @param int    $action_id Action that failed.
+	 * @param string $message   Reason to record against the run.
+	 * @return void
+	 */
+	protected function abandon_run( $action_id, $message ) {
+		$action = self::fetch_action( absint( $action_id ) );
+
+		if ( null === $action ) {
+			return;
+		}
+
+		$job = self::job_for_action( $action->get_hook() );
+
+		if ( '' === $job ) {
+			return;
+		}
+
+		$args = (array) $action->get_args();
+
+		/*
+		 * A superseded action failing says nothing about the run that replaced it, and
+		 * failing that one on its behalf would report a healthy sync as broken.
+		 */
+		if ( isset( $args['run'] ) && ! Status::is_current_run( $job, (int) $args['run'] ) ) {
+			return;
+		}
+
+		// The job may already have recorded its own, better, reason for stopping.
+		if ( 'running' !== Status::get( $job )['state'] ) {
+			return;
+		}
+
+		Status::fail( $job, $message );
+
+		if ( function_exists( 'wc_get_logger' ) ) {
+			wc_get_logger()->error(
+				sprintf( '%s run abandoned: %s', $job, $message ),
+				array( 'source' => Client::LOG_SOURCE )
+			);
+		}
+	}
+
+	/**
+	 * Read a queued action back from Action Scheduler.
+	 *
+	 * @param int $action_id Action to read.
+	 * @return \ActionScheduler_Action|null The action, or null when it cannot be read.
+	 */
+	protected static function fetch_action( $action_id ) {
+		if ( ! $action_id || ! class_exists( '\ActionScheduler' ) ) {
+			return null;
+		}
+
+		try {
+			$action = \ActionScheduler::store()->fetch_action( $action_id );
+		} catch ( Exception $exception ) {
+			return null;
+		}
+
+		// A missing action comes back as a null action rather than as an error.
+		if ( ! $action instanceof \ActionScheduler_Action || ! $action->get_hook() ) {
+			return null;
+		}
+
+		return $action;
+	}
+
+	/**
 	 * Queue a follow-up action for the current run.
 	 *
 	 * @param string $hook Action hook to queue.
@@ -473,14 +631,44 @@ class Scheduler {
 	/**
 	 * Cancel everything this plugin has queued.
 	 *
+	 * The guard means "the queue matches the settings", which stops being true the
+	 * moment the queue is emptied. Leaving it set would keep ensure_recurring_actions()
+	 * returning early for the rest of the hour, so a plugin deactivated and
+	 * immediately reactivated would sit with no recurring actions at all — a stock
+	 * sync set to fifteen minutes silently not running for the best part of an hour.
+	 *
 	 * @return void
 	 */
 	public static function unschedule_all() {
+		delete_transient( self::SCHEDULE_GUARD );
+
 		if ( ! function_exists( 'as_unschedule_all_actions' ) ) {
 			return;
 		}
 
 		as_unschedule_all_actions( '', array(), self::GROUP );
+	}
+
+	/**
+	 * Put the recurring actions back, now rather than on the next `init`.
+	 *
+	 * Called from activation. Dropping the guard alone would be enough eventually,
+	 * but the queue would then stay empty until some later request happened to run
+	 * `init`, and the settings screen would meanwhile report every job as not
+	 * scheduled. Action Scheduler may legitimately be absent here — activation can
+	 * run before WooCommerce has loaded — in which case the cleared guard is what
+	 * makes the next `init` finish the job.
+	 *
+	 * @return void
+	 */
+	public static function restore_schedules() {
+		delete_transient( self::SCHEDULE_GUARD );
+
+		if ( ! self::is_available() ) {
+			return;
+		}
+
+		( new self() )->sync_schedules();
 	}
 
 	/**
