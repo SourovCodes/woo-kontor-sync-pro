@@ -38,6 +38,14 @@ class Scheduler {
 	const ACTION_SYNC_PRODUCTS_PAGE = 'woo_kontor_sync_products_page';
 
 	/**
+	 * Downloads the images for one product.
+	 *
+	 * Separate from the page action because sideloading is the slowest thing the
+	 * import does, and the only part that waits on a host we do not control.
+	 */
+	const ACTION_SYNC_PRODUCT_IMAGES = 'woo_kontor_sync_product_images';
+
+	/**
 	 * Runs after the last product page.
 	 */
 	const ACTION_SYNC_PRODUCTS_FINALISE = 'woo_kontor_sync_products_finalise';
@@ -148,6 +156,7 @@ class Scheduler {
 	public function register() {
 		add_action( self::ACTION_SYNC_PRODUCTS, array( $this, 'handle_products' ) );
 		add_action( self::ACTION_SYNC_PRODUCTS_PAGE, array( $this, 'handle_products_page' ), 10, 2 );
+		add_action( self::ACTION_SYNC_PRODUCT_IMAGES, array( $this, 'handle_product_images' ), 10, 3 );
 		add_action( self::ACTION_SYNC_PRODUCTS_FINALISE, array( $this, 'handle_products_finalise' ), 10, 1 );
 
 		add_action( self::ACTION_SYNC_STOCK, array( $this, 'handle_stock' ) );
@@ -333,6 +342,18 @@ class Scheduler {
 	 */
 	public function handle_products_page( $skip = 0, $run = 0 ) {
 		( new ProductSync() )->import_page( absint( $skip ), absint( $run ) );
+	}
+
+	/**
+	 * Download the images for one product.
+	 *
+	 * @param int   $product_id Product the images belong to.
+	 * @param array $files      Image filenames, relative to the configured base URL.
+	 * @param int   $run        Run identifier.
+	 * @return void
+	 */
+	public function handle_product_images( $product_id = 0, $files = array(), $run = 0 ) {
+		( new ProductSync() )->import_images( absint( $product_id ), (array) $files, absint( $run ) );
 	}
 
 	/**

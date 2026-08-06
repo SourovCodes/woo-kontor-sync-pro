@@ -107,6 +107,16 @@ class ProductSync {
 	const FINALISE_BATCH = 200;
 
 	/**
+	 * Seconds to wait for one image download.
+	 *
+	 * WordPress defaults to 300, and media_sideload_image() offers no way to shorten
+	 * it. An image host that accepts the connection and then stops answering would
+	 * hold the action open for five minutes per file, so the download is bounded here
+	 * instead. Kontor's images are small: a host this slow is not going to answer.
+	 */
+	const IMAGE_TIMEOUT = 20;
+
+	/**
 	 * Plugin settings.
 	 *
 	 * @var array
@@ -352,6 +362,14 @@ class ProductSync {
 			$existing->update_meta_data( self::META_SYNCED_AT, $run );
 			$existing->save_meta_data();
 
+			/*
+			 * Images are downloaded in their own action and can fail on their own, so an
+			 * article that has not changed still has to be offered to the image queue.
+			 * Without this, a set that never completed would stay incomplete until the
+			 * article itself changed, which for a stable product is never.
+			 */
+			$this->queue_images( $existing->get_id(), $row, $run );
+
 			return 'skipped';
 		}
 
@@ -382,7 +400,7 @@ class ProductSync {
 
 		Brands::assign( $saved_id, $this->text( $row, 'Hersteller', '' ), $this->text( $row, 'Herstellerid', '' ) );
 
-		$this->sideload_images( $product, $row );
+		$this->queue_images( $saved_id, $row, $run );
 
 		return $is_create ? 'created' : 'updated';
 	}
@@ -536,40 +554,75 @@ class ProductSync {
 	}
 
 	/**
-	 * Sideload the article's images into the media library.
+	 * Queue an article's images for download in an action of their own.
 	 *
-	 * Kontor returns bare filenames rather than URLs, so this only runs when an
-	 * image base URL has been configured. The filename list is hashed so unchanged
-	 * images are never downloaded twice, and any file already in the media library is
-	 * reused rather than fetched again — the same photograph is shared across
-	 * articles often enough that downloading per product would multiply the library.
+	 * Sideloading is by a wide margin the slowest thing the import does, and the only
+	 * part that waits on a host nobody here controls: measured against the live
+	 * catalogue it runs about 2.2 seconds per image, and articles average 2.38 of
+	 * them. Left inside the page action, a page of 200 articles would spend some
+	 * seventeen minutes downloading — past the execution limit of an ordinary host,
+	 * where the action is killed, Action Scheduler gives up on the chain, and
+	 * finalise() never runs. Chained separately the catalogue walk stays bound by
+	 * write speed alone, and a slow image can only ever delay itself.
 	 *
-	 * @param WC_Product_Simple $product Product to attach images to.
-	 * @param array             $row     Article row from the API.
+	 * @param int   $product_id Product the images belong to.
+	 * @param array $row        Article row from the API.
+	 * @param int   $run        Run identifier.
 	 * @return void
 	 */
-	protected function sideload_images( $product, array $row ) {
-		$base = isset( $this->settings['image_base_url'] ) ? trim( (string) $this->settings['image_base_url'] ) : '';
-
-		if ( '' === $base ) {
-			return;
-		}
-
-		$files = array();
-
-		foreach ( array_merge( array( 'MainImageURL' ), $this->image_keys() ) as $key ) {
-			$file = $this->text( $row, $key, '' );
-
-			if ( '' !== $file ) {
-				$files[] = $file;
-			}
-		}
+	protected function queue_images( $product_id, array $row, $run ) {
+		$files = $this->image_files( $row );
 
 		if ( empty( $files ) ) {
 			return;
 		}
 
-		$hash = md5( implode( '|', $files ) );
+		// Already complete, so there is nothing to fetch and no action worth queueing.
+		if ( $this->image_hash( $files ) === (string) get_post_meta( (int) $product_id, self::META_IMAGE_HASH, true ) ) {
+			return;
+		}
+
+		Scheduler::chain(
+			Scheduler::ACTION_SYNC_PRODUCT_IMAGES,
+			array(
+				'product_id' => (int) $product_id,
+				'files'      => $files,
+				'run'        => (int) $run,
+			)
+		);
+	}
+
+	/**
+	 * Download one product's images into the media library.
+	 *
+	 * The filename list is hashed so an unchanged set is never downloaded twice, and
+	 * any file already in the media library is reused rather than fetched again — the
+	 * same photograph is shared across articles often enough that downloading per
+	 * product would multiply the library.
+	 *
+	 * @param int   $product_id Product to attach images to.
+	 * @param array $files      Image filenames, relative to the configured base URL.
+	 * @param int   $run        Run identifier.
+	 * @return void
+	 */
+	public function import_images( $product_id, array $files, $run ) {
+		/*
+		 * A newer run has taken over. Status::finish() leaves the run stamp alone, so
+		 * images queued by a run that has already completed are still wanted; only a
+		 * fresh run supersedes them.
+		 */
+		if ( ! Status::is_current_run( self::JOB, $run ) ) {
+			return;
+		}
+
+		$base    = isset( $this->settings['image_base_url'] ) ? trim( (string) $this->settings['image_base_url'] ) : '';
+		$product = wc_get_product( (int) $product_id );
+
+		if ( ! $product || empty( $files ) || '' === $base ) {
+			return;
+		}
+
+		$hash = $this->image_hash( $files );
 
 		if ( $hash === (string) $product->get_meta( self::META_IMAGE_HASH ) ) {
 			return;
@@ -583,11 +636,11 @@ class ProductSync {
 		$attachment_ids = array();
 
 		foreach ( $files as $file ) {
-			$url           = trailingslashit( $base ) . ltrim( $file, '/' );
+			$url           = trailingslashit( $base ) . ltrim( (string) $file, '/' );
 			$attachment_id = $this->attachment_for_source( $url );
 
 			if ( ! $attachment_id ) {
-				$attachment_id = media_sideload_image( $url, $product->get_id(), null, 'id' );
+				$attachment_id = $this->sideload( $url, (int) $product_id );
 
 				if ( is_wp_error( $attachment_id ) ) {
 					$this->log(
@@ -612,11 +665,94 @@ class ProductSync {
 
 		$product->set_image_id( array_shift( $gallery ) );
 		$product->set_gallery_image_ids( $gallery );
-		$product->update_meta_data( self::META_IMAGE_HASH, $hash );
+
+		/*
+		 * Only a complete set stamps the hash. Recording the whole list as done after a
+		 * partial download would retire the missing images for good: the next run finds
+		 * the article unchanged and never asks for them again.
+		 */
+		if ( count( $attachment_ids ) === count( $files ) ) {
+			$product->update_meta_data( self::META_IMAGE_HASH, $hash );
+		}
+
 		$product->save();
 
 		// After the save, so an image kept from the previous set reads as in use.
 		$this->discard_unused_images( array_diff( $previous, $attachment_ids ) );
+	}
+
+	/**
+	 * Download one image and attach it to a product.
+	 *
+	 * WordPress has media_sideload_image() for this, but it calls download_url() with
+	 * a default of 300 seconds and exposes no way to shorten it — the
+	 * http_request_timeout filter cannot help, because download_url() passes the
+	 * timeout explicitly and an explicit argument beats the filtered default. Running
+	 * the two halves here is what makes IMAGE_TIMEOUT possible.
+	 *
+	 * @param string $url        Absolute URL of the image.
+	 * @param int    $product_id Product to attach it to.
+	 * @return int|\WP_Error Attachment ID, or WP_Error when the download or the file was rejected.
+	 */
+	protected function sideload( $url, $product_id ) {
+		$temp = download_url( $url, self::IMAGE_TIMEOUT );
+
+		if ( is_wp_error( $temp ) ) {
+			return $temp;
+		}
+
+		$file_array = array(
+			'name'     => basename( (string) wp_parse_url( $url, PHP_URL_PATH ) ),
+			'tmp_name' => $temp,
+		);
+
+		$attachment_id = media_handle_sideload( $file_array, $product_id );
+
+		// A successful sideload moves the file; a rejected one leaves it with us.
+		if ( is_wp_error( $attachment_id ) ) {
+			wp_delete_file( $temp );
+		}
+
+		return $attachment_id;
+	}
+
+	/**
+	 * The image filenames an article carries, in gallery order.
+	 *
+	 * Kontor returns bare filenames rather than URLs, so they are only usable once an
+	 * image base URL has been configured; without one there is nothing to fetch.
+	 *
+	 * @param array $row Article row from the API.
+	 * @return string[] Filenames, empty when there are none or no base URL is set.
+	 */
+	protected function image_files( array $row ) {
+		$base = isset( $this->settings['image_base_url'] ) ? trim( (string) $this->settings['image_base_url'] ) : '';
+
+		if ( '' === $base ) {
+			return array();
+		}
+
+		$files = array();
+
+		foreach ( array_merge( array( 'MainImageURL' ), $this->image_keys() ) as $key ) {
+			$file = $this->text( $row, $key, '' );
+
+			if ( '' !== $file ) {
+				$files[] = $file;
+			}
+		}
+
+		return $files;
+	}
+
+	/**
+	 * Hash a filename list, so an unchanged set is recognised without downloading it.
+	 *
+	 * @param array $files Image filenames.
+	 * @return string Hash of the list.
+	 */
+	protected function image_hash( array $files ) {
+		return md5( implode( '|', $files ) );
 	}
 
 	/**

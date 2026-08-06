@@ -190,6 +190,27 @@ of them wrong produces silently wrong data rather than an error:
   - The in-use check matches the gallery with **`FIND_IN_SET`, never `LIKE`**. The gallery is a
     comma-separated list, and `LIKE '%12%'` matches the gallery `123` — the dangerous half being
     attachment 123 looking in use because 12 sits somewhere in a list.
+  - **Downloads run in their own chained action, one per product**
+    (`Scheduler::ACTION_SYNC_PRODUCT_IMAGES`), never inside the page action. Measured against the
+    live catalogue, sideloading costs about **2.2 seconds per image** and articles average **2.38**
+    of them, so a page of 200 would spend some seventeen minutes downloading — past the execution
+    limit of an ordinary host, where the action is killed, Action Scheduler abandons the chain and
+    `finalise()` never runs. Split out, the catalogue walk is bound by write speed alone (~35s a
+    page) and a slow image can only delay itself.
+  - **Image actions outlive the run that queued them.** `Status::finish()` leaves the run stamp
+    alone, so the tail of downloads still passes `is_current_run()` after the walk has reported
+    success; only a *new* run supersedes them. The job therefore reports complete while images are
+    still arriving, which is correct — the catalogue is right, the pictures are cosmetic.
+  - **`ProductSync::IMAGE_TIMEOUT` (20s) bounds each download.** `media_sideload_image()` cannot be
+    used: it calls `download_url()` with WordPress's 300-second default and offers no way to shorten
+    it, and the `http_request_timeout` filter cannot help either, because an explicit `timeout`
+    argument beats the filtered default. `ProductSync::sideload()` therefore runs `download_url()`
+    and `media_handle_sideload()` itself. Confirmed live: the image host can accept a connection and
+    then never answer, which without a bound holds the action open for five minutes per file.
+  - **Only a complete set stamps `META_IMAGE_HASH`.** Recording the whole list as done after a
+    partial download would retire the missing images for good, because the next run finds the
+    article unchanged and never asks again. For the same reason the unchanged-article skip path
+    still offers the row to the image queue before returning `skipped`.
 - **`paging.take` is capped at 2000** server-side, silently. Requesting 5000 returns 2000, so a
   pager that trusts its own page size skips records. `Client::MAX_PAGE_SIZE` enforces the cap, and
   `ProductSync::import_page()` advances `skip` by the rows actually returned rather than by the page
@@ -197,7 +218,8 @@ of them wrong produces silently wrong data rather than an error:
 - **The catalogue is walked at 200 per page** (`Client::PRODUCT_PAGE_SIZE`), one page per Action
   Scheduler action — about 22 actions for 4386 articles. The limit is our write speed, not the API:
   saving 500 products took around 78 seconds, long enough to risk being cut short on a slow host.
-  Raise this and the failure mode is a truncated pass, not an API error.
+  Raise this and the failure mode is a truncated pass, not an API error. That budget only holds
+  because images are downloaded elsewhere; do not put them back in the page action.
 - **The `stock` entity takes no paging and no filter.** One request returns a level for every
   article (~2945 rows in ~65ms). Sending paging to it is not an error, just pointless.
 - **The `shops` entity takes no paging or filter either**, and returns one row per shop — 13 on the
