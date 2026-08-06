@@ -201,12 +201,41 @@ of them wrong produces silently wrong data rather than an error:
     alone, so the tail of downloads still passes `is_current_run()` after the walk has reported
     success; only a *new* run supersedes them. The job therefore reports complete while images are
     still arriving, which is correct — the catalogue is right, the pictures are cosmetic.
-  - **`ProductSync::IMAGE_TIMEOUT` (20s) bounds each download.** `media_sideload_image()` cannot be
-    used: it calls `download_url()` with WordPress's 300-second default and offers no way to shorten
-    it, and the `http_request_timeout` filter cannot help either, because an explicit `timeout`
-    argument beats the filtered default. `ProductSync::sideload()` therefore runs `download_url()`
-    and `media_handle_sideload()` itself. Confirmed live: the image host can accept a connection and
-    then never answer, which without a bound holds the action open for five minutes per file.
+  - **A product's images are downloaded concurrently**, `ProductSync::IMAGE_CONCURRENCY` (4) at a
+    time, filterable through `woo_kontor_sync_image_concurrency` and clamped to 1–8. Of the 2.2
+    seconds a sideload takes, only about **0.1 is this machine's work** — `media_handle_sideload()`
+    reading the file and building the seven thumbnail sizes, measured on the development site. The
+    other two seconds are spent waiting on Kontor's host, and several images can wait at once.
+    Measured end to end against a host answering in 1.5s, eight images took **12.6s serially and
+    3.6–5.1s at four at a time**. The ceiling is politeness, not throughput: the host belongs to
+    somebody else.
+    - **Only the downloads are parallel.** Attaching stays serial — it is the CPU-bound tenth of the
+      cost, so there is nothing to win, and WordPress's media handling is not written to be
+      re-entered.
+    - **The gallery is rebuilt in feed order, not arrival order.** Responses come back in any order
+      at all, and the first image is the featured one, so ordering by reply would put an arbitrary
+      photograph on the shop front. One entry per input URL, so a list naming the same file twice
+      still counts as complete; a failed image is simply absent, which is what leaves the set
+      partial.
+  - **This means leaving `wp_remote_get()`, because WordPress cannot fetch two things at once.**
+    `Requests::request_multiple()` — the library core is built on — runs a batch over `curl_multi`
+    and streams each response to disk. Without curl the fsockopen transport answers the same call
+    serially, so it degrades rather than fails. The `http_request_args` filter is lost with it.
+    **Two things are kept deliberately**, because they are controls a site relies on rather than
+    conveniences: `WP_HTTP_BLOCK_EXTERNAL` (via `WP_Http::block_request()`) and the
+    `pre_http_request` short-circuit. A filter answering with a *response* is treated as a refusal:
+    its contract is a response in memory and what is needed here is bytes on disk — core has the
+    same gap, and `download_url()` under such a filter returns an empty file that fails as "not an
+    image" two steps later.
+  - **`ProductSync::IMAGE_TIMEOUT` (20s) bounds each download**, and now the batch with it, so an
+    unresponsive host costs one timeout per batch rather than one per image. `media_sideload_image()`
+    could never have been used: it calls `download_url()` with WordPress's 300-second default and
+    offers no way to shorten it, and the `http_request_timeout` filter cannot help either, because
+    an explicit `timeout` argument beats the filtered default. Confirmed live: the image host can
+    accept a connection and then never answer, which without a bound holds the action open for five
+    minutes per file.
+  - **A non-200 deletes the file it streamed.** curl writes whatever comes back, so an error page
+    would otherwise be saved under a `.jpg` name and handed to the media library as a photograph.
   - **Only a complete set stamps `META_IMAGE_HASH`.** Recording the whole list as done after a
     partial download would retire the missing images for good, because the next run finds the
     article unchanged and never asks again. For the same reason the unchanged-article skip path

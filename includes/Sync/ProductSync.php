@@ -11,6 +11,8 @@ use Exception;
 use WC_Product_Simple;
 use WooKontorSync\Admin\Settings;
 use WooKontorSync\Api\Client;
+use WP_Error;
+use WpOrg\Requests\Requests;
 
 defined( 'ABSPATH' ) || exit;
 
@@ -114,8 +116,24 @@ class ProductSync {
 	 * it. An image host that accepts the connection and then stops answering would
 	 * hold the action open for five minutes per file, so the download is bounded here
 	 * instead. Kontor's images are small: a host this slow is not going to answer.
+	 *
+	 * It bounds the batch as well as the file. A product's images are fetched
+	 * together, so the worst an unresponsive host can cost one action is this once per
+	 * batch rather than once per image.
 	 */
 	const IMAGE_TIMEOUT = 20;
+
+	/**
+	 * How many of a product's images are downloaded at the same time.
+	 *
+	 * Sideloading is about 2.2 seconds an image, and only a tenth of that is work this
+	 * machine does — the rest is waiting on Kontor's host, which several images can
+	 * wait through at once. Four is chosen for the shape of the data rather than for a
+	 * benchmark: articles average 2.38 images, so it covers almost every product in
+	 * one batch while leaving the connection count somewhere a stranger's web server
+	 * would consider reasonable.
+	 */
+	const IMAGE_CONCURRENCY = 4;
 
 	/**
 	 * Plugin settings.
@@ -754,30 +772,14 @@ class ProductSync {
 		require_once ABSPATH . 'wp-admin/includes/media.php';
 		require_once ABSPATH . 'wp-admin/includes/image.php';
 
-		$previous       = $this->attached_image_ids( $product );
-		$attachment_ids = array();
+		$previous = $this->attached_image_ids( $product );
+		$urls     = array();
 
 		foreach ( $files as $file ) {
-			$url           = trailingslashit( $base ) . ltrim( (string) $file, '/' );
-			$attachment_id = $this->attachment_for_source( $url );
-
-			if ( ! $attachment_id ) {
-				$attachment_id = $this->sideload( $url, (int) $product_id );
-
-				if ( is_wp_error( $attachment_id ) ) {
-					$this->log(
-						'warning',
-						sprintf( 'Could not sideload image %s for article %s: %s', $file, $product->get_sku(), $attachment_id->get_error_message() )
-					);
-
-					continue;
-				}
-
-				update_post_meta( (int) $attachment_id, self::META_IMAGE_SOURCE, $url );
-			}
-
-			$attachment_ids[] = (int) $attachment_id;
+			$urls[] = trailingslashit( $base ) . ltrim( (string) $file, '/' );
 		}
+
+		$attachment_ids = $this->resolve_images( $urls, (int) $product_id, (string) $product->get_sku() );
 
 		if ( empty( $attachment_ids ) ) {
 			return;
@@ -804,38 +806,320 @@ class ProductSync {
 	}
 
 	/**
-	 * Download one image and attach it to a product.
+	 * Turn one product's image URLs into attachment IDs, in gallery order.
 	 *
-	 * WordPress has media_sideload_image() for this, but it calls download_url() with
-	 * a default of 300 seconds and exposes no way to shorten it — the
-	 * http_request_timeout filter cannot help, because download_url() passes the
-	 * timeout explicitly and an explicit argument beats the filtered default. Running
-	 * the two halves here is what makes IMAGE_TIMEOUT possible.
+	 * The downloads are the only slow part and they are done together: measured
+	 * against the live catalogue a sideload takes about 2.2 seconds, of which
+	 * media_handle_sideload() — reading the file and building the seven thumbnail
+	 * sizes — accounts for roughly 0.1. The other two seconds are spent waiting on
+	 * Kontor's image host, which is time several images can wait through at once.
 	 *
-	 * @param string $url        Absolute URL of the image.
-	 * @param int    $product_id Product to attach it to.
-	 * @return int|\WP_Error Attachment ID, or WP_Error when the download or the file was rejected.
+	 * The attaching is deliberately left serial. It is the CPU-bound tenth of the
+	 * cost, so there is nothing to win, and WordPress's media handling is not written
+	 * to be re-entered.
+	 *
+	 * One entry is returned per input URL, so a list naming the same file twice still
+	 * counts as complete. Anything that failed is simply absent, which is what stops
+	 * import_images() stamping the hash on a partial set.
+	 *
+	 * @param string[] $urls       Absolute image URLs, in gallery order.
+	 * @param int      $product_id Product to attach them to.
+	 * @param string   $sku        Article number, for the log.
+	 * @return int[] Attachment IDs.
 	 */
-	protected function sideload( $url, $product_id ) {
-		$temp = download_url( $url, self::IMAGE_TIMEOUT );
+	protected function resolve_images( array $urls, $product_id, $sku ) {
+		$attachments = array();
+		$pending     = array();
 
-		if ( is_wp_error( $temp ) ) {
-			return $temp;
+		foreach ( $urls as $url ) {
+			$attachment_id = $this->attachment_for_source( $url );
+
+			// Already in the library, shared with some other article. No HTTP at all.
+			if ( $attachment_id ) {
+				$attachments[ $url ] = $attachment_id;
+
+				continue;
+			}
+
+			$pending[ $url ] = $url;
 		}
 
+		foreach ( $this->download( array_values( $pending ) ) as $url => $file ) {
+			if ( is_wp_error( $file ) ) {
+				$this->log(
+					'warning',
+					sprintf( 'Could not download image %s for article %s: %s', $url, $sku, $file->get_error_message() )
+				);
+
+				continue;
+			}
+
+			$attachment_id = $this->attach( $url, $file, $product_id );
+
+			if ( is_wp_error( $attachment_id ) ) {
+				$this->log(
+					'warning',
+					sprintf( 'Could not attach image %s to article %s: %s', $url, $sku, $attachment_id->get_error_message() )
+				);
+
+				continue;
+			}
+
+			$attachments[ $url ] = $attachment_id;
+		}
+
+		$ordered = array();
+
+		foreach ( $urls as $url ) {
+			if ( isset( $attachments[ $url ] ) ) {
+				$ordered[] = (int) $attachments[ $url ];
+			}
+		}
+
+		return $ordered;
+	}
+
+	/**
+	 * Fetch images concurrently, into temporary files.
+	 *
+	 * WordPress has no way to do this: download_url() is one blocking request per
+	 * call. Requests — the library WordPress itself is built on — exposes
+	 * request_multiple(),
+	 * which runs a batch over curl_multi and streams each response straight to disk.
+	 * On a host with no curl extension the fsockopen transport answers the same call
+	 * serially, so this degrades to today's behaviour rather than failing.
+	 *
+	 * Leaving wp_remote_get() behind means leaving the http_request_args filter behind
+	 * with it. Two things are kept deliberately, because they are controls a site
+	 * actually relies on rather than conveniences: WP_HTTP_BLOCK_EXTERNAL, and the
+	 * pre_http_request short-circuit.
+	 *
+	 * @param string[] $urls URLs to fetch.
+	 * @return array Map of URL to a temporary file path, or to a WP_Error.
+	 */
+	protected function download( array $urls ) {
+		$results = array();
+
+		if ( empty( $urls ) ) {
+			return $results;
+		}
+
+		foreach ( array_chunk( $urls, $this->concurrency() ) as $batch ) {
+			$results += $this->download_batch( $batch );
+		}
+
+		return $results;
+	}
+
+	/**
+	 * Fetch one batch of images at the same time.
+	 *
+	 * @param string[] $urls URLs to fetch together.
+	 * @return array Map of URL to a temporary file path, or to a WP_Error.
+	 */
+	protected function download_batch( array $urls ) {
+		$results  = array();
+		$requests = array();
+		$targets  = array();
+
+		foreach ( $urls as $url ) {
+			$refused = $this->refuse_request( $url );
+
+			if ( null !== $refused ) {
+				$results[ $url ] = $refused;
+
+				continue;
+			}
+
+			$temp = wp_tempnam( $url );
+
+			if ( ! $temp ) {
+				$results[ $url ] = new WP_Error( 'wksync_no_temp_file', 'Could not create a temporary file for the download.' );
+
+				continue;
+			}
+
+			$targets[ $url ]  = $temp;
+			$requests[ $url ] = array(
+				'url'     => $url,
+				'type'    => Requests::GET,
+				'options' => array( 'filename' => $temp ),
+			);
+		}
+
+		if ( empty( $requests ) ) {
+			return $results;
+		}
+
+		try {
+			$responses = Requests::request_multiple( $requests, $this->request_options() );
+		} catch ( Exception $exception ) {
+			// A batch that could not even be dispatched fails as a batch; each URL is
+			// reported on its own so the caller does not have to know they shared one.
+			foreach ( $targets as $url => $temp ) {
+				wp_delete_file( $temp );
+
+				$results[ $url ] = new WP_Error( 'wksync_image_download_failed', $exception->getMessage() );
+			}
+
+			return $results;
+		}
+
+		foreach ( $responses as $url => $response ) {
+			$results[ $url ] = $this->interpret_download( $response, $targets[ $url ] );
+		}
+
+		return $results;
+	}
+
+	/**
+	 * Decide whether one response left a usable file behind.
+	 *
+	 * Failures come back from request_multiple() as exception objects rather than
+	 * being thrown, so a dead host arrives here as a value like any other. Either way
+	 * the partial file is removed: curl streams whatever the host sent, including an
+	 * error page, and a 404 body saved as a .jpg is worse than no file.
+	 *
+	 * @param object|\Exception $response Response or failure for one URL.
+	 * @param string            $temp     Temporary file the download was streamed to.
+	 * @return string|WP_Error The file path, or why it is unusable.
+	 */
+	protected function interpret_download( $response, $temp ) {
+		if ( $response instanceof Exception ) {
+			wp_delete_file( $temp );
+
+			return new WP_Error( 'wksync_image_download_failed', $response->getMessage() );
+		}
+
+		$status = isset( $response->status_code ) ? (int) $response->status_code : 0;
+
+		if ( 200 !== $status ) {
+			wp_delete_file( $temp );
+
+			/* translators: not user-facing; this is a log line. */
+			return new WP_Error( 'wksync_image_download_failed', sprintf( 'The image host answered HTTP %d.', $status ) );
+		}
+
+		return $temp;
+	}
+
+	/**
+	 * Whether WordPress would have refused to make this request at all.
+	 *
+	 * Both checks belong to the site rather than to the HTTP library, which is why
+	 * they survive the move off wp_remote_get(): WP_HTTP_BLOCK_EXTERNAL is how a site
+	 * states that outbound requests are not allowed, and pre_http_request is how
+	 * anything from a test to a firewall plugin intercepts one.
+	 *
+	 * A filter answering with a *response* rather than an error is treated as a
+	 * refusal too. The filter's contract is a response in memory, and what is needed
+	 * here is bytes on disk; core has the same gap, and download_url() under such a
+	 * filter hands back an empty file that fails as "not an image" two steps later.
+	 * Saying so here is the same outcome with a reason attached.
+	 *
+	 * @param string $url URL about to be fetched.
+	 * @return WP_Error|null The refusal, or null when the request may proceed.
+	 */
+	protected function refuse_request( $url ) {
+		$args = array(
+			'method'     => 'GET',
+			'timeout'    => self::IMAGE_TIMEOUT,
+			'stream'     => true,
+			'user-agent' => $this->user_agent(),
+		);
+
+		if ( _wp_http_get_object()->block_request( $url ) ) {
+			return new WP_Error( 'http_request_not_executed', 'This site blocks outbound HTTP requests to that host.' );
+		}
+
+		/** This filter is documented in wp-includes/class-wp-http.php */
+		$pre = apply_filters( 'pre_http_request', false, $args, $url ); // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- Core's own hook, re-applied deliberately so leaving wp_remote_get() does not take the site's interception point with it.
+
+		if ( false === $pre ) {
+			return null;
+		}
+
+		return is_wp_error( $pre )
+			? $pre
+			: new WP_Error( 'wksync_image_download_intercepted', 'A filter answered the request in place of the image host.' );
+	}
+
+	/**
+	 * Options every image request is made with.
+	 *
+	 * Certificates are WordPress's own bundle, named explicitly rather than left to
+	 * the copy inside the Requests package, so verification matches every other
+	 * request the site makes.
+	 *
+	 * @return array Requests options.
+	 */
+	protected function request_options() {
+		return array(
+			'timeout'   => self::IMAGE_TIMEOUT,
+			'useragent' => $this->user_agent(),
+			'redirects' => 5,
+			'verify'    => ABSPATH . WPINC . '/certificates/ca-bundle.crt',
+		);
+	}
+
+	/**
+	 * How many images are fetched at once.
+	 *
+	 * Bounded at both ends whatever the filter says. One is the serial behaviour this
+	 * replaced; the ceiling is politeness, since the host on the other end belongs to
+	 * somebody else and a page of articles opening thirty connections at once is
+	 * indistinguishable from an attack.
+	 *
+	 * @return int Number of simultaneous downloads.
+	 */
+	protected function concurrency() {
+		/**
+		 * Filters how many of a product's images are downloaded at the same time.
+		 *
+		 * @since 0.9.0
+		 *
+		 * @param int $concurrency Simultaneous downloads, clamped to 1..8.
+		 */
+		$concurrency = (int) apply_filters( 'woo_kontor_sync_image_concurrency', self::IMAGE_CONCURRENCY );
+
+		return max( 1, min( 8, $concurrency ) );
+	}
+
+	/**
+	 * How this plugin identifies itself to the image host.
+	 *
+	 * @return string User agent string.
+	 */
+	protected function user_agent() {
+		return 'WooKontorSyncPro/' . WKSYNC_VERSION . '; ' . home_url( '/' );
+	}
+
+	/**
+	 * Move a downloaded file into the media library.
+	 *
+	 * @param string $url        URL it came from, recorded for deduplication.
+	 * @param string $file       Temporary file holding the image.
+	 * @param int    $product_id Product to attach it to.
+	 * @return int|WP_Error Attachment ID, or why the file was rejected.
+	 */
+	protected function attach( $url, $file, $product_id ) {
 		$file_array = array(
 			'name'     => basename( (string) wp_parse_url( $url, PHP_URL_PATH ) ),
-			'tmp_name' => $temp,
+			'tmp_name' => $file,
 		);
 
 		$attachment_id = media_handle_sideload( $file_array, $product_id );
 
 		// A successful sideload moves the file; a rejected one leaves it with us.
 		if ( is_wp_error( $attachment_id ) ) {
-			wp_delete_file( $temp );
+			wp_delete_file( $file );
+
+			return $attachment_id;
 		}
 
-		return $attachment_id;
+		update_post_meta( (int) $attachment_id, self::META_IMAGE_SOURCE, $url );
+
+		return (int) $attachment_id;
 	}
 
 	/**
