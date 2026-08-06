@@ -308,6 +308,11 @@ class OrderSync {
 	 * The batch reply reports success at the top level even when every row failed,
 	 * so the rows are the only thing worth reading.
 	 *
+	 * An order the reply says nothing about at all is counted as failed. Nothing is
+	 * written on it, so the next sweep sends it again — but silently dropping it from
+	 * the counts would report a batch of twenty-five as "five sent" and leave nobody
+	 * any reason to look.
+	 *
 	 * @param array      $rows   Result rows from the upsert reply.
 	 * @param WC_Order[] $by_key Orders keyed by the order number that was sent.
 	 * @return void
@@ -318,6 +323,8 @@ class OrderSync {
 			'duplicate' => 0,
 			'failed'    => 0,
 		);
+
+		$reported = array();
 
 		foreach ( $rows as $row ) {
 			$number = isset( $row['orderNumber'] ) ? (string) $row['orderNumber'] : '';
@@ -330,6 +337,8 @@ class OrderSync {
 
 				continue;
 			}
+
+			$reported[ $number ] = true;
 
 			$status  = isset( $row['status'] ) ? strtolower( (string) $row['status'] ) : '';
 			$message = isset( $row['message'] ) ? (string) $row['message'] : '';
@@ -361,6 +370,25 @@ class OrderSync {
 			$this->log(
 				'error',
 				sprintf( 'Kontor rejected order %s: %s', $number, '' === $message ? '(no reason given)' : $message )
+			);
+		}
+
+		foreach ( $by_key as $number => $order ) {
+			if ( isset( $reported[ $number ] ) ) {
+				continue;
+			}
+
+			$order->update_meta_data(
+				self::META_PUSH_ERROR,
+				__( 'Kontor accepted the batch but said nothing about this order.', 'woo-kontor-sync-pro' )
+			);
+			$order->save();
+
+			++$counts['failed'];
+
+			$this->log(
+				'error',
+				sprintf( 'Kontor returned no verdict for order %s; it will be sent again on the next sweep.', $number )
 			);
 		}
 
@@ -481,22 +509,43 @@ class OrderSync {
 		 * Inventing one would put a meaningless string on every order in the ERP.
 		 */
 		$payload = array(
-			'orderId'         => $display,
-			'orderNumber'     => $number,
-			'orderDate'       => $date ? gmdate( 'Y-m-d\TH:i:s\Z', $date->getTimestamp() ) : gmdate( 'Y-m-d\TH:i:s\Z' ),
-			'currency'        => $order->get_currency(),
-			'customerName'    => trim( $order->get_formatted_billing_full_name() ),
-			'customerEmail'   => $order->get_billing_email(),
-			'customerPhone'   => $order->get_billing_phone(),
-			'customerGroup'   => isset( $this->settings['shoptype'] ) ? (string) $this->settings['shoptype'] : '',
-			'language'        => substr( get_locale(), 0, 2 ),
-			'billingAddress'  => $this->address( $order, 'billing' ),
-			'deliveryAddress' => $this->delivery_address( $order ),
-			'shippingTotal'   => (float) $order->get_shipping_total(),
-			'paymentMethod'   => $order->get_payment_method(),
-			'shippingMethod'  => $order->get_shipping_method(),
-			'remarks'         => $order->get_customer_note(),
-			'items'           => $this->items( $order ),
+			'orderId'              => $display,
+			'orderNumber'          => $number,
+			'orderDate'            => $date ? gmdate( 'Y-m-d\TH:i:s\Z', $date->getTimestamp() ) : gmdate( 'Y-m-d\TH:i:s\Z' ),
+			'currency'             => $order->get_currency(),
+			'customerName'         => trim( $order->get_formatted_billing_full_name() ),
+			'customerEmail'        => $order->get_billing_email(),
+			'customerPhone'        => $order->get_billing_phone(),
+			'customerGroup'        => isset( $this->settings['shoptype'] ) ? (string) $this->settings['shoptype'] : '',
+			'language'             => substr( get_locale(), 0, 2 ),
+			'billingAddress'       => $this->address( $order, 'billing' ),
+			'deliveryAddress'      => $this->delivery_address( $order ),
+			'shippingTotal'        => (float) $order->get_shipping_total(),
+			'paymentMethod'        => $order->get_payment_method(),
+
+			/*
+			 * The gateway's own title, which is the wording the customer saw and the
+			 * only thing that distinguishes two gateways sharing an id. paymentMethod
+			 * stays as well: it is the stable slug, and the title is editable prose.
+			 */
+			'paymentMethodName'    => $order->get_payment_method_title(),
+
+			/*
+			 * The gateway's transaction reference, so a payment can be reconciled from
+			 * the ERP without going back to the shop. Empty on an order that was never
+			 * paid through a gateway, which is what the field expects.
+			 */
+			'paymentTransactionId' => $order->get_transaction_id(),
+
+			/*
+			 * Whether the amounts on this order include tax. Kontor has no way to tell
+			 * from the numbers alone, and reading a gross total as net overstates every
+			 * line by the VAT rate.
+			 */
+			'taxStatus'            => $order->get_prices_include_tax() ? 'gross' : 'net',
+			'shippingMethod'       => $order->get_shipping_method(),
+			'remarks'              => $order->get_customer_note(),
+			'items'                => $this->items( $order ),
 		);
 
 		$customer_number = $order->get_customer_id();
@@ -607,18 +656,42 @@ class OrderSync {
 			}
 
 			$quantity = (float) $item->get_quantity();
+			$subtotal = (float) $item->get_subtotal();
 			$total    = (float) $item->get_total();
 
+			/*
+			 * The three per-unit figures are all derived from the line itself, so they
+			 * agree with each other and with totalPrice: regularPrice - discount is
+			 * unitPrice, and unitPrice * quantity is totalPrice. Taking regularPrice
+			 * from the product instead would read today's price for an order placed
+			 * months ago, and would leave the arithmetic inconsistent the moment a
+			 * coupon was involved.
+			 *
+			 * Rounded to four places rather than two for the same reason: two places on
+			 * a per-unit figure cannot always be multiplied back up to the line total.
+			 */
+			$list = $quantity > 0 ? round( $subtotal / $quantity, 4 ) : 0.0;
+			$paid = $quantity > 0 ? round( $total / $quantity, 4 ) : 0.0;
+
 			$items[] = array(
-				'itemId'      => (string) $item_id,
-				'productId'   => (string) $item->get_product_id(),
-				'sku'         => $sku,
-				'description' => $item->get_name(),
-				'quantity'    => $quantity,
-				'unitPrice'   => $quantity > 0 ? round( $total / $quantity, 4 ) : 0.0,
-				'totalPrice'  => $total,
-				'position'    => $position,
-				'taxRate'     => $this->tax_rate( $item ),
+				'itemId'       => (string) $item_id,
+				'productId'    => (string) $item->get_product_id(),
+				'sku'          => $sku,
+				'description'  => $item->get_name(),
+				'quantity'     => $quantity,
+				'unitPrice'    => $paid,
+				'regularPrice' => $list,
+
+				/*
+				 * The identity factor. Kontor multiplies by this, so what it defaults to
+				 * on an absent field is the difference between the right price and none
+				 * at all; sending 1 cannot change an amount either way.
+				 */
+				'priceFaktor'  => 1,
+				'discount'     => round( $list - $paid, 4 ),
+				'totalPrice'   => $total,
+				'position'     => $position,
+				'taxRate'      => $this->tax_rate( $item ),
 			);
 
 			++$position;

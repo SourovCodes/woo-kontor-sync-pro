@@ -10,6 +10,7 @@ namespace WooKontorSync\Sync;
 use WC_Order;
 use WooKontorSync\Admin\Settings;
 use WooKontorSync\Api\Client;
+use WooKontorSync\Orders\PartialStatus;
 
 defined( 'ABSPATH' ) || exit;
 
@@ -28,6 +29,9 @@ defined( 'ABSPATH' ) || exit;
  * That fires the "Order complete" email to the customer, which is the point — but
  * it does mean this job sends real mail, so it never runs unattended before a shop
  * has been configured, and it only ever moves an order forwards.
+ *
+ * One Kontor status has no WooCommerce equivalent: an order partly shipped. That one
+ * moves to the plugin's own Partially completed status, which sends no mail.
  */
 class DeliverySync {
 
@@ -75,6 +79,30 @@ class DeliverySync {
 	 * The status Kontor reports for a finished order.
 	 */
 	const STATUS_COMPLETED = 'completed';
+
+	/**
+	 * The status Kontor reports for an order that has partly shipped.
+	 *
+	 * Kontor's other two statuses, "canceled" and "in_progress", are deliberately not
+	 * acted on. Both would move an order backwards — cancelling one the shop is
+	 * working on, or reopening one it has finished — and this job only ever moves an
+	 * order forwards.
+	 */
+	const STATUS_PARTIAL = 'partially_completed';
+
+	/**
+	 * The WooCommerce statuses an order may be moved out of.
+	 *
+	 * Anything else is either already past this point or somewhere the shop put it on
+	 * purpose. Completing a cancelled order would resurrect it and email the customer
+	 * about an order that is not happening.
+	 *
+	 * @var array
+	 */
+	private static $movable = array(
+		self::STATUS_COMPLETED => array( 'processing', 'on-hold', PartialStatus::STATUS ),
+		self::STATUS_PARTIAL   => array( 'processing', 'on-hold' ),
+	);
 
 	/**
 	 * Plugin settings.
@@ -210,6 +238,7 @@ class DeliverySync {
 		$counts = array(
 			'updated'   => 0,
 			'completed' => 0,
+			'partial'   => 0,
 			'missing'   => 0,
 			'unchanged' => 0,
 		);
@@ -233,7 +262,13 @@ class DeliverySync {
 
 			++$counts['updated'];
 
-			if ( $this->should_complete( $order, $row ) ) {
+			$target = $this->target_status( $order, $row );
+
+			if ( '' === $target ) {
+				continue;
+			}
+
+			if ( 'completed' === $target ) {
 				/*
 				 * This transition emails the customer. It is deliberate: Kontor saying the
 				 * order shipped is exactly when the shop wants that mail to go out. Only
@@ -246,7 +281,21 @@ class DeliverySync {
 				);
 
 				++$counts['completed'];
+
+				continue;
 			}
+
+			/*
+			 * Part of the order has shipped and part has not. No email is attached to
+			 * this status, which is the point: the customer has not been told the order
+			 * is on its way, because most of it is not.
+			 */
+			$order->update_status(
+				$target,
+				__( 'Kontor reports this order as partially completed.', 'woo-kontor-sync-pro' )
+			);
+
+			++$counts['partial'];
 		}
 
 		return $counts;
@@ -305,23 +354,31 @@ class DeliverySync {
 	}
 
 	/**
-	 * Whether this row should move the order to completed.
+	 * The WooCommerce status this row should move the order to.
+	 *
+	 * Two of Kontor's four statuses move an order, and each only out of the statuses
+	 * that sit behind it. An order already partially completed can still complete; one
+	 * already completed is never walked back to partial.
 	 *
 	 * @param WC_Order $order Order being updated.
 	 * @param array    $row   Normalised delivery row.
-	 * @return bool True when the order should be completed.
+	 * @return string Status slug to move to, or an empty string to leave the order alone.
 	 */
-	protected function should_complete( $order, array $row ) {
-		if ( self::STATUS_COMPLETED !== $row['status'] ) {
-			return false;
+	protected function target_status( $order, array $row ) {
+		$targets = array(
+			self::STATUS_COMPLETED => 'completed',
+			self::STATUS_PARTIAL   => PartialStatus::STATUS,
+		);
+
+		if ( ! isset( $targets[ $row['status'] ] ) ) {
+			return '';
 		}
 
-		/*
-		 * Only orders still being worked on move. Completing something the shop
-		 * cancelled or refunded would resurrect it and email the customer about an
-		 * order that is not happening.
-		 */
-		return in_array( $order->get_status(), array( 'processing', 'on-hold' ), true );
+		if ( ! in_array( $order->get_status(), self::$movable[ $row['status'] ], true ) ) {
+			return '';
+		}
+
+		return $targets[ $row['status'] ];
 	}
 
 	/**
@@ -395,10 +452,11 @@ class DeliverySync {
 		Status::finish(
 			self::JOB,
 			sprintf(
-				/* translators: 1: orders updated, 2: orders completed, 3: order numbers with no matching order. */
-				__( '%1$d orders updated, %2$d completed, %3$d not found locally.', 'woo-kontor-sync-pro' ),
+				/* translators: 1: orders updated, 2: orders completed, 3: orders partially completed, 4: order numbers with no matching order. */
+				__( '%1$d orders updated, %2$d completed, %3$d partially completed, %4$d not found locally.', 'woo-kontor-sync-pro' ),
 				isset( $counts['updated'] ) ? (int) $counts['updated'] : 0,
 				isset( $counts['completed'] ) ? (int) $counts['completed'] : 0,
+				isset( $counts['partial'] ) ? (int) $counts['partial'] : 0,
 				isset( $counts['missing'] ) ? (int) $counts['missing'] : 0
 			)
 		);

@@ -11,6 +11,7 @@ use WC_Order;
 use WC_Product_Simple;
 use WooKontorSync\Admin\Settings;
 use WooKontorSync\Api\Client;
+use WooKontorSync\Orders\PartialStatus;
 use WooKontorSync\Sync\DeliverySync;
 use WooKontorSync\Sync\OrderSync;
 use WooKontorSync\Sync\Preflight;
@@ -358,6 +359,95 @@ class OrderSyncTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * The payment details and the tax basis travel with the order.
+	 *
+	 * The tax basis matters most: Kontor cannot tell from the amounts alone whether
+	 * they include VAT, and reading a gross total as net understates the order.
+	 *
+	 * @return void
+	 */
+	public function test_payment_details_and_tax_status_are_sent() {
+		$order = $this->make_order();
+		$order->set_payment_method( 'bacs' );
+		$order->set_payment_method_title( 'Direct bank transfer' );
+		$order->set_transaction_id( 'ch_3PxYz1234567890' );
+		$order->set_prices_include_tax( true );
+		$order->save();
+
+		$payload = ( new OrderSync( null, $this->settings() ) )->build_payload( $order );
+
+		$this->assertSame( 'bacs', $payload['paymentMethod'] );
+		$this->assertSame( 'Direct bank transfer', $payload['paymentMethodName'] );
+		$this->assertSame( 'ch_3PxYz1234567890', $payload['paymentTransactionId'] );
+		$this->assertSame( 'gross', $payload['taxStatus'] );
+	}
+
+	/**
+	 * An order priced without tax reports itself as net.
+	 *
+	 * @return void
+	 */
+	public function test_tax_status_is_net_when_prices_exclude_tax() {
+		$order = $this->make_order();
+		$order->set_prices_include_tax( false );
+		$order->save();
+
+		$payload = ( new OrderSync( null, $this->settings() ) )->build_payload( $order );
+
+		$this->assertSame( 'net', $payload['taxStatus'] );
+	}
+
+	/**
+	 * A discounted line reports the price asked, the discount and the price paid.
+	 *
+	 * All three come from the line itself, so they agree with each other and with the
+	 * line total. Reading regularPrice off the product would report today's price for
+	 * an order placed months ago.
+	 *
+	 * @return void
+	 */
+	public function test_line_prices_carry_the_discount() {
+		$order = $this->make_order();
+
+		foreach ( $order->get_items() as $item ) {
+			$item->set_subtotal( '20.00' );
+			$item->set_total( '16.00' );
+			$item->save();
+		}
+
+		$order->save();
+
+		$payload = ( new OrderSync( null, $this->settings() ) )->build_payload( wc_get_order( $order->get_id() ) );
+		$line    = $payload['items'][0];
+
+		$this->assertSame( 10.0, $line['regularPrice'] );
+		$this->assertSame( 2.0, $line['discount'] );
+		$this->assertSame( 8.0, $line['unitPrice'] );
+		$this->assertSame( 16.0, $line['totalPrice'] );
+
+		// The identity price factor: Kontor multiplies by it, so it is always sent.
+		$this->assertSame( 1, $line['priceFaktor'] );
+
+		// The three per-unit figures have to add up, or the ERP invoices the wrong amount.
+		$this->assertSame( $line['unitPrice'], round( $line['regularPrice'] - $line['discount'], 4 ) );
+		$this->assertSame( $line['totalPrice'], round( $line['unitPrice'] * $line['quantity'], 4 ) );
+	}
+
+	/**
+	 * An undiscounted line reports no discount and one price.
+	 *
+	 * @return void
+	 */
+	public function test_line_without_a_discount_reports_none() {
+		$payload = ( new OrderSync( null, $this->settings() ) )->build_payload( $this->make_order() );
+		$line    = $payload['items'][0];
+
+		$this->assertSame( 10.0, $line['regularPrice'] );
+		$this->assertSame( 10.0, $line['unitPrice'] );
+		$this->assertSame( 0.0, $line['discount'] );
+	}
+
+	/**
 	 * The upsert request carries the name, userId and shop the API requires.
 	 *
 	 * @return void
@@ -446,6 +536,35 @@ class OrderSyncTest extends WP_UnitTestCase {
 
 		$this->assertSame( '', (string) $refreshed->get_meta( OrderSync::META_PUSHED_AT ) );
 		$this->assertSame( 'Artikel nicht gefunden.', $refreshed->get_meta( OrderSync::META_PUSH_ERROR ) );
+	}
+
+	/**
+	 * An order the reply says nothing about is counted as failed.
+	 *
+	 * Nothing is written on it, so the next sweep sends it again. Leaving it out of
+	 * the counts instead would report a batch as half sent and give nobody a reason
+	 * to look.
+	 *
+	 * @return void
+	 */
+	public function test_order_without_a_verdict_is_counted_as_failed() {
+		$order = $this->make_order();
+
+		$this->fake_response(
+			array(
+				'success' => true,
+				'message' => 'Operation completed successfully',
+				'meta'    => array( 'rowCount' => 0 ),
+				'data'    => array(),
+			)
+		);
+
+		( new OrderSync( null, $this->settings() ) )->push_one( $order->get_id() );
+
+		$refreshed = wc_get_order( $order->get_id() );
+
+		$this->assertSame( '', (string) $refreshed->get_meta( OrderSync::META_PUSHED_AT ) );
+		$this->assertNotEmpty( $refreshed->get_meta( OrderSync::META_PUSH_ERROR ) );
 	}
 
 	/**
@@ -556,6 +675,108 @@ class OrderSyncTest extends WP_UnitTestCase {
 
 		$this->assertSame( 0, $counts['completed'] );
 		$this->assertSame( 'cancelled', wc_get_order( $order->get_id() )->get_status() );
+	}
+
+	/**
+	 * The custom status is registered and WooCommerce treats it as paid.
+	 *
+	 * An order can only be moved into a status WooCommerce considers valid; anything
+	 * else silently lands in pending instead.
+	 *
+	 * @return void
+	 */
+	public function test_partially_completed_status_is_registered() {
+		$this->assertArrayHasKey( PartialStatus::KEY, wc_get_order_statuses() );
+		$this->assertContains( PartialStatus::STATUS, wc_get_is_paid_statuses() );
+
+		// The prefixed key has to fit the 20-character status column orders are stored in.
+		$this->assertLessThanOrEqual( 20, strlen( PartialStatus::KEY ) );
+	}
+
+	/**
+	 * A partly shipped order moves to the plugin's own status.
+	 *
+	 * Kontor's fourth status has no WooCommerce equivalent. Leaving such an order in
+	 * processing hides that anything shipped; completing it emails the customer to say
+	 * the whole order is on its way.
+	 *
+	 * @return void
+	 */
+	public function test_partially_completed_moves_the_order_to_the_custom_status() {
+		$order = $this->make_order();
+		$order->update_meta_data( OrderSync::META_ORDER_NUMBER, (string) $order->get_order_number() );
+		$order->save();
+
+		$counts = ( new DeliverySync( null, $this->settings() ) )->apply(
+			array(
+				(string) $order->get_order_number() => array(
+					'auftrnr'      => 'AW 214805',
+					'status'       => 'partially_completed',
+					'provider'     => 'planzer',
+					'tracking'     => '913368990400000188001',
+					'tracking_url' => '',
+				),
+			)
+		);
+
+		$this->assertSame( 1, $counts['partial'] );
+		$this->assertSame( 0, $counts['completed'] );
+		$this->assertSame( PartialStatus::STATUS, wc_get_order( $order->get_id() )->get_status() );
+	}
+
+	/**
+	 * The rest of a partly shipped order still completes when Kontor says so.
+	 *
+	 * @return void
+	 */
+	public function test_partially_completed_order_can_still_complete() {
+		$order = $this->make_order();
+		$order->update_meta_data( OrderSync::META_ORDER_NUMBER, (string) $order->get_order_number() );
+		$order->update_meta_data( DeliverySync::META_STATUS, 'partially_completed' );
+		$order->set_status( PartialStatus::STATUS );
+		$order->save();
+
+		$counts = ( new DeliverySync( null, $this->settings() ) )->apply(
+			array(
+				(string) $order->get_order_number() => array(
+					'auftrnr'      => 'AW 214805',
+					'status'       => 'completed',
+					'provider'     => 'planzer',
+					'tracking'     => '913368990400000188001',
+					'tracking_url' => '',
+				),
+			)
+		);
+
+		$this->assertSame( 1, $counts['completed'] );
+		$this->assertSame( 'completed', wc_get_order( $order->get_id() )->get_status() );
+	}
+
+	/**
+	 * A completed order is never walked back to partially completed.
+	 *
+	 * @return void
+	 */
+	public function test_completed_order_is_not_moved_back_to_partial() {
+		$order = $this->make_order();
+		$order->update_meta_data( OrderSync::META_ORDER_NUMBER, (string) $order->get_order_number() );
+		$order->set_status( 'completed' );
+		$order->save();
+
+		$counts = ( new DeliverySync( null, $this->settings() ) )->apply(
+			array(
+				(string) $order->get_order_number() => array(
+					'auftrnr'      => 'AW 214805',
+					'status'       => 'partially_completed',
+					'provider'     => '',
+					'tracking'     => '',
+					'tracking_url' => '',
+				),
+			)
+		);
+
+		$this->assertSame( 0, $counts['partial'] );
+		$this->assertSame( 'completed', wc_get_order( $order->get_id() )->get_status() );
 	}
 
 	/**

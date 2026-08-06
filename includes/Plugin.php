@@ -11,6 +11,7 @@ use WooKontorSync\Admin\Settings;
 use WooKontorSync\Frontend\Invoices;
 use WooKontorSync\Frontend\Tracking;
 use WooKontorSync\Invoices\Download;
+use WooKontorSync\Orders\PartialStatus;
 use WooKontorSync\Sync\Scheduler;
 
 defined( 'ABSPATH' ) || exit;
@@ -89,6 +90,11 @@ final class Plugin {
 		add_filter( 'load_textdomain_mofile', array( $this, 'map_german_locale' ), 10, 2 );
 
 		( new Scheduler() )->register();
+
+		// The status Kontor's "partially completed" maps onto. Registered everywhere,
+		// because an order can only be moved into a status WooCommerce knows about and
+		// the delivery sync moves orders from a background job.
+		( new PartialStatus() )->register();
 
 		// Not gated on is_admin(): order emails render wherever the status changed,
 		// including inside the background job the delivery sync runs in.

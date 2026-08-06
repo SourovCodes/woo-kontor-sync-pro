@@ -480,33 +480,27 @@ msgstr "Sendungsnummer: %s"
 msgid "Track your shipment: %s"
 msgstr "Sendung verfolgen: %s"
 
-#: includes/Sync/DeliverySync.php:138
+#: includes/Sync/DeliverySync.php:166
 msgid "Kontor reported no orders for this shop."
 msgstr "Kontor hat für diesen Shop keine Bestellungen gemeldet."
 
-#: includes/Sync/DeliverySync.php:171
+#: includes/Sync/DeliverySync.php:199
 msgid "The cached delivery payload expired before it could be applied."
 msgstr "Die zwischengespeicherten Lieferdaten sind abgelaufen, bevor sie übernommen werden konnten."
 
-#: includes/Sync/DeliverySync.php:245
+#: includes/Sync/DeliverySync.php:280
 msgid "Kontor reports this order as completed."
 msgstr "Kontor meldet diese Bestellung als abgeschlossen."
 
 #. translators: 1: shipping provider, 2: tracking number.
-#: includes/Sync/DeliverySync.php:295
+#: includes/Sync/DeliverySync.php:344
 #, php-format
 msgid "Kontor tracking: %1$s %2$s"
 msgstr "Kontor-Sendungsverfolgung: %1$s %2$s"
 
-#: includes/Sync/DeliverySync.php:296
+#: includes/Sync/DeliverySync.php:345
 msgid "unknown carrier"
 msgstr "unbekannter Versanddienstleister"
-
-#. translators: 1: orders updated, 2: orders completed, 3: order numbers with no matching order.
-#: includes/Sync/DeliverySync.php:399
-#, php-format
-msgid "%1$d orders updated, %2$d completed, %3$d not found locally."
-msgstr "%1$d Bestellungen aktualisiert, %2$d abgeschlossen, %3$d lokal nicht gefunden."
 
 #: includes/Sync/OrderSync.php:206
 msgid "No orders were waiting to be sent."
@@ -518,12 +512,12 @@ msgstr "Es standen keine Bestellungen zum Senden an."
 msgid "%1$d sent, %2$d already in Kontor, %3$d rejected."
 msgstr "%1$d gesendet, %2$d bereits in Kontor, %3$d abgelehnt."
 
-#: includes/Sync/OrderSync.php:399
+#: includes/Sync/OrderSync.php:427
 msgid "Already present in Kontor; not sent again."
 msgstr "Bereits in Kontor vorhanden, nicht erneut gesendet."
 
 #. translators: %s: Kontor's internal order number.
-#: includes/Sync/OrderSync.php:402
+#: includes/Sync/OrderSync.php:430
 #, php-format
 msgid "Sent to Kontor as %s."
 msgstr "An Kontor gesendet als %s."
@@ -733,3 +727,34 @@ msgstr "Der Webserver dieser Website liefert den Ordner aus, in dem die Rechnung
 #: includes/Admin/Settings.php:1412
 msgid "Until then the files are protected only by their unguessable names. This check is repeated once a day."
 msgstr "Bis dahin sind die Dateien nur durch ihre nicht erratbaren Namen geschützt. Diese Prüfung wird einmal täglich wiederholt."
+
+#. translators: %s: number of orders.
+#: includes/Orders/PartialStatus.php:81
+#, php-format
+msgid "Partially completed <span class=\"count\">(%s)</span>"
+msgid_plural "Partially completed <span class=\"count\">(%s)</span>"
+msgstr[0] "Teilweise abgeschlossen <span class=\"count\">(%s)</span>"
+msgstr[1] "Teilweise abgeschlossen <span class=\"count\">(%s)</span>"
+
+#: includes/Orders/PartialStatus.php:156
+#: includes/Orders/PartialStatus.php:161
+msgid "Change status to partially completed"
+msgstr "Status zu teilweise abgeschlossen ändern"
+
+#: includes/Orders/PartialStatus.php:176
+msgid "Partially completed"
+msgstr "Teilweise abgeschlossen"
+
+#: includes/Sync/DeliverySync.php:295
+msgid "Kontor reports this order as partially completed."
+msgstr "Kontor meldet diese Bestellung als teilweise abgeschlossen."
+
+#. translators: 1: orders updated, 2: orders completed, 3: orders partially completed, 4: order numbers with no matching order.
+#: includes/Sync/DeliverySync.php:456
+#, php-format
+msgid "%1$d orders updated, %2$d completed, %3$d partially completed, %4$d not found locally."
+msgstr "%1$d Bestellungen aktualisiert, %2$d abgeschlossen, %3$d teilweise abgeschlossen, %4$d lokal nicht gefunden."
+
+#: includes/Sync/OrderSync.php:383
+msgid "Kontor accepted the batch but said nothing about this order."
+msgstr "Kontor hat den Stapel angenommen, aber nichts zu dieser Bestellung gemeldet."

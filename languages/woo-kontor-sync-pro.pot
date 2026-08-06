@@ -9,7 +9,7 @@ msgstr ""
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"POT-Creation-Date: 2026-08-05T14:20:25+00:00\n"
+"POT-Creation-Date: 2026-08-06T01:41:49+00:00\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "X-Generator: WP-CLI 2.12.0\n"
 "X-Domain: woo-kontor-sync-pro\n"
@@ -585,32 +585,53 @@ msgstr ""
 msgid "The invoice directory could not be created inside the uploads folder."
 msgstr ""
 
-#: includes/Sync/DeliverySync.php:138
+#. translators: %s: number of orders.
+#: includes/Orders/PartialStatus.php:81
+#, php-format
+msgid "Partially completed <span class=\"count\">(%s)</span>"
+msgid_plural "Partially completed <span class=\"count\">(%s)</span>"
+msgstr[0] ""
+msgstr[1] ""
+
+#: includes/Orders/PartialStatus.php:156
+#: includes/Orders/PartialStatus.php:161
+msgid "Change status to partially completed"
+msgstr ""
+
+#: includes/Orders/PartialStatus.php:176
+msgid "Partially completed"
+msgstr ""
+
+#: includes/Sync/DeliverySync.php:166
 msgid "Kontor reported no orders for this shop."
 msgstr ""
 
-#: includes/Sync/DeliverySync.php:171
+#: includes/Sync/DeliverySync.php:199
 msgid "The cached delivery payload expired before it could be applied."
 msgstr ""
 
-#: includes/Sync/DeliverySync.php:245
+#: includes/Sync/DeliverySync.php:280
 msgid "Kontor reports this order as completed."
 msgstr ""
 
-#. translators: 1: shipping provider, 2: tracking number.
 #: includes/Sync/DeliverySync.php:295
+msgid "Kontor reports this order as partially completed."
+msgstr ""
+
+#. translators: 1: shipping provider, 2: tracking number.
+#: includes/Sync/DeliverySync.php:344
 #, php-format
 msgid "Kontor tracking: %1$s %2$s"
 msgstr ""
 
-#: includes/Sync/DeliverySync.php:296
+#: includes/Sync/DeliverySync.php:345
 msgid "unknown carrier"
 msgstr ""
 
-#. translators: 1: orders updated, 2: orders completed, 3: order numbers with no matching order.
-#: includes/Sync/DeliverySync.php:399
+#. translators: 1: orders updated, 2: orders completed, 3: orders partially completed, 4: order numbers with no matching order.
+#: includes/Sync/DeliverySync.php:456
 #, php-format
-msgid "%1$d orders updated, %2$d completed, %3$d not found locally."
+msgid "%1$d orders updated, %2$d completed, %3$d partially completed, %4$d not found locally."
 msgstr ""
 
 #: includes/Sync/InvoiceSync.php:161
@@ -647,12 +668,16 @@ msgstr ""
 msgid "%1$d sent, %2$d already in Kontor, %3$d rejected."
 msgstr ""
 
-#: includes/Sync/OrderSync.php:399
+#: includes/Sync/OrderSync.php:383
+msgid "Kontor accepted the batch but said nothing about this order."
+msgstr ""
+
+#: includes/Sync/OrderSync.php:427
 msgid "Already present in Kontor; not sent again."
 msgstr ""
 
 #. translators: %s: Kontor's internal order number.
-#: includes/Sync/OrderSync.php:402
+#: includes/Sync/OrderSync.php:430
 #, php-format
 msgid "Sent to Kontor as %s."
 msgstr ""

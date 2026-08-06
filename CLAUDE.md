@@ -244,8 +244,24 @@ of them wrong produces silently wrong data rather than an error:
   the customer did not tick "ship to a different address". An order reaching the ERP with nowhere to
   send it is one nobody can pick and pack. A shipping address carrying only a name is treated as
   absent for the same reason.
+- **`taxStatus` is the only thing telling Kontor whether the amounts include VAT.** Nothing in the
+  numbers says so, and reading a gross total as net understates the whole order by the rate.
+  `paymentMethodName` and `paymentTransactionId` ride alongside `paymentMethod`: the slug is stable
+  and the title is the wording the customer saw, and the transaction reference is what lets a
+  payment be reconciled from the ERP.
+- **A line's prices are all derived from the line, never from the product.** `regularPrice` is the
+  line subtotal per unit, `unitPrice` the line total per unit, `discount` the difference, so
+  `regularPrice - discount === unitPrice` and `unitPrice × quantity === totalPrice`. Reading
+  `regularPrice` off the product instead would report today's price for an order placed months ago
+  and break that arithmetic the moment a coupon was involved. Four decimal places, because two on a
+  per-unit figure cannot always be multiplied back up to the line total. `priceFaktor` is sent as a
+  constant `1`: Kontor multiplies by it, so what it defaults to on an absent field is the difference
+  between the right price and none, while an explicit 1 cannot change an amount.
 - **`provider` and `trackinginfo` arrive as `null`, not absent** — confirmed against live data, where
   all 7 rows for one shop had both null. Anything reading them has to treat null as empty.
+- **An order the upsert reply says nothing about is counted as failed.** Nothing is written on it, so
+  the next sweep sends it again; leaving it out of the counts instead would report a batch of
+  twenty-five as "five sent" and give nobody a reason to look.
 - **Invoices are a two-step download, and the second step is not under the base URL.** The
   `invoices` entity lists what exists — `id`, `Belegnr`, `Datum`, `Auftrnr` and the `ordernumber`
   this plugin sent — honouring only `filter.shopid`, exactly like `orders`. Fetching a document is
@@ -369,8 +385,17 @@ calling it queues real work: it is not a way to test whether a job would be allo
   `completed` is transitioned to completed in WooCommerce, firing WooCommerce's "Order complete"
   mail. That is deliberate — it is the moment the shop wants that mail sent — but it means this job
   sends real outbound email, so it only ever moves an order *forwards*: something cancelled or
-  refunded is left alone rather than resurrected. `DeliverySync::should_complete()` is the one place
-  that decides this.
+  refunded is left alone rather than resurrected. `DeliverySync::target_status()` is the one place
+  that decides this, and `DeliverySync::$movable` lists the statuses each transition may move out of.
+- **Kontor's fourth status has no WooCommerce equivalent, so the plugin registers one.**
+  `Orders\PartialStatus` adds **Partially completed** (`wc-partial-complete`), which is where
+  `partially_completed` lands. Leaving such an order in processing hides that anything shipped;
+  completing it tells the customer the whole order is on its way and mails them to say so. The status
+  is a **paid** one — the part already shipped has been paid for — and carries **no email**, which is
+  the point. Its key is 19 characters because the status column holds 20, and it is registered
+  outside the `is_admin()` branch: an order can only be moved into a status WooCommerce considers
+  valid, and the delivery sync moves orders from a background job. Kontor's other two statuses,
+  `canceled` and `in_progress`, are deliberately not acted on — both would move an order backwards.
 - **The tracking details are shown to the customer**, by `Frontend\Tracking`: the My Account order
   view, the order-received page, and the order emails in both HTML and plain text. Without it the
   carrier, tracking number and tracking URL sit in order meta where only someone editing the order
