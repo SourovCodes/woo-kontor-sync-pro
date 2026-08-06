@@ -10,7 +10,8 @@
 # Usage: ./bin/build-zip.sh [version]
 #
 # The version is verified against the plugin header when given; otherwise the header
-# supplies it. The result is dist/woo-kontor-sync-pro-<version>.zip plus a .sha256.
+# supplies it. The result is dist/woo-kontor-sync-pro-<version>.zip plus a .sha256,
+# and dist/update.json — the manifest WordPress reads to discover the release.
 #
 set -euo pipefail
 
@@ -79,4 +80,42 @@ else
 	( cd "$DIST_DIR" && shasum -a 256 "$(basename "$ZIP")" > "$(basename "$ZIP").sha256" )
 fi
 
+# The manifest WordPress reads to discover the release. Published beside the zip under
+# a constant name, so https://github.com/<repo>/releases/latest/download/update.json
+# always resolves to the newest one; the plugin's updater reads nothing else. The
+# package URL is predicted from the version because bin/check-version.sh has already
+# established that the tag is v<version>.
+MANIFEST="$DIST_DIR/update.json"
+
+SLUG="$SLUG" VERSION="$VERSION" MAIN_FILE="$PLUGIN_DIR/$SLUG.php" php -r '
+$source = file_get_contents( getenv( "MAIN_FILE" ) );
+$slug    = getenv( "SLUG" );
+$version = getenv( "VERSION" );
+
+$header = function ( $name ) use ( $source ) {
+	$pattern = "/^[ \t\/*#@]*" . preg_quote( $name, "/" ) . ":(.*)$/mi";
+	return preg_match( $pattern, $source, $matches ) ? trim( $matches[1] ) : "";
+};
+
+$repository = $header( "Plugin URI" );
+
+echo json_encode(
+	array(
+		"slug"         => $slug,
+		"plugin"       => $slug . "/" . $slug . ".php",
+		"name"         => $header( "Plugin Name" ),
+		"description"  => $header( "Description" ),
+		"author"       => $header( "Author" ),
+		"version"      => $version,
+		"requires"     => $header( "Requires at least" ),
+		"requires_php" => $header( "Requires PHP" ),
+		"url"          => $repository . "/releases/tag/v" . $version,
+		"package"      => $repository . "/releases/download/v" . $version . "/" . $slug . "-" . $version . ".zip",
+		"last_updated" => gmdate( "Y-m-d H:i:s" ),
+	),
+	JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE
+), "\n";
+' > "$MANIFEST"
+
 echo "Built $ZIP"
+echo "Built $MANIFEST"

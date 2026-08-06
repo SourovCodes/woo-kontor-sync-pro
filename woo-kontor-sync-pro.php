@@ -2,6 +2,7 @@
 /**
  * Plugin Name:          Woo Kontor Sync Pro
  * Plugin URI:           https://github.com/SourovCodes/woo-kontor-sync-pro
+ * Update URI:           https://github.com/SourovCodes/woo-kontor-sync-pro
  * Description:          Synchronises WooCommerce products, orders and customers with the Kontor ERP.
  * Version:              0.7.0
  * Requires at least:    7.0
@@ -168,6 +169,14 @@ function bootstrap() {
 }
 
 if ( load_autoloader() ) {
+	/*
+	 * Registered ahead of the requirement gates, not inside bootstrap(). An update is
+	 * often the thing that fixes a plugin sitting inert behind one of those gates, so
+	 * a site whose WooCommerce is too old must still be offered the version that
+	 * supports it.
+	 */
+	( new Updates\Updater() )->register();
+
 	add_action( 'before_woocommerce_init', __NAMESPACE__ . '\\declare_woocommerce_compatibility' );
 	add_action( 'plugins_loaded', __NAMESPACE__ . '\\bootstrap' );
 

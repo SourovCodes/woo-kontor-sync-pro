@@ -63,6 +63,7 @@ jobs:
           path: |
             dist/*.zip
             dist/*.sha256
+            dist/update.json
           if-no-files-found: error
 
       - name: Create the GitHub release
@@ -78,9 +79,14 @@ jobs:
             *-*) prerelease="--prerelease" ;;
           esac
 
+          # update.json rides along on every release under that exact name: it is what
+          # /releases/latest/download/update.json resolves to, and the only thing an
+          # installed copy of the plugin reads to discover this version. A release
+          # published without it is invisible to every site already running the plugin.
           gh release create "$TAG" \
             dist/woo-kontor-sync-pro-"$VERSION".zip \
             dist/woo-kontor-sync-pro-"$VERSION".zip.sha256 \
+            dist/update.json \
             --title "Woo Kontor Sync Pro $VERSION" \
             --generate-notes \
             --verify-tag \

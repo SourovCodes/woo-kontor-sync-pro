@@ -525,9 +525,10 @@ Releases are cut by pushing a `v*` tag (`.github/workflows/release.yml`):
   red build.
 - `bin/check-version.sh <tag>` then asserts that the tag, the `Version:` header and `WKSYNC_VERSION`
   all agree.
-- `bin/build-zip.sh` produces `dist/woo-kontor-sync-pro-<version>.zip` and a `.sha256` beside it, and
-  `gh release create` publishes both with generated notes. A tag containing a hyphen (`v0.5.0-rc.1`)
-  is published as a pre-release. Running the workflow by hand builds and verifies without publishing.
+- `bin/build-zip.sh` produces `dist/woo-kontor-sync-pro-<version>.zip`, a `.sha256` beside it and
+  `dist/update.json`, and `gh release create` publishes all three with generated notes. A tag
+  containing a hyphen (`v0.5.0-rc.1`) is published as a pre-release. Running the workflow by hand
+  builds and verifies without publishing.
 
 The zip carries only what WordPress runs: the main file, `includes/`, `assets/`, `languages/`,
 `uninstall.php` and a `--no-dev` `vendor/`. Composer runs inside the staging copy rather than the
@@ -536,6 +537,53 @@ removed from the build so nobody is invited to run Composer inside a live plugin
 
 `.github/dependabot.yml` watches Composer and the actions themselves weekly. It is told to ignore
 PHPUnit 10+ and PHP_CodeSniffer 4+, because both pins below are deliberate.
+
+## Updates from GitHub
+
+The plugin is not in the WordPress.org directory, so nothing would otherwise tell an installed copy
+that a newer version exists. `Updates\Updater` closes that gap through the **`Update URI` header**
+and core's **`update_plugins_{$hostname}` filter** — the mechanism WordPress added in 5.8 for
+exactly this — rather than a bundled update-checker library or a hand-written
+`pre_set_site_transient_update_plugins`. Core then owns the bookkeeping: the update row, "update
+now", the bulk updater and `WP_Automatic_Updater` all work unchanged, and nothing wp.org-specific
+gates any of them.
+
+- **An answer is returned even when the installed version is current**, and that is what makes the
+  **auto-update toggle** appear. Core files an up-to-date answer under `no_update` in the
+  `update_plugins` transient, and `WP_Plugins_List_Table` decides a plugin supports updates by
+  finding it in `response` *or* `no_update`. Answer only when an update exists and every site that
+  is already current — nearly all of them — reads *"Auto-updates are not available for this
+  plugin"*. Nothing else is needed to enable auto-updates: the normal per-plugin toggle and the
+  `auto_update_plugins` site option drive core's updater directly.
+- **`package` is the built release asset**, which is what lets core install unattended. Without one
+  WordPress shows the new version and says an automatic update is unavailable. The asset zip has
+  `woo-kontor-sync-pro/` as its single top-level directory, so an update lands on the existing
+  directory name; GitHub's generated source zipball does not, and would install the plugin twice
+  under a versioned folder.
+- **The metadata comes from `update.json` published beside the zip**, read from
+  `…/releases/latest/download/update.json`, not from `api.github.com`. The API would work, but it is
+  rate limited to **60 requests an hour per IP** for anonymous callers — shared hosting puts
+  hundreds of sites behind one address — and it carries none of the plugin's requirements, so
+  `requires_php`, the floor that stops an update installing onto a host too old for it, would have
+  to be guessed. That URL always resolves to the newest **non-prerelease** asset of that name, which
+  is also what keeps `v0.5.0-rc.1` from being offered to production sites. **A release published
+  without `update.json` is invisible to every installed copy**, which is why the workflow uploads it
+  by that exact constant name.
+- **A package pointing anywhere but this repository's releases is discarded**, and the update is
+  then reported without one. The manifest arrives from GitHub over TLS, but "unpack this zip over
+  the plugin directory" is not an instruction to take on trust from a parsed response.
+- **The updater is registered before the WooCommerce and HPOS gates**, in the main file rather than
+  in `Plugin::init()`. An update is often exactly what fixes a plugin sitting inert behind one of
+  those gates; a site whose WooCommerce is too old must still be offered the version that supports
+  it.
+- **A failed check reports nothing**, which reads as "updates not available" rather than as "up to
+  date". Failure is cached for an hour and success for six, so an unreachable host costs one request
+  an hour instead of one per admin page load. **Check again** clears both caches, because it deletes
+  the `update_plugins` transient and the updater hooks `delete_site_transient_update_plugins`.
+- The `Update URI` header also **stops WordPress.org answering for this slug**, which is the other
+  half of what it is for.
+- `tested` is deliberately left empty: there is no `readme.txt` stating a tested-up-to version, and
+  inventing one from `Requires at least` would be a claim nobody checked.
 
 ## Dependency versions — do not "upgrade" these
 
