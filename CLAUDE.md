@@ -423,6 +423,38 @@ calling it queues real work: it is not a way to test whether a job would be allo
   retry semantics, no concurrency control, and no admin visibility.
 - **Chain long runs across actions.** A job that walks thousands of records queues a follow-up
   action per page or chunk rather than looping in one request. See `ProductSync::import_page()`.
+  **All five jobs chain**, including the order sweep: `OrderSync::start()` fixes the list of pending
+  orders, caches the IDs in a transient and queues `ACTION_SYNC_ORDERS_BATCH`, and
+  `send_batch()` sends one batch per action. It used to send every batch inside the action that
+  started it — up to `SWEEP_LIMIT` orders and several round trips to Kontor in one request, the one
+  job a slow link could see cut short, which for an upload means the rest silently wait for the next
+  sweep.
+  - **The list is fixed at the start rather than re-queried per batch.** `pending_orders()` asks for
+    orders that have never been sent, and a rejected order still has not been sent, so re-querying
+    would hand the same failures back for ever instead of finishing.
+  - **Each order is re-read when its batch runs**, not carried across actions as an object. The
+    checkout hook can push an order, or someone can cancel it, between the sweep starting and the
+    batch running; an order already stamped `_wksync_pushed_at` is skipped rather than sent twice.
+- **Runs report where they have got to**, which is what the settings screen draws a bar from.
+  `Status` carries `total` and `processed` beside the counts — the counts say what happened to each
+  record, these say how far along the run is. Every chunked job already knew its total and threw it
+  away: the catalogue's `totalCount`, the length of the stock, delivery, invoice or order payload.
+  - **A total of zero means "not known", and shows an indeterminate bar rather than 0%.** Zero
+    percent is a claim — that the run started and achieved nothing — and until the first page comes
+    back that claim is not true yet.
+  - **`Status::percentage()` clamps to 0–100.** `totalCount` is what the API promised at page one
+    about a catalogue that can change underneath the walk, and `import_page()` deliberately advances
+    by the rows actually returned, so the two genuinely can disagree.
+  - **The product walk measures itself from the first page only.** Kontor repeats `totalCount` on
+    every page; taking it each time would move the goalposts under a bar that is already half full.
+  - **Image downloads are counted, not measured.** They outlive the run that queued them, so folding
+    them into the product bar would hold it short of the end for something that is not holding
+    anything up. `Scheduler::pending_count()` asks Action Scheduler for a **count** rather than
+    fetching the IDs — a first run queues one action per article, and reading four thousand rows to
+    render a sentence would be worse than not showing it.
+  - **The screen polls `wksync_job_progress`** every 5 seconds, and only while something is running
+    or images are still queued — on a normally idle site it never starts. The whole answer is one
+    non-autoloaded option read plus that count query.
 - **Whoever breaks a chain owns closing the status behind it.** A run only ever leaves the
   `running` state from inside one of its own chained actions, so anything that destroys the chain
   strands the job: the admin screen reports it as running and `Scheduler::trigger()` refuses to
@@ -435,8 +467,9 @@ calling it queues real work: it is not a way to test whether a job would be allo
   to, and deliberately **omits `ACTION_SYNC_PRODUCT_IMAGES`** — images outlive their run and the
   catalogue is already right without them, so a failed download must not turn a finished product
   sync into a failed one — and `ACTION_SYNC_ORDER`, which is one checkout's upload rather than the
-  sweep. A failure carrying a superseded `run`, or arriving after the job reported its own reason,
-  is ignored.
+  sweep. `ACTION_SYNC_ORDERS_BATCH` *is* listed, because that one is part of the sweep and a batch
+  that dies has to close the run behind it. A failure carrying a superseded `run`, or arriving after
+  the job reported its own reason, is ignored.
 - **`Scheduler::SCHEDULE_GUARD` means "the queue matches the settings"**, which is why
   `unschedule_all()` deletes it: it stops being true the moment the queue is emptied, and leaving
   it set makes `ensure_recurring_actions()` return early for the rest of the hour. A plugin

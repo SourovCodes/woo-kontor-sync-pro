@@ -10,6 +10,7 @@ namespace WooKontorSync\Admin;
 use WooKontorSync\Api\Client;
 use WooKontorSync\Invoices\Storage;
 use WooKontorSync\Sync\OrderSync;
+use WooKontorSync\Sync\ProductSync;
 use WooKontorSync\Sync\Scheduler;
 use WooKontorSync\Sync\Status;
 use WooKontorSync\Updates\Updater;
@@ -226,6 +227,7 @@ class Settings {
 		add_action( 'wp_ajax_wksync_test_connection', array( $this, 'handle_test_connection' ) );
 		add_action( 'wp_ajax_wksync_fetch_shops', array( $this, 'handle_fetch_shops' ) );
 		add_action( 'wp_ajax_wksync_fetch_manufacturers', array( $this, 'handle_fetch_manufacturers' ) );
+		add_action( 'wp_ajax_wksync_job_progress', array( $this, 'handle_job_progress' ) );
 		add_action( 'admin_post_wksync_run_job', array( $this, 'handle_run_job' ) );
 		add_action( 'admin_post_wksync_check_updates', array( $this, 'handle_check_updates' ) );
 	}
@@ -312,6 +314,14 @@ class Settings {
 				 * the browser. Correct for English and German, which is what this ships
 				 * translations for.
 				 */
+				'progressNonce'         => wp_create_nonce( 'wksync_job_progress' ),
+
+				/*
+				 * How often the running jobs are re-read, in milliseconds. One option read
+				 * per poll, and only while something is actually running.
+				 */
+				'progressInterval'      => 5000,
+
 				'summaryNone'           => self::manufacturer_summary( 0 ),
 				'summaryOne'            => self::manufacturer_summary( 1, '%s' ),
 				'summaryMany'           => self::manufacturer_summary( 2, '%s' ),
@@ -857,6 +867,51 @@ class Settings {
 
 		wp_safe_redirect( add_query_arg( $args, admin_url( 'admin.php' ) ) );
 		exit;
+	}
+
+	/**
+	 * Report where every job has got to, for the progress bars.
+	 *
+	 * Deliberately cheap: the whole answer comes from one non-autoloaded option, plus
+	 * a single counting query for the image queue. It is polled every few seconds
+	 * while something is running, so anything more would be a self-inflicted load.
+	 *
+	 * @return void
+	 */
+	public function handle_job_progress() {
+		check_ajax_referer( 'wksync_job_progress', 'nonce' );
+
+		if ( ! current_user_can( self::CAPABILITY ) ) {
+			wp_send_json_error( array( 'message' => __( 'You do not have permission to do that.', 'woo-kontor-sync-pro' ) ), 403 );
+		}
+
+		$jobs = array();
+
+		foreach ( array_keys( Scheduler::get_jobs() ) as $key ) {
+			$status = Status::get( $key );
+
+			$jobs[ $key ] = array(
+				'state'    => (string) $status['state'],
+				'running'  => 'running' === $status['state'],
+				'percent'  => Status::percentage( $status ),
+				'summary'  => $this->describe_status( $status ),
+				'detail'   => $this->describe_position( $status ),
+				'nextRun'  => Scheduler::next_run( $key ),
+				'nextText' => $this->describe_next_run( Scheduler::next_run( $key ) ),
+			);
+		}
+
+		$images = Scheduler::pending_count( Scheduler::ACTION_SYNC_PRODUCT_IMAGES );
+
+		wp_send_json_success(
+			array(
+				'jobs'   => $jobs,
+				'images' => array(
+					'pending' => $images,
+					'text'    => $this->describe_image_queue( $images ),
+				),
+			)
+		);
 	}
 
 	/**
@@ -1439,8 +1494,9 @@ class Settings {
 	 * @return void
 	 */
 	protected function render_jobs_table() {
+		$images = Scheduler::pending_count( Scheduler::ACTION_SYNC_PRODUCT_IMAGES );
 		?>
-		<table class="widefat striped">
+		<table class="widefat striped" id="wksync-jobs">
 			<thead>
 				<tr>
 					<th scope="col"><?php echo esc_html__( 'Job', 'woo-kontor-sync-pro' ); ?></th>
@@ -1454,22 +1510,42 @@ class Settings {
 					<?php
 					$status   = Status::get( $key );
 					$next_run = Scheduler::next_run( $key );
+					$percent  = Status::percentage( $status );
+					$running  = 'running' === $status['state'];
 					?>
-					<tr>
+					<tr data-wksync-job="<?php echo esc_attr( $key ); ?>">
 						<td>
 							<strong><?php echo esc_html( $job['label'] ); ?></strong>
 							<p class="description"><?php echo esc_html( $job['description'] ); ?></p>
+							<?php if ( ProductSync::JOB === $key ) : ?>
+								<p class="description wksync-image-queue" <?php echo $images > 0 ? '' : 'hidden'; ?>>
+									<?php echo esc_html( $this->describe_image_queue( $images ) ); ?>
+								</p>
+							<?php endif; ?>
+						</td>
+						<td class="wksync-next-run">
+							<?php echo esc_html( $this->describe_next_run( $next_run ) ); ?>
 						</td>
 						<td>
+							<span class="wksync-summary"><?php echo esc_html( $this->describe_status( $status ) ); ?></span>
 							<?php
-							echo esc_html(
-								$next_run > 0
-									? wp_date( 'Y-m-d H:i', $next_run )
-									: __( 'Not scheduled', 'woo-kontor-sync-pro' )
-							);
+							/*
+							 * A bar only where there is something to measure against. A run with
+							 * no total — the order sweep before it has counted, or a job that
+							 * finished — gets no bar rather than an empty one implying zero
+							 * progress, and the element is left in place so the poll can fill it
+							 * in without rebuilding the row.
+							 */
 							?>
+							<span class="wksync-progress" <?php echo null === $percent && ! $running ? 'hidden' : ''; ?>>
+								<progress
+									class="wksync-progress-bar"
+									max="100"
+									<?php echo null === $percent ? '' : 'value="' . esc_attr( (string) $percent ) . '"'; ?>
+								></progress>
+								<span class="wksync-position"><?php echo esc_html( $this->describe_position( $status ) ); ?></span>
+							</span>
 						</td>
-						<td><?php echo esc_html( $this->describe_status( $status ) ); ?></td>
 						<td>
 							<form action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" method="post">
 								<input type="hidden" name="action" value="wksync_run_job"/>
@@ -1510,6 +1586,81 @@ class Settings {
 
 		/* translators: 1: timestamp, 2: run summary. */
 		return sprintf( __( 'Succeeded at %1$s — %2$s', 'woo-kontor-sync-pro' ), $when, $status['message'] );
+	}
+
+	/**
+	 * Say where a running job has got to, in records rather than as a percentage.
+	 *
+	 * The bar shows the proportion; this says what it is a proportion of, which is the
+	 * part that tells somebody whether to wait or come back tomorrow.
+	 *
+	 * @param array $status Status array from Status::get().
+	 * @return string Position, or an empty string when there is nothing to say.
+	 */
+	protected function describe_position( array $status ) {
+		if ( 'running' !== $status['state'] ) {
+			return '';
+		}
+
+		$total = isset( $status['total'] ) ? (int) $status['total'] : 0;
+
+		// Counted but empty, or not yet counted: the run is busy and that is all anyone
+		// can honestly be told.
+		if ( $total < 1 ) {
+			return __( 'Working…', 'woo-kontor-sync-pro' );
+		}
+
+		$processed = isset( $status['processed'] ) ? (int) $status['processed'] : 0;
+
+		return sprintf(
+			/* translators: 1: records handled so far, 2: records in total. */
+			__( '%1$s of %2$s', 'woo-kontor-sync-pro' ),
+			number_format_i18n( min( $processed, $total ) ),
+			number_format_i18n( $total )
+		);
+	}
+
+	/**
+	 * Say how many product images are still waiting to be downloaded.
+	 *
+	 * Deliberately not folded into the product sync's own bar. The downloads outlive
+	 * the run that queued them — the catalogue is correct and the job has already
+	 * reported success while pictures are still arriving — so counting them as part of
+	 * it would hold the bar short of the end for something that is not holding
+	 * anything up.
+	 *
+	 * @param int $pending Actions still queued.
+	 * @return string Description, or an empty string when the queue is empty.
+	 */
+	protected function describe_image_queue( $pending ) {
+		$pending = (int) $pending;
+
+		if ( $pending < 1 ) {
+			return '';
+		}
+
+		return sprintf(
+			/* translators: %s: number of products whose images are still queued. */
+			_n(
+				'Images for %s product still to download.',
+				'Images for %s products still to download.',
+				$pending,
+				'woo-kontor-sync-pro'
+			),
+			number_format_i18n( $pending )
+		);
+	}
+
+	/**
+	 * When a job is next due.
+	 *
+	 * @param int $next_run Timestamp, or 0 when nothing is scheduled.
+	 * @return string Human-readable time.
+	 */
+	protected function describe_next_run( $next_run ) {
+		return (int) $next_run > 0
+			? wp_date( 'Y-m-d H:i', (int) $next_run )
+			: __( 'Not scheduled', 'woo-kontor-sync-pro' );
 	}
 
 	/**

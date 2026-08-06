@@ -304,5 +304,155 @@
 				}
 			);
 		} );
+
+		/*
+		 * Progress bars.
+		 *
+		 * The table is rendered complete by PHP, so this only ever updates what is
+		 * already there. Polling runs while at least one job is running and stops as
+		 * soon as none is, which on a normally idle site means it never starts at all.
+		 */
+		( function () {
+			var table = document.getElementById( 'wksync-jobs' );
+			var timer = null;
+
+			if ( ! table ) {
+				return;
+			}
+
+			/**
+			 * Update one job's row from the polled status.
+			 *
+			 * @param {string} key   Job key.
+			 * @param {Object} state Status for that job.
+			 */
+			function paint( key, state ) {
+				var row = table.querySelector( '[data-wksync-job="' + key + '"]' );
+
+				if ( ! row ) {
+					return;
+				}
+
+				var summary = row.querySelector( '.wksync-summary' );
+				var wrapper = row.querySelector( '.wksync-progress' );
+				var bar = row.querySelector( '.wksync-progress-bar' );
+				var position = row.querySelector( '.wksync-position' );
+				var nextRun = row.querySelector( '.wksync-next-run' );
+
+				if ( summary ) {
+					summary.textContent = state.summary;
+				}
+
+				if ( nextRun ) {
+					nextRun.textContent = state.nextText;
+				}
+
+				if ( position ) {
+					position.textContent = state.detail;
+				}
+
+				if ( wrapper ) {
+					wrapper.hidden = ! state.running;
+				}
+
+				if ( ! bar ) {
+					return;
+				}
+
+				/*
+				 * A progress element with no value renders as indeterminate, which is
+				 * exactly right for a run that has not counted its work yet — removing the
+				 * attribute is what produces that, rather than setting it to zero and
+				 * claiming no progress has been made.
+				 */
+				if ( null === state.percent || undefined === state.percent ) {
+					bar.removeAttribute( 'value' );
+				} else {
+					bar.value = state.percent;
+				}
+			}
+
+			/**
+			 * Show or hide the count of image downloads still queued.
+			 *
+			 * @param {Object} images Image queue state.
+			 */
+			function paintImages( images ) {
+				var line = table.querySelector( '.wksync-image-queue' );
+
+				if ( ! line ) {
+					return;
+				}
+
+				line.textContent = images.text;
+				line.hidden = images.pending < 1;
+			}
+
+			/**
+			 * Read every job's position and repaint the table.
+			 */
+			function poll() {
+				var body = new FormData();
+
+				body.append( 'action', 'wksync_job_progress' );
+				body.append( 'nonce', wksyncSettings.progressNonce );
+
+				window.fetch( wksyncSettings.ajaxUrl, {
+					method: 'POST',
+					credentials: 'same-origin',
+					body: body
+				} ).then( function ( response ) {
+					return response.json();
+				} ).then( function ( result ) {
+					if ( ! result || ! result.success || ! result.data ) {
+						stop();
+
+						return;
+					}
+
+					var busy = false;
+
+					Object.keys( result.data.jobs ).forEach( function ( key ) {
+						var state = result.data.jobs[ key ];
+
+						paint( key, state );
+
+						if ( state.running ) {
+							busy = true;
+						}
+					} );
+
+					paintImages( result.data.images );
+
+					// Images keep the poll alive: they are the one thing that carries on
+					// after every job has reported itself finished.
+					if ( ! busy && result.data.images.pending < 1 ) {
+						stop();
+					}
+				} ).catch( function () {
+					// A failed poll is not worth a message on screen — the row still shows
+					// what the page was rendered with. Stop rather than hammer.
+					stop();
+				} );
+			}
+
+			/**
+			 * Stop polling.
+			 */
+			function stop() {
+				if ( null !== timer ) {
+					window.clearInterval( timer );
+					timer = null;
+				}
+			}
+
+			var running = table.querySelector( '.wksync-progress:not([hidden])' );
+			var queued = table.querySelector( '.wksync-image-queue:not([hidden])' );
+
+			if ( running || queued ) {
+				timer = window.setInterval( poll, wksyncSettings.progressInterval );
+				poll();
+			}
+		}() );
 	} );
 }() );

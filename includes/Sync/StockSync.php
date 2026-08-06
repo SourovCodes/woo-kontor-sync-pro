@@ -110,6 +110,7 @@ class StockSync {
 			return;
 		}
 
+		Status::measure( self::JOB, count( $levels ) );
 		set_transient( self::TRANSIENT_PREFIX . $run, $levels, self::TRANSIENT_TTL );
 
 		Scheduler::chain(
@@ -153,6 +154,7 @@ class StockSync {
 
 		$counts = $this->apply( $chunk );
 		Status::progress( self::JOB, $counts );
+		Status::advance( self::JOB, count( $chunk ) );
 
 		$next = $offset + count( $chunk );
 

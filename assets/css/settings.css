@@ -48,3 +48,23 @@
 .wksync-update-check {
 	margin-top: 12px;
 }
+
+/* The bar sits under the summary line rather than beside it, so a long failure
+   message does not squeeze it to nothing. */
+.wksync-progress {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin-top: 6px;
+}
+
+.wksync-progress-bar {
+	width: 180px;
+	height: 14px;
+}
+
+.wksync-position {
+	color: #646970;
+	font-size: 12px;
+	white-space: nowrap;
+}

@@ -81,6 +81,21 @@ class OrderSync {
 	const SWEEP_LIMIT = 200;
 
 	/**
+	 * Transient prefix holding the order IDs a run is working through.
+	 *
+	 * The list is fixed when the sweep starts rather than re-queried per batch:
+	 * pending_orders() asks for orders that have never been sent, and a rejected order
+	 * still has not been sent, so re-querying would hand the same failures back for
+	 * ever instead of finishing.
+	 */
+	const TRANSIENT_PREFIX = 'wksync_orders_run_';
+
+	/**
+	 * How long that list survives, in seconds.
+	 */
+	const TRANSIENT_TTL = 6 * HOUR_IN_SECONDS;
+
+	/**
 	 * Plugin settings.
 	 *
 	 * @var array
@@ -198,8 +213,7 @@ class OrderSync {
 			return;
 		}
 
-		Status::start( self::JOB );
-
+		$run    = Status::start( self::JOB );
 		$orders = $this->pending_orders();
 
 		if ( empty( $orders ) ) {
@@ -208,9 +222,115 @@ class OrderSync {
 			return;
 		}
 
-		foreach ( array_chunk( $orders, self::BATCH_SIZE ) as $batch ) {
-			$this->send( $batch );
+		/*
+		 * The IDs are cached rather than re-queried per batch. pending_orders() asks for
+		 * orders this plugin has never sent, and a batch that failed still has not been
+		 * sent — so re-querying would hand the same rejected orders back for ever.
+		 */
+		$ids = array_map(
+			static function ( $order ) {
+				return (int) $order->get_id();
+			},
+			$orders
+		);
+
+		set_transient( self::TRANSIENT_PREFIX . $run, $ids, self::TRANSIENT_TTL );
+
+		Status::measure( self::JOB, count( $ids ) );
+
+		Scheduler::chain(
+			Scheduler::ACTION_SYNC_ORDERS_BATCH,
+			array(
+				'offset' => 0,
+				'run'    => $run,
+			)
+		);
+	}
+
+	/**
+	 * Send one batch of orders, then queue the next.
+	 *
+	 * The sweep used to send every batch inside the action that started it. That was
+	 * an upload of up to SWEEP_LIMIT orders in one request, each batch a round trip to
+	 * Kontor, with nothing to show for it until the whole thing was over — and on a
+	 * slow link it was the one job that could be cut short by an execution limit,
+	 * which for an upload means the remaining orders silently wait for the next sweep.
+	 * Chaining bounds each action at one request and makes the run's position visible,
+	 * exactly as the other jobs already were.
+	 *
+	 * @param int $offset Number of orders already sent.
+	 * @param int $run    Run identifier.
+	 * @return void
+	 */
+	public function send_batch( $offset, $run ) {
+		if ( ! Status::is_current_run( self::JOB, $run ) ) {
+			$this->log( 'info', sprintf( 'Discarding order batch at offset %d: run %d has been superseded.', $offset, $run ) );
+
+			return;
 		}
+
+		$ids = get_transient( self::TRANSIENT_PREFIX . $run );
+
+		if ( ! is_array( $ids ) ) {
+			Status::fail( self::JOB, __( 'The list of orders to send expired before they could be sent.', 'woo-kontor-sync-pro' ) );
+
+			return;
+		}
+
+		$batch = array_slice( $ids, $offset, self::BATCH_SIZE );
+
+		if ( empty( $batch ) ) {
+			$this->complete( $run );
+
+			return;
+		}
+
+		$orders = array();
+
+		foreach ( $batch as $order_id ) {
+			$order = wc_get_order( $order_id );
+
+			/*
+			 * Re-read now rather than carrying the objects across actions. An order can be
+			 * cancelled, edited or sent by the single-order hook between the sweep starting
+			 * and this batch running, and the copy taken at the start would not know.
+			 */
+			if ( $order && ! $order->get_meta( self::META_PUSHED_AT ) ) {
+				$orders[] = $order;
+			}
+		}
+
+		if ( ! empty( $orders ) ) {
+			$this->send( $orders );
+		}
+
+		Status::advance( self::JOB, count( $batch ) );
+
+		$next = $offset + count( $batch );
+
+		if ( $next >= count( $ids ) ) {
+			$this->complete( $run );
+
+			return;
+		}
+
+		Scheduler::chain(
+			Scheduler::ACTION_SYNC_ORDERS_BATCH,
+			array(
+				'offset' => $next,
+				'run'    => $run,
+			)
+		);
+	}
+
+	/**
+	 * Close the run and report what the sweep achieved.
+	 *
+	 * @param int $run Run identifier.
+	 * @return void
+	 */
+	protected function complete( $run ) {
+		delete_transient( self::TRANSIENT_PREFIX . $run );
 
 		$counts = Status::get( self::JOB )['counts'];
 

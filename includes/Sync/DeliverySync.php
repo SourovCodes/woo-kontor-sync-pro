@@ -168,6 +168,7 @@ class DeliverySync {
 			return;
 		}
 
+		Status::measure( self::JOB, count( $rows ) );
 		set_transient( self::TRANSIENT_PREFIX . $run, $rows, self::TRANSIENT_TTL );
 
 		Scheduler::chain(
@@ -210,6 +211,7 @@ class DeliverySync {
 		}
 
 		Status::progress( self::JOB, $this->apply( $chunk ) );
+		Status::advance( self::JOB, count( $chunk ) );
 
 		$next = $offset + count( $chunk );
 

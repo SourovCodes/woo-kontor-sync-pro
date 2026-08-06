@@ -73,6 +73,11 @@ class Scheduler {
 	const ACTION_SYNC_ORDER = 'woo_kontor_sync_order';
 
 	/**
+	 * Sends one batch of the sweep's orders, then chains to the next.
+	 */
+	const ACTION_SYNC_ORDERS_BATCH = 'woo_kontor_sync_orders_batch';
+
+	/**
 	 * Entry point for the delivery information import.
 	 */
 	const ACTION_SYNC_DELIVERY = 'woo_kontor_sync_delivery';
@@ -171,6 +176,7 @@ class Scheduler {
 			self::ACTION_SYNC_STOCK             => 'stock',
 			self::ACTION_SYNC_STOCK_CHUNK       => 'stock',
 			self::ACTION_SYNC_ORDERS            => 'orders',
+			self::ACTION_SYNC_ORDERS_BATCH      => 'orders',
 			self::ACTION_SYNC_DELIVERY          => 'delivery',
 			self::ACTION_SYNC_DELIVERY_CHUNK    => 'delivery',
 			self::ACTION_SYNC_INVOICES          => 'invoices',
@@ -195,6 +201,7 @@ class Scheduler {
 		add_action( self::ACTION_SYNC_STOCK_CHUNK, array( $this, 'handle_stock_chunk' ), 10, 2 );
 
 		add_action( self::ACTION_SYNC_ORDERS, array( $this, 'handle_orders' ) );
+		add_action( self::ACTION_SYNC_ORDERS_BATCH, array( $this, 'handle_orders_batch' ), 10, 2 );
 		add_action( self::ACTION_SYNC_ORDER, array( $this, 'handle_order' ), 10, 1 );
 
 		add_action( self::ACTION_SYNC_DELIVERY, array( $this, 'handle_delivery' ) );
@@ -437,6 +444,17 @@ class Scheduler {
 	}
 
 	/**
+	 * Send one batch of the sweep's orders.
+	 *
+	 * @param int $offset Number of orders already sent.
+	 * @param int $run    Run identifier.
+	 * @return void
+	 */
+	public function handle_orders_batch( $offset = 0, $run = 0 ) {
+		( new OrderSync() )->send_batch( absint( $offset ), absint( $run ) );
+	}
+
+	/**
 	 * Upload a single order.
 	 *
 	 * @param int $order_id Order to send.
@@ -647,6 +665,35 @@ class Scheduler {
 		}
 
 		as_unschedule_all_actions( '', array(), self::GROUP );
+	}
+
+	/**
+	 * How many actions of one kind are still waiting to run.
+	 *
+	 * Used for the image queue, which is the one piece of a product sync with no total
+	 * to measure against: the downloads outlive the run that queued them, so the
+	 * honest thing to show is how many are left rather than a percentage of something.
+	 *
+	 * Asked as a count rather than by fetching the IDs and counting them — a first run
+	 * queues one action per article, and reading four thousand rows to display a
+	 * number would be worse than not showing it.
+	 *
+	 * @param string $hook Action hook.
+	 * @return int Actions still pending.
+	 */
+	public static function pending_count( $hook ) {
+		if ( ! class_exists( 'ActionScheduler' ) || ! class_exists( 'ActionScheduler_Store' ) ) {
+			return 0;
+		}
+
+		return (int) \ActionScheduler::store()->query_actions(
+			array(
+				'hook'   => $hook,
+				'group'  => self::GROUP,
+				'status' => \ActionScheduler_Store::STATUS_PENDING,
+			),
+			'count'
+		);
 	}
 
 	/**

@@ -34,15 +34,77 @@ class Status {
 		self::write(
 			$job,
 			array(
-				'state'    => 'running',
-				'started'  => $started,
-				'finished' => 0,
-				'message'  => '',
-				'counts'   => array(),
+				'state'     => 'running',
+				'started'   => $started,
+				'finished'  => 0,
+				'message'   => '',
+				'counts'    => array(),
+				'total'     => 0,
+				'processed' => 0,
 			)
 		);
 
 		return $started;
+	}
+
+	/**
+	 * Record how much work the run has in front of it.
+	 *
+	 * Kept apart from the counts, which say what happened to each record rather than
+	 * where the run has got to. Every chunked job already knows this number the moment
+	 * it starts — the catalogue's totalCount, the length of the stock or delivery
+	 * payload — so the only thing missing was somewhere to put it.
+	 *
+	 * A total of zero means "not known", which is how the screen tells a run it can
+	 * measure from one it can only report as busy.
+	 *
+	 * @param string $job   Job key.
+	 * @param int    $total Records this run expects to handle.
+	 * @return void
+	 */
+	public static function measure( $job, $total ) {
+		$current          = self::get( $job );
+		$current['total'] = max( 0, (int) $total );
+
+		self::write( $job, $current );
+	}
+
+	/**
+	 * Move the run forward by the records just handled.
+	 *
+	 * @param string $job  Job key.
+	 * @param int    $done Records handled since the last call.
+	 * @return void
+	 */
+	public static function advance( $job, $done ) {
+		$current              = self::get( $job );
+		$current['processed'] = (int) $current['processed'] + max( 0, (int) $done );
+
+		self::write( $job, $current );
+	}
+
+	/**
+	 * How far through a run is, as a percentage.
+	 *
+	 * Clamped at 100 and never allowed below 0. The total is what the source claimed
+	 * at the start — the API's totalCount is a promise about a catalogue that can
+	 * change underneath the walk, and import_page() deliberately advances by the rows
+	 * actually returned — so the two can disagree, and a bar that reads 104% is worse
+	 * than one that sits at 100 for a moment.
+	 *
+	 * @param array $status Status array from get().
+	 * @return int|null Percentage, or null when the run cannot be measured.
+	 */
+	public static function percentage( array $status ) {
+		$total = isset( $status['total'] ) ? (int) $status['total'] : 0;
+
+		if ( $total < 1 ) {
+			return null;
+		}
+
+		$processed = isset( $status['processed'] ) ? (int) $status['processed'] : 0;
+
+		return (int) max( 0, min( 100, floor( ( $processed / $total ) * 100 ) ) );
 	}
 
 	/**
@@ -203,11 +265,13 @@ class Status {
 	 */
 	public static function defaults() {
 		return array(
-			'state'    => 'never',
-			'started'  => 0,
-			'finished' => 0,
-			'message'  => '',
-			'counts'   => array(),
+			'state'     => 'never',
+			'started'   => 0,
+			'finished'  => 0,
+			'message'   => '',
+			'counts'    => array(),
+			'total'     => 0,
+			'processed' => 0,
 		);
 	}
 

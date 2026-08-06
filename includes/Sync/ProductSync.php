@@ -224,6 +224,13 @@ class ProductSync {
 		$rows  = $response['data'];
 		$total = isset( $response['meta']['totalCount'] ) ? (int) $response['meta']['totalCount'] : 0;
 
+		// Recorded from the first page only. Kontor repeats totalCount on every page,
+		// but a catalogue that changed mid-walk would then move the goalposts under a
+		// bar that is already half full.
+		if ( 0 === (int) $skip ) {
+			Status::measure( self::JOB, $total );
+		}
+
 		$counts = array(
 			'created'       => 0,
 			'updated'       => 0,
@@ -258,6 +265,7 @@ class ProductSync {
 		}
 
 		Status::progress( self::JOB, $counts );
+		Status::advance( self::JOB, count( $rows ) );
 
 		$processed = $skip + count( $rows );
 
