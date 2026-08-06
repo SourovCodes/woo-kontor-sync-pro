@@ -7,6 +7,7 @@
 
 namespace WooKontorSync\Tests;
 
+use WooKontorSync\Admin\Settings;
 use WooKontorSync\Updates\Updater;
 use WP_Error;
 use WP_UnitTestCase;
@@ -39,6 +40,7 @@ class UpdaterTest extends WP_UnitTestCase {
 		parent::set_up();
 
 		delete_site_transient( Updater::CACHE_KEY );
+		delete_site_transient( Updater::CORE_CACHE_KEY );
 
 		$this->requests = 0;
 		$this->body     = wp_json_encode( $this->manifest() );
@@ -54,6 +56,7 @@ class UpdaterTest extends WP_UnitTestCase {
 	public function tear_down() {
 		remove_filter( 'pre_http_request', array( $this, 'stub_request' ), 10 );
 		delete_site_transient( Updater::CACHE_KEY );
+		delete_site_transient( Updater::CORE_CACHE_KEY );
 
 		parent::tear_down();
 	}
@@ -67,6 +70,30 @@ class UpdaterTest extends WP_UnitTestCase {
 	 * @return array|WP_Error|mixed
 	 */
 	public function stub_request( $preempt, $args, $url ) {
+		/*
+		 * wp_update_plugins() asks WordPress.org first and abandons the whole check if
+		 * that call fails, so the Update URI filter would never be reached. Answering it
+		 * with an empty result is what lets refresh() be exercised without the network.
+		 */
+		if ( str_contains( $url, 'api.wordpress.org/plugins/update-check' ) ) {
+			return array(
+				'headers'  => array(),
+				'body'     => wp_json_encode(
+					array(
+						'plugins'      => array(),
+						'translations' => array(),
+						'no_update'    => array(),
+					)
+				),
+				'response' => array(
+					'code'    => 200,
+					'message' => 'OK',
+				),
+				'cookies'  => array(),
+				'filename' => null,
+			);
+		}
+
 		if ( Updater::MANIFEST_URL !== $url ) {
 			return $preempt;
 		}
@@ -337,6 +364,143 @@ class UpdaterTest extends WP_UnitTestCase {
 		$this->assertStringNotContainsString( '<script>', $result->name );
 		$this->assertStringNotContainsString( '<script>', $result->sections['description'] );
 		$this->assertArrayHasKey( 'changelog', $result->sections );
+	}
+
+	/**
+	 * Nothing having checked yet is reported as not knowing.
+	 *
+	 * Not as "up to date": the settings screen would then tell a site running a
+	 * version from last year that it has the newest release.
+	 *
+	 * @return void
+	 */
+	public function test_status_is_unknown_before_anything_has_checked() {
+		$status = Updater::status();
+
+		$this->assertSame( 'unknown', $status['state'] );
+		$this->assertSame( '', $status['version'] );
+		$this->assertSame( 0, $this->requests );
+	}
+
+	/**
+	 * A pending update is read out of core's transient rather than fetched again.
+	 *
+	 * @return void
+	 */
+	public function test_status_reports_a_pending_update() {
+		$this->seed_core_transient( 'response', '9.9.9' );
+
+		$status = Updater::status();
+
+		$this->assertSame( 'available', $status['state'] );
+		$this->assertSame( '9.9.9', $status['version'] );
+		$this->assertSame( 0, $this->requests );
+	}
+
+	/**
+	 * An up-to-date answer is core's "no_update" bucket, and reads as current.
+	 *
+	 * @return void
+	 */
+	public function test_status_reports_being_current() {
+		$this->seed_core_transient( 'no_update', WKSYNC_VERSION );
+
+		$status = Updater::status();
+
+		$this->assertSame( 'current', $status['state'] );
+		$this->assertSame( WKSYNC_VERSION, $status['version'] );
+	}
+
+	/**
+	 * Another plugin's entry is not mistaken for this one's.
+	 *
+	 * @return void
+	 */
+	public function test_status_ignores_other_plugins() {
+		set_site_transient(
+			Updater::CORE_CACHE_KEY,
+			(object) array(
+				'response'  => array( 'woocommerce/woocommerce.php' => (object) array( 'new_version' => '99.0.0' ) ),
+				'no_update' => array(),
+			)
+		);
+
+		$this->assertSame( 'unknown', Updater::status()['state'] );
+	}
+
+	/**
+	 * Checking on demand discards both caches and asks again.
+	 *
+	 * This is the whole point of the button: core holds its answer for twelve hours
+	 * outside the plugins and updates screens, and this plugin holds the manifest for
+	 * six, so a release published in between is invisible until both are cleared.
+	 *
+	 * @return void
+	 */
+	public function test_refresh_discards_both_caches_and_asks_again() {
+		$updater = new Updater();
+
+		$this->assertSame( 'available', $updater->refresh()['state'] );
+		$this->assertSame( 1, $this->requests );
+
+		// Everything is warm now: a second look without refresh() re-reads the answer.
+		$this->assertSame( 'available', Updater::status()['state'] );
+		$this->assertSame( 1, $this->requests );
+
+		// A newer release turns up on GitHub between the two checks.
+		$this->body = wp_json_encode( $this->manifest( array( 'version' => '9.9.10' ) ) );
+
+		$status = $updater->refresh();
+
+		$this->assertSame( 2, $this->requests );
+		$this->assertSame( '9.9.10', $status['version'] );
+	}
+
+	/**
+	 * A check that could not be made says so rather than reporting success.
+	 *
+	 * @return void
+	 */
+	public function test_refresh_reports_an_unreachable_host_as_unknown() {
+		$this->body = new WP_Error( 'http_request_failed', 'Connection refused' );
+
+		$this->assertSame( 'unknown', ( new Updater() )->refresh()['state'] );
+	}
+
+	/**
+	 * The settings screen's button has somewhere to post to.
+	 *
+	 * Settings only registers itself inside the admin, which the suite is not, so the
+	 * registration is run here rather than assumed.
+	 *
+	 * @return void
+	 */
+	public function test_the_manual_check_is_hooked() {
+		( new Settings() )->register();
+
+		$this->assertNotFalse( has_action( 'admin_post_wksync_check_updates' ) );
+	}
+
+	/**
+	 * Put an answer in core's transient, as a completed update check would.
+	 *
+	 * @param string $bucket  Either "response" or "no_update".
+	 * @param string $version Version to record against this plugin.
+	 * @return void
+	 */
+	private function seed_core_transient( $bucket, $version ) {
+		$updates = array(
+			'response'  => array(),
+			'no_update' => array(),
+		);
+
+		$updates[ $bucket ][ Updater::basename() ] = (object) array(
+			'plugin'      => Updater::basename(),
+			'slug'        => Updater::SLUG,
+			'new_version' => $version,
+		);
+
+		set_site_transient( Updater::CORE_CACHE_KEY, (object) $updates );
 	}
 
 	/**

@@ -615,6 +615,23 @@ gates any of them.
   date". Failure is cached for an hour and success for six, so an unreachable host costs one request
   an hour instead of one per admin page load. **Check again** clears both caches, because it deletes
   the `update_plugins` transient and the updater hooks `delete_site_transient_update_plugins`.
+- **The settings screen carries its own "Check for updates"**, because both caches together mean a
+  release published an hour ago is invisible with nothing on screen saying so: core reuses its
+  answer for twelve hours outside the plugins and updates screens, and `wp_update_plugins()` returns
+  without asking anybody while it is still warm. `Updater::refresh()` deletes both transients and
+  then calls `wp_update_plugins()` — going **through core rather than reading the manifest
+  directly**, so what the screen reports is what the plugins screen will act on rather than a second
+  opinion that can disagree with it.
+  - `Updater::status()` reads core's transient and never touches the network: `response` means an
+    update, `no_update` means current, neither means **unknown**. Unknown is reported as unknown
+    rather than as up to date — a failed check leaves the plugin in neither bucket, and a site
+    running last year's version must not be told it has the newest.
+  - Core asks WordPress.org first and **abandons the whole check if that request fails**, so the
+    `Update URI` filter is never reached. An unreachable wp.org therefore reads exactly like an
+    unreachable GitHub, which is why the failure message names both.
+  - The button is gated on **`update_plugins`, not this screen's `manage_woocommerce`**. A shop
+    manager can run every sync here but cannot install a plugin, and the whole section is hidden
+    from them rather than offering to find an update they are not allowed to apply.
 - The `Update URI` header also **stops WordPress.org answering for this slug**, which is the other
   half of what it is for.
 - `tested` is deliberately left empty: there is no `readme.txt` stating a tested-up-to version, and

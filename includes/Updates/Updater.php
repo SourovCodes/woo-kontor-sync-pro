@@ -76,6 +76,14 @@ class Updater {
 	const CACHE_KEY = 'wksync_update_manifest';
 
 	/**
+	 * Site transient core keeps the result of a plugin update check in.
+	 *
+	 * Named here because both halves of a manual re-check have to be cleared, and
+	 * because the answer this plugin reports has to be the one core will act on.
+	 */
+	const CORE_CACHE_KEY = 'update_plugins';
+
+	/**
 	 * How long a successful lookup is reused for, in seconds.
 	 *
 	 * Core checks for plugin updates twice a day, and "Check again" clears this cache
@@ -206,6 +214,70 @@ class Updater {
 	 */
 	public function flush() {
 		delete_site_transient( self::CACHE_KEY );
+	}
+
+	/**
+	 * Ask again now, ignoring every cache in the way.
+	 *
+	 * There are two of them, and clearing one is not enough. Ours holds the manifest
+	 * for six hours; core's holds the whole update check for twelve outside the
+	 * plugins and updates screens, and wp_update_plugins() returns without asking
+	 * anybody while it is still warm. A release published an hour ago is invisible
+	 * until both are gone, which is exactly what someone pressing "Check for updates"
+	 * is trying to find out.
+	 *
+	 * The check runs through core rather than reading the manifest directly, so what
+	 * comes back is what the plugins screen will act on rather than a second opinion
+	 * that could disagree with it.
+	 *
+	 * @return array Status array, as described on status().
+	 */
+	public function refresh() {
+		$this->flush();
+		delete_site_transient( self::CORE_CACHE_KEY );
+
+		wp_update_plugins();
+
+		return self::status();
+	}
+
+	/**
+	 * What the last update check concluded about this plugin.
+	 *
+	 * Read out of core's transient, so this costs nothing and never goes near the
+	 * network: it reports what has already been found rather than looking again.
+	 *
+	 * "unknown" covers both "nobody has checked yet" and "the check failed", because
+	 * core records neither — a failed check simply leaves the plugin in neither
+	 * bucket. They are the same answer to the reader anyway: we do not know.
+	 *
+	 * @return array {
+	 *     @type string $state   One of "available", "current" or "unknown".
+	 *     @type string $version Version the check found, empty when unknown.
+	 * }
+	 */
+	public static function status() {
+		$updates  = get_site_transient( self::CORE_CACHE_KEY );
+		$basename = self::basename();
+
+		if ( isset( $updates->response[ $basename ]->new_version ) ) {
+			return array(
+				'state'   => 'available',
+				'version' => (string) $updates->response[ $basename ]->new_version,
+			);
+		}
+
+		if ( isset( $updates->no_update[ $basename ]->new_version ) ) {
+			return array(
+				'state'   => 'current',
+				'version' => (string) $updates->no_update[ $basename ]->new_version,
+			);
+		}
+
+		return array(
+			'state'   => 'unknown',
+			'version' => '',
+		);
 	}
 
 	/**

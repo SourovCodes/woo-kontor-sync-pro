@@ -12,6 +12,7 @@ use WooKontorSync\Invoices\Storage;
 use WooKontorSync\Sync\OrderSync;
 use WooKontorSync\Sync\Scheduler;
 use WooKontorSync\Sync\Status;
+use WooKontorSync\Updates\Updater;
 
 defined( 'ABSPATH' ) || exit;
 
@@ -226,6 +227,7 @@ class Settings {
 		add_action( 'wp_ajax_wksync_fetch_shops', array( $this, 'handle_fetch_shops' ) );
 		add_action( 'wp_ajax_wksync_fetch_manufacturers', array( $this, 'handle_fetch_manufacturers' ) );
 		add_action( 'admin_post_wksync_run_job', array( $this, 'handle_run_job' ) );
+		add_action( 'admin_post_wksync_check_updates', array( $this, 'handle_check_updates' ) );
 	}
 
 	/**
@@ -858,6 +860,36 @@ class Settings {
 	}
 
 	/**
+	 * Look for a new release now, rather than waiting for core's next check.
+	 *
+	 * Gated on update_plugins rather than this screen's own capability: a shop manager
+	 * can run every sync here but cannot install a plugin, and a button offering to
+	 * find them an update they are not allowed to apply is only a way to be told no.
+	 *
+	 * @return void
+	 */
+	public function handle_check_updates() {
+		if ( ! current_user_can( 'update_plugins' ) ) {
+			wp_die( esc_html__( 'You do not have permission to do that.', 'woo-kontor-sync-pro' ) );
+		}
+
+		check_admin_referer( 'wksync_check_updates' );
+
+		$status = ( new Updater() )->refresh();
+
+		wp_safe_redirect(
+			add_query_arg(
+				array(
+					'page'          => self::PAGE_SLUG,
+					'wksync_update' => $status['state'],
+				),
+				admin_url( 'admin.php' )
+			)
+		);
+		exit;
+	}
+
+	/**
 	 * The reasons a job can refuse to be queued.
 	 *
 	 * Looked up from the code in the URL so nothing user-supplied is ever echoed.
@@ -889,6 +921,7 @@ class Settings {
 			<h1><?php echo esc_html__( 'Kontor Sync', 'woo-kontor-sync-pro' ); ?></h1>
 
 			<?php $this->render_queued_notice(); ?>
+			<?php $this->render_update_notice(); ?>
 			<?php $this->render_exposure_notice(); ?>
 
 			<form action="options.php" method="post">
@@ -1190,8 +1223,118 @@ class Settings {
 
 			<h2><?php echo esc_html__( 'Scheduled jobs', 'woo-kontor-sync-pro' ); ?></h2>
 			<?php $this->render_jobs_table(); ?>
+
+			<?php $this->render_updates_section(); ?>
 		</div>
 		<?php
+	}
+
+	/**
+	 * Show which release is installed, and offer to look for a newer one.
+	 *
+	 * The plugin is not on WordPress.org, so the only thing that ever mentions a new
+	 * release is core's twice-daily update check — and it caches the answer, so a
+	 * release published in between is invisible for hours with nothing on screen to
+	 * say so. This is the way to ask now.
+	 *
+	 * Hidden from anyone who cannot install a plugin: the answer would be of no use
+	 * to them, and the button beneath it does nothing they are allowed to follow up on.
+	 *
+	 * @return void
+	 */
+	protected function render_updates_section() {
+		if ( ! current_user_can( 'update_plugins' ) ) {
+			return;
+		}
+
+		$status = Updater::status();
+		?>
+		<h2><?php echo esc_html__( 'Updates', 'woo-kontor-sync-pro' ); ?></h2>
+		<table class="widefat striped">
+			<tbody>
+				<tr>
+					<th scope="row"><?php echo esc_html__( 'Installed version', 'woo-kontor-sync-pro' ); ?></th>
+					<td><?php echo esc_html( WKSYNC_VERSION ); ?></td>
+				</tr>
+				<tr>
+					<th scope="row"><?php echo esc_html__( 'Latest release', 'woo-kontor-sync-pro' ); ?></th>
+					<td>
+						<?php if ( 'available' === $status['state'] ) : ?>
+							<strong><?php echo esc_html( $status['version'] ); ?></strong>
+							&mdash;
+							<a href="<?php echo esc_url( self_admin_url( 'plugins.php' ) ); ?>">
+								<?php echo esc_html__( 'install it from the plugins screen', 'woo-kontor-sync-pro' ); ?>
+							</a>
+						<?php elseif ( 'current' === $status['state'] ) : ?>
+							<?php echo esc_html__( 'This is the newest release.', 'woo-kontor-sync-pro' ); ?>
+						<?php else : ?>
+							<?php echo esc_html__( 'Not known. Nothing has checked yet, or the last check could not reach GitHub.', 'woo-kontor-sync-pro' ); ?>
+						<?php endif; ?>
+					</td>
+				</tr>
+			</tbody>
+		</table>
+
+		<form class="wksync-update-check" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" method="post">
+			<input type="hidden" name="action" value="wksync_check_updates"/>
+			<?php wp_nonce_field( 'wksync_check_updates' ); ?>
+			<button type="submit" class="button"><?php echo esc_html__( 'Check for updates', 'woo-kontor-sync-pro' ); ?></button>
+		</form>
+		<p class="description">
+			<?php echo esc_html__( 'WordPress looks for plugin updates about twice a day and reuses that answer in between, so a release published since the last look does not appear on its own. This discards what was cached and asks again.', 'woo-kontor-sync-pro' ); ?>
+		</p>
+		<?php
+	}
+
+	/**
+	 * Report what pressing "Check for updates" found.
+	 *
+	 * @return void
+	 */
+	protected function render_update_notice() {
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only display flag set by our own redirect; the check itself was nonce-checked.
+		$state = isset( $_GET['wksync_update'] ) ? sanitize_key( wp_unslash( $_GET['wksync_update'] ) ) : '';
+
+		if ( '' === $state ) {
+			return;
+		}
+
+		if ( 'available' === $state ) {
+			$status = Updater::status();
+
+			printf(
+				'<div class="notice notice-warning is-dismissible"><p>%s</p></div>',
+				esc_html(
+					sprintf(
+						/* translators: %s: version number of the release that was found. */
+						__( 'Version %s is available. Install it from the plugins screen.', 'woo-kontor-sync-pro' ),
+						$status['version']
+					)
+				)
+			);
+
+			return;
+		}
+
+		if ( 'current' === $state ) {
+			printf(
+				'<div class="notice notice-success is-dismissible"><p>%s</p></div>',
+				esc_html__( 'This is the newest release.', 'woo-kontor-sync-pro' )
+			);
+
+			return;
+		}
+
+		/*
+		 * Anything else is a check that could not be made. WordPress asks its own API
+		 * first and abandons the whole check if that fails, so this covers WordPress.org
+		 * being unreachable as well as GitHub — and either way the honest answer is
+		 * that nobody could be asked, not that the plugin is up to date.
+		 */
+		printf(
+			'<div class="notice notice-error is-dismissible"><p>%s</p></div>',
+			esc_html__( 'The release could not be checked. GitHub or WordPress.org could not be reached; try again in a moment.', 'woo-kontor-sync-pro' )
+		);
 	}
 
 	/**

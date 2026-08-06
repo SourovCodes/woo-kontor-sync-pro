@@ -43,3 +43,8 @@
 .wksync-choice-actions {
 	margin-top: 8px;
 }
+
+/* The button sits directly under the version table, which has no margin of its own. */
+.wksync-update-check {
+	margin-top: 12px;
+}
