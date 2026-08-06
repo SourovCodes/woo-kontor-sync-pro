@@ -197,12 +197,12 @@ msgstr[0] "%s Hersteller gefunden."
 msgstr[1] "%s Hersteller gefunden."
 
 #: includes/Admin/Settings.php:956
-#: includes/Sync/Scheduler.php:328
+#: includes/Sync/Scheduler.php:356
 msgid "The job could not be queued. Check that WooCommerce is active."
 msgstr "Der Job konnte nicht eingereiht werden. Prüfen Sie, ob WooCommerce aktiv ist."
 
 #: includes/Admin/Settings.php:957
-#: includes/Sync/Scheduler.php:335
+#: includes/Sync/Scheduler.php:363
 msgid "That job is already running."
 msgstr "Dieser Job läuft bereits."
 
@@ -327,17 +327,17 @@ msgid "Schedules"
 msgstr "Zeitpläne"
 
 #: includes/Admin/Settings.php:1198
-#: includes/Sync/Scheduler.php:113
+#: includes/Sync/Scheduler.php:139
 msgid "Product sync"
 msgstr "Produktsynchronisation"
 
 #: includes/Admin/Settings.php:1213
-#: includes/Sync/Scheduler.php:121
+#: includes/Sync/Scheduler.php:147
 msgid "Stock sync"
 msgstr "Bestandssynchronisation"
 
 #: includes/Admin/Settings.php:1228
-#: includes/Sync/Scheduler.php:129
+#: includes/Sync/Scheduler.php:155
 msgid "Order sync"
 msgstr "Bestellsynchronisation"
 
@@ -346,7 +346,7 @@ msgid "Orders are sent to Kontor as they are paid. This sweep only catches ones 
 msgstr "Bestellungen werden an Kontor gesendet, sobald sie bezahlt sind. Dieser Durchlauf erfasst nur übersehene Bestellungen und benötigt einen ausgewählten Shop."
 
 #: includes/Admin/Settings.php:1244
-#: includes/Sync/Scheduler.php:138
+#: includes/Sync/Scheduler.php:164
 msgid "Delivery sync"
 msgstr "Liefersynchronisation"
 
@@ -538,46 +538,36 @@ msgstr "Es wurde kein Kontor-Shop ausgewählt. Wählen Sie auf der Einstellungss
 msgid "%1$d created, %2$d updated, %3$d unchanged, %4$d drafted."
 msgstr "%1$d erstellt, %2$d aktualisiert, %3$d unverändert, %4$d auf Entwurf gesetzt."
 
-#: includes/Sync/Scheduler.php:114
+#: includes/Sync/Scheduler.php:140
 msgid "Imports articles, titles, descriptions and prices from Kontor."
 msgstr "Importiert Artikel, Titel, Beschreibungen und Preise aus Kontor."
 
-#: includes/Sync/Scheduler.php:115
-#: includes/Sync/Scheduler.php:123
-#: includes/Sync/Scheduler.php:140
+#: includes/Sync/Scheduler.php:141
 #: includes/Sync/Scheduler.php:149
+#: includes/Sync/Scheduler.php:166
+#: includes/Sync/Scheduler.php:175
 msgid "From Kontor"
 msgstr "Aus Kontor"
 
-#: includes/Sync/Scheduler.php:122
-msgid "Updates stock levels for every article Kontor reports."
-msgstr "Aktualisiert die Lagerbestände für jeden von Kontor gemeldeten Artikel."
-
-#: includes/Sync/Scheduler.php:130
+#: includes/Sync/Scheduler.php:156
 msgid "Sends paid orders to Kontor. Orders are normally sent as they are paid; this sweep catches any that were missed."
 msgstr "Sendet bezahlte Bestellungen an Kontor. Bestellungen werden normalerweise gesendet, sobald sie bezahlt sind, dieser Durchlauf erfasst übersehene."
 
-#: includes/Sync/Scheduler.php:131
+#: includes/Sync/Scheduler.php:157
 msgid "To Kontor"
 msgstr "An Kontor"
 
-#: includes/Sync/Scheduler.php:139
+#: includes/Sync/Scheduler.php:165
 msgid "Brings order status and tracking details back from Kontor. Completing an order emails the customer."
 msgstr "Holt Bestellstatus und Sendungsdaten aus Kontor zurück. Das Abschließen einer Bestellung sendet dem Kunden eine E-Mail."
 
-#: includes/Sync/StockSync.php:108
+#: includes/Sync/StockSync.php:138
 msgid "Kontor reported no stock levels."
 msgstr "Kontor hat keine Lagerbestände gemeldet."
 
-#: includes/Sync/StockSync.php:142
+#: includes/Sync/StockSync.php:172
 msgid "The cached stock payload expired before it could be applied."
 msgstr "Die zwischengespeicherten Bestandsdaten sind abgelaufen, bevor sie übernommen werden konnten."
-
-#. translators: 1: products updated, 2: article numbers with no matching product, 3: products left alone because they do not manage stock.
-#: includes/Sync/StockSync.php:311
-#, php-format
-msgid "%1$d products updated, %2$d article numbers had no matching SKU, %3$d skipped as not stock-managed."
-msgstr "%1$d Produkte aktualisiert, %2$d Artikelnummern ohne passende SKU, %3$d übersprungen, da ohne Bestandsverwaltung."
 
 #: woo-kontor-sync-pro.php:60
 msgid "Woo Kontor Sync Pro is missing its dependencies. Run \"composer install\" in the plugin directory."
@@ -598,7 +588,7 @@ msgid "Enable High-Performance Order Storage"
 msgstr "High-Performance Order Storage aktivieren"
 
 #: includes/Admin/Settings.php:1260
-#: includes/Sync/Scheduler.php:147
+#: includes/Sync/Scheduler.php:173
 msgid "Invoice sync"
 msgstr "Rechnungssynchronisation"
 
@@ -714,7 +704,7 @@ msgstr "Rechnung %s von Kontor heruntergeladen."
 msgid "%1$d invoices downloaded, %2$d failed, %3$d not found locally."
 msgstr "%1$d Rechnungen heruntergeladen, %2$d fehlgeschlagen, %3$d lokal nicht gefunden."
 
-#: includes/Sync/Scheduler.php:148
+#: includes/Sync/Scheduler.php:174
 msgid "Downloads invoice PDFs from Kontor and files them against their orders."
 msgstr "Lädt Rechnungs-PDFs von Kontor herunter und ordnet sie ihren Bestellungen zu."
 
@@ -775,26 +765,26 @@ msgstr "Versionshinweise auf GitHub"
 msgid "Interrupted: the plugin was deactivated while this run was in progress."
 msgstr "Abgebrochen: Das Plugin wurde deaktiviert, während dieser Durchlauf lief."
 
-#: includes/Sync/Scheduler.php:525
+#: includes/Sync/Scheduler.php:563
 msgid "an unknown error"
 msgstr "ein unbekannter Fehler"
 
 #. translators: %s: error message.
-#: includes/Sync/Scheduler.php:530
+#: includes/Sync/Scheduler.php:568
 #, php-format
 msgid "The run stopped because a background task failed: %s"
 msgstr "Der Durchlauf wurde abgebrochen, weil eine Hintergrundaufgabe fehlgeschlagen ist: %s"
 
-#: includes/Sync/Scheduler.php:543
+#: includes/Sync/Scheduler.php:581
 msgid "The run stopped because a background task took too long and was abandoned."
 msgstr "Der Durchlauf wurde abgebrochen, weil eine Hintergrundaufgabe zu lange gedauert hat und aufgegeben wurde."
 
-#: includes/Sync/Scheduler.php:555
+#: includes/Sync/Scheduler.php:593
 msgid "a fatal error"
 msgstr "ein schwerwiegender Fehler"
 
 #. translators: %s: error message.
-#: includes/Sync/Scheduler.php:560
+#: includes/Sync/Scheduler.php:598
 #, php-format
 msgid "The run stopped because a background task ended unexpectedly: %s"
 msgstr "Der Durchlauf wurde abgebrochen, weil eine Hintergrundaufgabe unerwartet beendet wurde: %s"
@@ -869,3 +859,13 @@ msgstr[1] "Bilder für %s Produkte müssen noch heruntergeladen werden."
 #: includes/Sync/OrderSync.php:275
 msgid "The list of orders to send expired before they could be sent."
 msgstr "Die Liste der zu sendenden Bestellungen ist abgelaufen, bevor sie gesendet werden konnten."
+
+#: includes/Sync/Scheduler.php:148
+msgid "Updates stock levels for every article Kontor reports. Imported products the stock feed no longer carries are drafted, and republished when they return."
+msgstr "Aktualisiert die Lagerbestände für jeden von Kontor gemeldeten Artikel. Importierte Produkte, die der Bestandsfeed nicht mehr enthält, werden auf Entwurf gesetzt und erneut veröffentlicht, sobald sie zurückkehren."
+
+#. translators: 1: products updated, 2: article numbers with no matching product, 3: products left alone because they do not manage stock, 4: products drafted, 5: products republished.
+#: includes/Sync/StockSync.php:487
+#, php-format
+msgid "%1$d products updated, %2$d article numbers had no matching SKU, %3$d skipped as not stock-managed, %4$d drafted, %5$d republished."
+msgstr "%1$d Produkte aktualisiert, %2$d Artikelnummern ohne passende SKU, %3$d übersprungen, da ohne Bestandsverwaltung, %4$d auf Entwurf gesetzt, %5$d erneut veröffentlicht."

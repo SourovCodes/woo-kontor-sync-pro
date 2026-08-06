@@ -720,7 +720,8 @@ class SyncTest extends WP_UnitTestCase {
 			array(
 				'007-001-001' => 111,
 				'not-in-woo'  => 5,
-			)
+			),
+			time()
 		);
 
 		$this->assertSame( 1, $counts['updated'] );
@@ -748,7 +749,7 @@ class SyncTest extends WP_UnitTestCase {
 		$product->update_meta_data( ProductSync::META_SYNCED_AT, 999 );
 		$product->save();
 
-		$counts = ( new StockSync( null, array() ) )->apply( array( 'KONTOR-OWNED' => 0 ) );
+		$counts = ( new StockSync( null, array() ) )->apply( array( 'KONTOR-OWNED' => 0 ), time() );
 
 		$refreshed = wc_get_product( $product->get_id() );
 
@@ -770,7 +771,7 @@ class SyncTest extends WP_UnitTestCase {
 		$product->set_stock_status( 'instock' );
 		$product->save();
 
-		$counts = ( new StockSync( null, array() ) )->apply( array( 'HAND-MADE' => 0 ) );
+		$counts = ( new StockSync( null, array() ) )->apply( array( 'HAND-MADE' => 0 ), time() );
 
 		$refreshed = wc_get_product( $product->get_id() );
 
@@ -792,11 +793,248 @@ class SyncTest extends WP_UnitTestCase {
 		$product->set_stock_quantity( 12 );
 		$product->save();
 
-		( new StockSync( null, array() ) )->apply( array( '430-003-010' => 0 ) );
+		( new StockSync( null, array() ) )->apply( array( '430-003-010' => 0 ), time() );
 
 		$refreshed = wc_get_product( $product->get_id() );
 
 		$this->assertSame( 0, $refreshed->get_stock_quantity() );
 		$this->assertSame( 'outofstock', $refreshed->get_stock_status() );
+	}
+
+	/**
+	 * A product this plugin imported, for the stock drafting tests.
+	 *
+	 * The status is set before the first save rather than afterwards: a product
+	 * object handed straight back from its own create() does not persist a later
+	 * set_status(), which is a quirk of reusing the object rather than of the code
+	 * under test — production always works from a freshly loaded product.
+	 *
+	 * @param string $sku    SKU to give it.
+	 * @param string $status Post status to create it with.
+	 * @param array  $meta   Extra meta to write, keyed by meta key.
+	 * @return int Product ID.
+	 */
+	private function imported_product( $sku, $status = 'publish', array $meta = array() ) {
+		$product = new WC_Product_Simple();
+		$product->set_sku( $sku );
+		$product->set_status( $status );
+		$product->set_manage_stock( true );
+		$product->set_stock_quantity( 5 );
+		$product->update_meta_data( ProductSync::META_SYNCED_AT, 1000 );
+
+		foreach ( $meta as $key => $value ) {
+			$product->update_meta_data( $key, $value );
+		}
+
+		return $product->save();
+	}
+
+	/**
+	 * An article the stock feed no longer carries is drafted.
+	 *
+	 * @return void
+	 */
+	public function test_article_missing_from_the_stock_feed_is_drafted() {
+		$kept    = $this->imported_product( 'STILL-STOCKED' );
+		$dropped = $this->imported_product( 'GONE-FROM-STOCK' );
+
+		$sync = new StockSync( null, array() );
+		$run  = Status::start( StockSync::JOB );
+
+		$sync->apply( array( 'STILL-STOCKED' => 3 ), $run );
+		$sync->finalise( $run );
+
+		$this->assertSame( 'publish', wc_get_product( $kept )->get_status() );
+		$this->assertSame( 'draft', wc_get_product( $dropped )->get_status() );
+		$this->assertSame( '1', (string) get_post_meta( $dropped, StockSync::META_STOCK_DRAFTED, true ) );
+	}
+
+	/**
+	 * A shop manager's own product is never drafted for missing the stock feed.
+	 *
+	 * It was never in one. The run stamp the product sync writes is the marker for
+	 * "this plugin imported this", and without it the product is not ours to hide.
+	 *
+	 * @return void
+	 */
+	public function test_foreign_product_is_not_drafted_by_the_stock_sync() {
+		$product = new WC_Product_Simple();
+		$product->set_sku( 'HAND-MADE' );
+		$product->set_status( 'publish' );
+		$product->save();
+
+		$sync = new StockSync( null, array() );
+		$run  = Status::start( StockSync::JOB );
+
+		$sync->finalise( $run );
+
+		$this->assertSame( 'publish', wc_get_product( $product->get_id() )->get_status() );
+	}
+
+	/**
+	 * An article returning to the stock feed is republished.
+	 *
+	 * @return void
+	 */
+	public function test_stock_drafted_product_is_republished_when_it_returns() {
+		$product = $this->imported_product( 'BACK-IN-STOCK' );
+
+		$sync = new StockSync( null, array() );
+		$run  = Status::start( StockSync::JOB );
+
+		$sync->finalise( $run );
+		$this->assertSame( 'draft', wc_get_product( $product )->get_status() );
+
+		$later  = Status::start( StockSync::JOB );
+		$counts = $sync->apply( array( 'BACK-IN-STOCK' => 7 ), $later );
+
+		$restored = wc_get_product( $product );
+
+		$this->assertSame( 1, $counts['restored'] );
+		$this->assertSame( 'publish', $restored->get_status() );
+		$this->assertSame( 7, $restored->get_stock_quantity() );
+		$this->assertSame( '', (string) $restored->get_meta( StockSync::META_STOCK_DRAFTED ) );
+	}
+
+	/**
+	 * A product a person drafted is left drafted when its level arrives.
+	 *
+	 * @return void
+	 */
+	public function test_manually_drafted_product_is_not_republished_by_stock() {
+		$product = $this->imported_product( 'HIDDEN-ON-PURPOSE', 'draft' );
+
+		$counts = ( new StockSync( null, array() ) )->apply( array( 'HIDDEN-ON-PURPOSE' => 9 ), time() );
+
+		$refreshed = wc_get_product( $product );
+
+		$this->assertSame( 0, $counts['restored'] );
+		$this->assertSame( 'draft', $refreshed->get_status() );
+
+		// The level is still applied; the product is hidden, not unmanaged.
+		$this->assertSame( 9, $refreshed->get_stock_quantity() );
+	}
+
+	/**
+	 * A product both feeds dropped stays drafted until both list it again.
+	 *
+	 * Each sync clears only its own marker. Sharing one would let the catalogue
+	 * listing an article again put it back on the shelf with no stock behind it, and
+	 * a stock level arriving republish an article Kontor no longer sells.
+	 *
+	 * @return void
+	 */
+	public function test_a_product_both_syncs_drafted_needs_both_to_return() {
+		$product = $this->imported_product(
+			'abel-AB12',
+			'draft',
+			array(
+				ProductSync::META_SYNC_DRAFTED => 1,
+				StockSync::META_STOCK_DRAFTED  => 1,
+			)
+		);
+
+		// The catalogue lists it again, but there is still no stock level for it.
+		( new ProductSync( null, array( 'image_base_url' => '' ) ) )->import_article( $this->article(), 2000 );
+
+		$after_products = wc_get_product( $product );
+
+		$this->assertSame( 'draft', $after_products->get_status() );
+		$this->assertSame( '', (string) $after_products->get_meta( ProductSync::META_SYNC_DRAFTED ) );
+		$this->assertSame( '1', (string) $after_products->get_meta( StockSync::META_STOCK_DRAFTED ) );
+
+		// Now the stock feed carries it too, and the last marker goes with it.
+		( new StockSync( null, array() ) )->apply( array( 'abel-AB12' => 4 ), time() );
+
+		$after_stock = wc_get_product( $product );
+
+		$this->assertSame( 'publish', $after_stock->get_status() );
+		$this->assertSame( '', (string) $after_stock->get_meta( StockSync::META_STOCK_DRAFTED ) );
+	}
+
+	/**
+	 * The other ordering works too: stock first, then the catalogue.
+	 *
+	 * @return void
+	 */
+	public function test_stock_returning_first_does_not_republish_a_dropped_article() {
+		$product = $this->imported_product(
+			'abel-AB12',
+			'draft',
+			array(
+				ProductSync::META_SYNC_DRAFTED => 1,
+				StockSync::META_STOCK_DRAFTED  => 1,
+			)
+		);
+
+		$counts = ( new StockSync( null, array() ) )->apply( array( 'abel-AB12' => 4 ), time() );
+
+		$after_stock = wc_get_product( $product );
+
+		$this->assertSame( 0, $counts['restored'] );
+		$this->assertSame( 'draft', $after_stock->get_status() );
+		$this->assertSame( '1', (string) $after_stock->get_meta( ProductSync::META_SYNC_DRAFTED ) );
+
+		( new ProductSync( null, array( 'image_base_url' => '' ) ) )->import_article( $this->article(), 2000 );
+
+		$this->assertSame( 'publish', wc_get_product( $product )->get_status() );
+	}
+
+	/**
+	 * A run with nothing to draft still closes itself.
+	 *
+	 * This is the steady state — every fifteen minutes, on a shop where the feed has
+	 * not changed — so it is the pass that matters most. A finalise that found nothing
+	 * and returned without completing would leave the job reporting "running" and
+	 * refusing to start another for the next six hours.
+	 *
+	 * @return void
+	 */
+	public function test_finalise_with_nothing_stale_completes_the_run() {
+		$product = $this->imported_product( 'STILL-STOCKED' );
+
+		$sync = new StockSync( null, array() );
+		$run  = Status::start( StockSync::JOB );
+
+		$sync->apply( array( 'STILL-STOCKED' => 3 ), $run );
+		$sync->finalise( $run );
+
+		$this->assertSame( 'success', Status::get( StockSync::JOB )['state'] );
+		$this->assertSame( 'publish', wc_get_product( $product )->get_status() );
+	}
+
+	/**
+	 * A superseded finalise pass drafts nothing.
+	 *
+	 * @return void
+	 */
+	public function test_superseded_stock_finalise_is_discarded() {
+		$product = $this->imported_product( 'GONE-FROM-STOCK' );
+		$current = Status::start( StockSync::JOB );
+
+		// A finalise belonging to an older run must draft nothing at all.
+		( new StockSync( null, array() ) )->finalise( $current - 500 );
+
+		$this->assertSame( 'publish', wc_get_product( $product )->get_status() );
+	}
+
+	/**
+	 * The run summary reports what was drafted and what came back.
+	 *
+	 * @return void
+	 */
+	public function test_stock_summary_reports_drafting() {
+		$this->imported_product( 'GONE-FROM-STOCK' );
+
+		$sync = new StockSync( null, array() );
+		$run  = Status::start( StockSync::JOB );
+
+		Status::progress( StockSync::JOB, $sync->apply( array( 'not-in-woo' => 1 ), $run ) );
+		$sync->finalise( $run );
+
+		$this->assertSame(
+			'0 products updated, 1 article numbers had no matching SKU, 0 skipped as not stock-managed, 1 drafted, 0 republished.',
+			Status::get( StockSync::JOB )['message']
+		);
 	}
 }

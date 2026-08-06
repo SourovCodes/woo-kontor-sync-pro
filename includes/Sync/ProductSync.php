@@ -602,16 +602,32 @@ class ProductSync {
 	 * distinguishes them from a product a shop manager deliberately unpublished,
 	 * which must be left alone.
 	 *
+	 * The stock sync drafts products on its own feed and marks them separately. An
+	 * article can be absent from both, so clearing this marker is not on its own a
+	 * reason to publish: the catalogue listing an article again says nothing about
+	 * whether there is any stock of it. Each sync clears only its own marker, and the
+	 * product comes back when the last one goes.
+	 *
 	 * @param WC_Product_Simple $product Existing product.
-	 * @return bool True when the product was restored and therefore needs saving.
+	 * @return bool True when the product changed and therefore needs saving.
 	 */
 	protected function restore_if_sync_drafted( $product ) {
 		if ( 'draft' !== $product->get_status() || ! $product->get_meta( self::META_SYNC_DRAFTED ) ) {
 			return false;
 		}
 
-		$product->set_status( 'publish' );
 		$product->delete_meta_data( self::META_SYNC_DRAFTED );
+
+		if ( $product->get_meta( StockSync::META_STOCK_DRAFTED ) ) {
+			$this->log(
+				'info',
+				sprintf( 'Article %s is listed by Kontor again, but has no stock level; leaving it drafted.', $product->get_sku() )
+			);
+
+			return true;
+		}
+
+		$product->set_status( 'publish' );
 
 		$this->log( 'info', sprintf( 'Republished article %s: it is listed by Kontor again.', $product->get_sku() ) );
 
