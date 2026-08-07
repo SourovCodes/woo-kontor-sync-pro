@@ -101,6 +101,7 @@ class Settings {
 			'manufacturer_ids'       => array(),
 			'manufacturer_names'     => array(),
 			'image_base_url'         => '',
+			'require_main_image'     => false,
 			'product_sync_interval'  => self::INTERVAL_NEVER,
 			'stock_sync_interval'    => self::INTERVAL_NEVER,
 			'order_sync_interval'    => self::INTERVAL_NEVER,
@@ -359,6 +360,7 @@ class Settings {
 			'manufacturer_ids'       => $manufacturers['manufacturer_ids'],
 			'manufacturer_names'     => $manufacturers['manufacturer_names'],
 			'image_base_url'         => isset( $input['image_base_url'] ) ? esc_url_raw( trim( $input['image_base_url'] ) ) : '',
+			'require_main_image'     => $this->pick_toggle( $input, 'require_main_image', $existing ),
 			'product_sync_interval'  => $this->pick_interval( $input, 'product_sync_interval', self::product_sync_intervals(), $existing ),
 			'stock_sync_interval'    => $this->pick_interval( $input, 'stock_sync_interval', self::stock_sync_intervals(), $existing ),
 			'order_sync_interval'    => $this->pick_interval( $input, 'order_sync_interval', self::order_sync_intervals(), $existing ),
@@ -413,6 +415,28 @@ class Settings {
 		$value = absint( $input[ $key ] );
 
 		return isset( $allowed[ $value ] ) ? $value : (int) $existing[ $key ];
+	}
+
+	/**
+	 * Read a submitted checkbox.
+	 *
+	 * An absent field keeps the stored value, matching the intervals and the shop: a
+	 * partial submission must never silently turn a setting off. A browser submits
+	 * nothing at all for a cleared checkbox, so the form pairs every one with a hidden
+	 * field carrying zero — that is what makes "off" a value that arrives rather than a
+	 * value inferred from silence.
+	 *
+	 * @param array  $input    Raw submitted settings.
+	 * @param string $key      Setting name.
+	 * @param array  $existing Currently stored settings.
+	 * @return bool The value to store.
+	 */
+	protected function pick_toggle( array $input, $key, array $existing ) {
+		if ( ! isset( $input[ $key ] ) ) {
+			return ! empty( $existing[ $key ] );
+		}
+
+		return (bool) absint( $input[ $key ] );
 	}
 
 	/**
@@ -1187,6 +1211,37 @@ class Settings {
 								value="<?php echo esc_attr( $settings['image_base_url'] ); ?>"
 							/>
 							<p class="description"><?php echo esc_html__( 'Kontor returns image filenames rather than URLs. Set the folder they live in to import product images; leave blank to skip images.', 'woo-kontor-sync-pro' ); ?></p>
+						</td>
+					</tr>
+					<tr>
+						<th scope="row"><?php echo esc_html__( 'Articles without images', 'woo-kontor-sync-pro' ); ?></th>
+						<td>
+							<?php
+							/*
+							 * The hidden field is what makes a cleared box mean "off". A browser
+							 * submits nothing for an unticked checkbox, and an absent field has
+							 * to keep the stored value, or any partial save would quietly
+							 * republish the whole set of articles this holds back.
+							 */
+							?>
+							<input type="hidden" name="<?php echo esc_attr( self::OPTION_KEY ); ?>[require_main_image]" value="0" />
+							<label for="wksync-require-main-image">
+								<input
+									type="checkbox"
+									id="wksync-require-main-image"
+									name="<?php echo esc_attr( self::OPTION_KEY ); ?>[require_main_image]"
+									value="1"
+									<?php checked( ! empty( $settings['require_main_image'] ) ); ?>
+								/>
+								<?php echo esc_html__( 'Only import articles that Kontor lists an image for', 'woo-kontor-sync-pro' ); ?>
+							</label>
+							<p class="description">
+								<?php echo esc_html__( 'An article with no image is passed over rather than created. The check is on what Kontor sends, not on the shop, so a product whose pictures are still downloading is never caught by it.', 'woo-kontor-sync-pro' ); ?>
+							</p>
+							<p class="description">
+								<strong><?php echo esc_html__( 'This drafts products already imported.', 'woo-kontor-sync-pro' ); ?></strong>
+								<?php echo esc_html__( 'A product this plugin imported whose article now arrives without an image is drafted, exactly as one Kontor stopped listing is. It is republished by itself as soon as the article has an image again, or when this setting is turned off.', 'woo-kontor-sync-pro' ); ?>
+							</p>
 						</td>
 					</tr>
 				</table>

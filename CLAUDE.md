@@ -180,6 +180,34 @@ of them wrong produces silently wrong data rather than an error:
     the list. Same reasoning as the intervals and the shop.
   - Pressing **Fetch manufacturers** keeps a ticked manufacturer that Kontor no longer lists, at the
     end of the list. Looking something up must not quietly edit the selection underneath it.
+- **The import can be restricted to articles Kontor lists an image for**, via the
+  `require_main_image` setting, off by default. An article with no image is passed over (`no_image`)
+  rather than created, and a product already imported for one is **drafted**, marked with
+  `ProductSync::META_NO_IMAGE_DRAFTED` — the same answer as every other reason this plugin takes a
+  product out of the shop, so a briefly incomplete feed costs nothing that cannot be got back.
+  - **The decision is made on the feed row, never on the product.** Images are downloaded in a
+    chained action of their own, so a product written moments ago legitimately has no featured image
+    yet; judging by the shop would draft products whose pictures were merely still on their way.
+  - It also **does not depend on `image_base_url`**. Whether the shop can fetch the file is a
+    separate question from whether Kontor has one, and tying them together would mean clearing the
+    base URL silently drafted the whole catalogue.
+  - **Any image counts, not `MainImageURL` alone.** The featured image is the first image the
+    article carries, so an article whose only picture is `ImageURL_1` does end up with one; reading
+    `MainImageURL` alone would pass over a product about to get exactly what the setting asks for.
+  - **Checked before the unchanged-article shortcut**, or turning the setting on would leave the
+    existing catalogue published until every article in it happened to change.
+  - **Its own marker, like the stock sync's.** A product can be held back for having no image *and*
+    for having left a feed, and the reasons clear at different moments on different feeds — so
+    `StockSync::restore_if_stock_drafted()` treats this marker as a blocker exactly as it does
+    `META_SYNC_DRAFTED`, and a returning stock level cannot republish an imageless article. Turning
+    the setting off, or the image coming back, clears it through `restore_if_sync_drafted()`.
+  - **Only products carrying `META_SYNCED_AT` are drafted**, and only from `publish`. A shop
+    manager's own product answering to the same article number was never ours to unpublish, and
+    marking a `private` or `pending` one would hand a later run the right to publish something
+    somebody deliberately took out of the shop.
+  - The checkbox is paired with a **hidden `0` field**, so "off" is a value that arrives rather than
+    one inferred from a browser's silence. Absent still means "keep the stored value" — same
+    reasoning as the intervals, the shop and the manufacturers.
 - **Images are deduplicated on their source URL**, recorded on the attachment as
   `ProductSync::META_IMAGE_SOURCE`. The same photograph is shared across articles often enough that
   downloading per product would multiply the media library. That meta doubles as the marker for

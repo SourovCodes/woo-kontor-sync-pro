@@ -300,6 +300,15 @@ class StockSync {
 			return false;
 		}
 
+		if ( $product->get_meta( ProductSync::META_NO_IMAGE_DRAFTED ) ) {
+			$this->log(
+				'info',
+				sprintf( 'Article %s has a stock level again, but Kontor lists no image for it; leaving it drafted.', $product->get_sku() )
+			);
+
+			return false;
+		}
+
 		$product->set_status( 'publish' );
 
 		$this->log( 'info', sprintf( 'Republished article %s: Kontor reports a stock level for it again.', $product->get_sku() ) );

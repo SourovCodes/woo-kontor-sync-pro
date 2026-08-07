@@ -105,6 +105,17 @@ class ProductSync {
 	const META_SYNC_DRAFTED = '_wksync_drafted_by_sync';
 
 	/**
+	 * Marks a product this sync drafted for arriving with no image at all.
+	 *
+	 * Deliberately not META_SYNC_DRAFTED. That one means "Kontor stopped listing this
+	 * article", and this one means "Kontor lists it, without a picture" — two
+	 * conditions that clear at different moments and on different feeds. Sharing one
+	 * marker would let an article returning to the catalogue republish itself while it
+	 * is still imageless, which is exactly what the shop asked not to happen.
+	 */
+	const META_NO_IMAGE_DRAFTED = '_wksync_drafted_no_image';
+
+	/**
 	 * How many stale products to draft per finalising pass.
 	 */
 	const FINALISE_BATCH = 200;
@@ -236,6 +247,7 @@ class ProductSync {
 			'updated'       => 0,
 			'skipped'       => 0,
 			'no_sku'        => 0,
+			'no_image'      => 0,
 			'duplicate_sku' => 0,
 			'failed'        => 0,
 		);
@@ -362,6 +374,22 @@ class ProductSync {
 			isset( $counts['drafted'] ) ? (int) $counts['drafted'] : 0
 		);
 
+		$no_image = isset( $counts['no_image'] ) ? (int) $counts['no_image'] : 0;
+
+		/*
+		 * Only when the shop asked for it, so the line never appears on a shop that has
+		 * not turned the requirement on. It is not a fault in the way the two below are
+		 * — it is the setting doing what it was asked — but it is a number somebody
+		 * choosing that setting wants to see.
+		 */
+		if ( $no_image > 0 ) {
+			$message .= ' ' . sprintf(
+				/* translators: %d: number of articles Kontor listed no image for. */
+				__( 'Passed over %d with no image.', 'woo-kontor-sync-pro' ),
+				$no_image
+			);
+		}
+
 		$no_sku    = isset( $counts['no_sku'] ) ? (int) $counts['no_sku'] : 0;
 		$duplicate = isset( $counts['duplicate_sku'] ) ? (int) $counts['duplicate_sku'] : 0;
 
@@ -387,7 +415,7 @@ class ProductSync {
 	 *
 	 * @param array $row Article row from the API.
 	 * @param int   $run Run identifier.
-	 * @return string One of "created", "updated", "skipped", "no_sku", "duplicate_sku" or "failed".
+	 * @return string One of "created", "updated", "skipped", "no_sku", "no_image", "duplicate_sku" or "failed".
 	 */
 	public function import_article( array $row, $run ) {
 		$sku = isset( $row['Artnr'] ) ? trim( (string) $row['Artnr'] ) : '';
@@ -435,10 +463,21 @@ class ProductSync {
 			return 'duplicate_sku';
 		}
 
-		$hash       = $this->hash( $row );
 		$product_id = empty( $matches ) ? 0 : $matches[0];
 		$existing   = $product_id ? wc_get_product( $product_id ) : null;
-		$restored   = $existing ? $this->restore_if_sync_drafted( $existing ) : false;
+
+		/*
+		 * Checked before the unchanged-article shortcut below, not after. An article
+		 * that has not moved since the last run is exactly the case this has to catch:
+		 * turning the requirement on has to take effect on the next run rather than
+		 * waiting for every article in the shop to change.
+		 */
+		if ( $this->image_withheld( $row ) ) {
+			return $this->withhold( $existing, $sku, $run );
+		}
+
+		$hash     = $this->hash( $row );
+		$restored = $existing ? $this->restore_if_sync_drafted( $existing ) : false;
 
 		// Nothing changed since the last run, so only refresh the run stamp. Writing
 		// just the meta avoids a full product save for every unchanged article.
@@ -554,6 +593,110 @@ class ProductSync {
 	}
 
 	/**
+	 * Whether this article is being held back for having no image.
+	 *
+	 * The decision is made on the feed row alone, never on what the product currently
+	 * looks like in the shop. Images are downloaded in an action of their own, minutes
+	 * or hours after the article is written, so a product that has just been imported
+	 * legitimately has no featured image yet — judging by the shop would draft products
+	 * whose pictures were merely still on their way.
+	 *
+	 * It also does not depend on the image base URL being set. Whether the shop can
+	 * fetch the file is a separate question from whether Kontor has one to offer, and
+	 * tying the two together would mean clearing the base URL silently drafted the
+	 * entire catalogue.
+	 *
+	 * @param array $row Article row from the API.
+	 * @return bool True when the article must not be imported.
+	 */
+	protected function image_withheld( array $row ) {
+		if ( empty( $this->settings['require_main_image'] ) ) {
+			return false;
+		}
+
+		return ! $this->has_image( $row );
+	}
+
+	/**
+	 * Whether Kontor lists any image for an article.
+	 *
+	 * The featured image is the first image the article carries, which is MainImageURL
+	 * when there is one and the first gallery entry when there is not. So the question
+	 * the setting really asks — will this product end up with a picture on it — is
+	 * answered by the whole list rather than by MainImageURL alone.
+	 *
+	 * @param array $row Article row from the API.
+	 * @return bool True when at least one image field carries a filename.
+	 */
+	protected function has_image( array $row ) {
+		foreach ( $this->all_image_keys() as $key ) {
+			if ( '' !== $this->text( $row, $key, '' ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Pass over an imageless article, drafting anything already imported for it.
+	 *
+	 * Drafted rather than deleted, matching every other reason this plugin takes a
+	 * product out of the shop: an article that gains a picture tomorrow comes straight
+	 * back, and nothing a shop has built around the product — its URL, its reviews, its
+	 * place in an order — is destroyed by a feed that was briefly incomplete.
+	 *
+	 * Only products this plugin imported are touched, which META_SYNCED_AT is the
+	 * marker for. A shop manager's own product answering to the same article number was
+	 * never ours to unpublish, and drafting it would be this setting reaching past the
+	 * catalogue it governs.
+	 *
+	 * @param \WC_Product|null $existing Product already holding the article number.
+	 * @param string           $sku      Article number, for the log.
+	 * @param int              $run      Run identifier.
+	 * @return string Always "no_image".
+	 */
+	protected function withhold( $existing, $sku, $run ) {
+		if ( ! $existing || '' === (string) $existing->get_meta( self::META_SYNCED_AT ) ) {
+			return 'no_image';
+		}
+
+		// The article is in the feed, whatever is being done about it, and finalise()
+		// must not later read a missing stamp as Kontor having dropped it.
+		$existing->update_meta_data( self::META_SYNCED_AT, $run );
+
+		$status = $existing->get_status();
+
+		/*
+		 * Published and draft are the two states this sync owns. Anything else — private,
+		 * pending, a status another plugin registered — is a decision somebody made about
+		 * the product, and marking it would hand a later run the right to publish it.
+		 */
+		if ( 'publish' !== $status && 'draft' !== $status ) {
+			$existing->save_meta_data();
+
+			return 'no_image';
+		}
+
+		$existing->update_meta_data( self::META_NO_IMAGE_DRAFTED, 1 );
+
+		/*
+		 * A product already drafted is marked but not logged again. The marker still has
+		 * to go on: without it, the sync that drafted it for its own reason would clear
+		 * that reason and republish an article this one is still holding back.
+		 */
+		if ( 'publish' === $status ) {
+			$existing->set_status( 'draft' );
+
+			$this->log( 'info', sprintf( 'Drafted article %s: Kontor lists no image for it.', $sku ) );
+		}
+
+		$existing->save();
+
+		return 'no_image';
+	}
+
+	/**
 	 * The manufacturer IDs the import is restricted to.
 	 *
 	 * An empty list means the whole catalogue, which is what a fresh install has.
@@ -595,33 +738,51 @@ class ProductSync {
 	/**
 	 * Republish a product that an earlier run of this sync drafted.
 	 *
-	 * An article can leave the feed and come back. Without this, finalise() drafts
-	 * it once and it stays hidden forever even though Kontor lists it again.
+	 * An article can leave the feed and come back, and one Kontor listed no picture for
+	 * can gain one. Without this, either drafts the product once and it stays hidden
+	 * forever even though the reason has gone.
 	 *
 	 * Only drafts this plugin created are restored: the marker meta is what
 	 * distinguishes them from a product a shop manager deliberately unpublished,
 	 * which must be left alone.
 	 *
-	 * The stock sync drafts products on its own feed and marks them separately. An
-	 * article can be absent from both, so clearing this marker is not on its own a
-	 * reason to publish: the catalogue listing an article again says nothing about
-	 * whether there is any stock of it. Each sync clears only its own marker, and the
-	 * product comes back when the last one goes.
+	 * Both of this sync's reasons are cleared here, because reaching this method means
+	 * both have gone: the article is in the feed, and import_article() has already
+	 * turned back anything still imageless. The stock sync's marker is a different
+	 * feed's verdict and is left alone — the catalogue listing an article again says
+	 * nothing about whether there is any stock of it, so the product comes back only
+	 * when the last marker goes.
 	 *
 	 * @param WC_Product_Simple $product Existing product.
 	 * @return bool True when the product changed and therefore needs saving.
 	 */
 	protected function restore_if_sync_drafted( $product ) {
-		if ( 'draft' !== $product->get_status() || ! $product->get_meta( self::META_SYNC_DRAFTED ) ) {
+		if ( 'draft' !== $product->get_status() ) {
 			return false;
 		}
 
-		$product->delete_meta_data( self::META_SYNC_DRAFTED );
+		$reasons = array();
+
+		if ( $product->get_meta( self::META_SYNC_DRAFTED ) ) {
+			$product->delete_meta_data( self::META_SYNC_DRAFTED );
+
+			$reasons[] = 'Kontor lists it again';
+		}
+
+		if ( $product->get_meta( self::META_NO_IMAGE_DRAFTED ) ) {
+			$product->delete_meta_data( self::META_NO_IMAGE_DRAFTED );
+
+			$reasons[] = 'it has an image again';
+		}
+
+		if ( empty( $reasons ) ) {
+			return false;
+		}
 
 		if ( $product->get_meta( StockSync::META_STOCK_DRAFTED ) ) {
 			$this->log(
 				'info',
-				sprintf( 'Article %s is listed by Kontor again, but has no stock level; leaving it drafted.', $product->get_sku() )
+				sprintf( 'Article %s is importable again, but has no stock level; leaving it drafted.', $product->get_sku() )
 			);
 
 			return true;
@@ -629,7 +790,10 @@ class ProductSync {
 
 		$product->set_status( 'publish' );
 
-		$this->log( 'info', sprintf( 'Republished article %s: it is listed by Kontor again.', $product->get_sku() ) );
+		$this->log(
+			'info',
+			sprintf( 'Republished article %1$s: %2$s.', $product->get_sku(), implode( ' and ', $reasons ) )
+		);
 
 		return true;
 	}
@@ -1169,7 +1333,7 @@ class ProductSync {
 
 		$files = array();
 
-		foreach ( array_merge( array( 'MainImageURL' ), $this->image_keys() ) as $key ) {
+		foreach ( $this->all_image_keys() as $key ) {
 			$file = $this->text( $row, $key, '' );
 
 			if ( '' !== $file ) {
@@ -1277,6 +1441,18 @@ class ProductSync {
 		);
 
 		return (int) $count > 0;
+	}
+
+	/**
+	 * Every image field name Kontor returns, in gallery order.
+	 *
+	 * The first one holding a filename becomes the featured image, so the order here is
+	 * what decides which photograph the shop front shows.
+	 *
+	 * @return string[] Field names.
+	 */
+	protected function all_image_keys() {
+		return array_merge( array( 'MainImageURL' ), $this->image_keys() );
 	}
 
 	/**
