@@ -180,6 +180,58 @@ of them wrong produces silently wrong data rather than an error:
     equal. Whether it can be shown as a discount is a question for whatever renders it.
   - **Absent, zero or negative deletes the meta** rather than writing `0.00`. That also clears the
     figure from a shop that has since moved off wholesale.
+- **`Verkaufsmenge` and `Verkaufsmenge_staffel` are the quantities an article is sold in** — the
+  smallest that may be bought and the step it goes up in. Both keys are **always present and either
+  can be null**. They become `ProductSync::META_MIN_QTY` (`_wksync_min_qty`) and
+  `ProductSync::META_QTY_STEP` (`_wksync_qty_step`), and `Frontend\Quantities` is what holds the shop
+  to them. An article of 6 with a step of 2 is bought as 6, 8, 10 and so on.
+  - **They are imported on every run whatever the setting says, and the setting decides only whether
+    a customer is held to them.** The figures are what Kontor states about the goods; enforcement is
+    a decision about this shop. Keeping the two apart is what lets `enforce_order_quantities` be
+    turned on and take effect at once, rather than after a full catalogue walk had been round writing
+    figures an earlier run deliberately skipped. It is off by default, like every other setting here
+    that changes what the shop does.
+  - **They are in the change hash**, so a sales quantity that moves and nothing else still reaches
+    the shop. Adding them rewrote the whole catalogue once, on the first run after 0.12.0 — the same
+    intended cost as changing the shop type.
+  - **1, 0, null, a negative, a fraction or a non-number all store nothing.** One is WooCommerce's
+    own default, so recording it would put a row of meta on every product in the catalogue to say
+    what was already true. A fraction is not a number of pieces and there is no honest way to round
+    it into one, so it is logged and ignored rather than turned into a rule nobody chose.
+  - **Everything hangs off `woocommerce_quantity_input_min` and `woocommerce_quantity_input_step`.**
+    They are the one point every part of WooCommerce reads these numbers through —
+    `WC_Product::get_min_purchase_quantity()` and `get_purchase_quantity_step()` apply them,
+    `wc_get_quantity_input_args()` reads those, and the Store API's `QuantityLimits` reads that in
+    turn — so the classic quantity box, the cart block and the checkout block all agree without
+    being addressed separately. There was no need for the `woocommerce_store_api_product_quantity_*`
+    filters.
+  - **What those filters do not do is refuse a quantity that arrives anyway.** A `min` and `step`
+    attribute is a courtesy to a browser. The Store API validates against its own limits, but the
+    classic add-to-cart and cart-update handlers take whatever number is posted, so
+    `woocommerce_add_to_cart_validation` and `woocommerce_update_cart_validation` are checked too.
+  - **The minimum is raised to a multiple of the step**, exactly as
+    `QuantityLimits::get_add_to_cart_limits()` does, because WooCommerce judges a quantity by asking
+    whether it is a multiple of the step rather than whether it is the minimum plus some number of
+    steps. A minimum of 5 with a step of 2 is therefore 6, 8, 10. Doing the raising in
+    `Quantities::limits()` rather than leaving it to the Store API is what stops the classic quantity
+    box offering a five the cart block then refuses.
+  - **Add-to-cart judges the quantity the cart would end up holding**, not the one being added —
+    which is what WooCommerce's own `CartController::add_to_cart()` does before it merges a line.
+    Two additions that are each unobjectionable can still leave an invalid total.
+  - **`woocommerce_check_cart_items` is checked as well**, or the rule would only apply on the way
+    in: a cart filled before the setting was turned on would carry an invalid quantity through
+    checkout and into an order Kontor cannot fulfil.
+  - **Order screens and refunds are never restricted.** WooCommerce seeds the admin quantity step
+    from the same product method, so `woocommerce_quantity_input_step_admin` is answered with 1.
+    Refunding one item of six is an ordinary thing to do, and a shop manager repairing an order is
+    not a customer being sold to.
+  - **Both are served on `/wc/v3/products`** as `min_order_quantity` and `order_quantity_step`, for
+    the same reason as `msrp`: the meta keys are protected, so a headless storefront would otherwise
+    offer quantities the shop refuses. They report **1 rather than null** when there is no
+    constraint — unlike a retail price, every product has an answer to how few of it can be bought —
+    and they report **what this shop will accept rather than what Kontor stated**, so they read 1
+    while enforcement is off. Both come from `Quantities::limits()`, the same method the cart is held
+    to, so a client obeying them cannot be turned away by a shop that disagrees.
 - **`Categories` is deliberately ignored**, and so is `Ek` on the shop types that do not price from
   it; neither is part of the change hash there. The hash covers the fields in
   `ProductSync::mapped_fields()`; hashing the whole row would rewrite every product whenever

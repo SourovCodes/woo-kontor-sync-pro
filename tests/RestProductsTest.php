@@ -8,6 +8,7 @@
 namespace WooKontorSync\Tests;
 
 use WC_Product_Simple;
+use WooKontorSync\Admin\Settings;
 use WooKontorSync\Sync\ProductSync;
 use WP_REST_Request;
 use WP_UnitTestCase;
@@ -181,5 +182,87 @@ class RestProductsTest extends WP_UnitTestCase {
 
 		$this->assertSame( '77.9', (string) wc_get_product( $product_id )->get_meta( ProductSync::META_MSRP ) );
 		$this->assertSame( '77.9', $this->fetch( $product_id )['msrp'] );
+	}
+
+	/**
+	 * The sales quantities are served beside the price.
+	 *
+	 * @return void
+	 */
+	public function test_quantities_are_returned() {
+		update_option( Settings::OPTION_KEY, array( Settings::ENFORCE_QUANTITIES => true ) );
+
+		$data = $this->fetch( $this->quantity_product( 6, 2 ) );
+
+		$this->assertSame( 6, $data['min_order_quantity'] );
+		$this->assertSame( 2, $data['order_quantity_step'] );
+	}
+
+	/**
+	 * They report one rather than null when there is no constraint.
+	 *
+	 * Unlike a recommended retail price, every product has an answer to how few of it
+	 * can be bought, and one is that answer. A client can apply the field without
+	 * having to decide what an absence means.
+	 *
+	 * @return void
+	 */
+	public function test_quantities_default_to_one() {
+		update_option( Settings::OPTION_KEY, array( Settings::ENFORCE_QUANTITIES => true ) );
+
+		$data = $this->fetch( $this->product() );
+
+		$this->assertSame( 1, $data['min_order_quantity'] );
+		$this->assertSame( 1, $data['order_quantity_step'] );
+	}
+
+	/**
+	 * A shop that is not enforcing them reports no constraint.
+	 *
+	 * The fields say what this shop will accept, not what Kontor stated, so a client
+	 * obeying them cannot be turned away by a shop that disagrees.
+	 *
+	 * @return void
+	 */
+	public function test_quantities_report_no_constraint_while_enforcement_is_off() {
+		update_option( Settings::OPTION_KEY, array( Settings::ENFORCE_QUANTITIES => false ) );
+
+		$data = $this->fetch( $this->quantity_product( 6, 2 ) );
+
+		$this->assertSame( 1, $data['min_order_quantity'] );
+		$this->assertSame( 1, $data['order_quantity_step'] );
+	}
+
+	/**
+	 * Both fields are advertised in the endpoint's schema.
+	 *
+	 * @return void
+	 */
+	public function test_quantities_are_in_the_schema() {
+		$schema = ( new \WC_REST_Products_Controller() )->get_item_schema()['properties'];
+
+		foreach ( array( 'min_order_quantity', 'order_quantity_step' ) as $field ) {
+			$this->assertArrayHasKey( $field, $schema );
+			$this->assertSame( 'integer', $schema[ $field ]['type'] );
+			$this->assertTrue( $schema[ $field ]['readonly'] );
+		}
+	}
+
+	/**
+	 * A product carrying the sales quantities the sync records.
+	 *
+	 * @param int $min  Minimum quantity.
+	 * @param int $step Quantity step.
+	 * @return int Product ID.
+	 */
+	private function quantity_product( $min, $step ) {
+		$product_id = $this->product();
+		$product    = wc_get_product( $product_id );
+
+		$product->update_meta_data( ProductSync::META_MIN_QTY, $min );
+		$product->update_meta_data( ProductSync::META_QTY_STEP, $step );
+		$product->save();
+
+		return $product_id;
 	}
 }

@@ -104,12 +104,31 @@ class ProductSync {
 		'Hersteller',
 		'Herstellerid',
 		'MainImageURL',
+		'Verkaufsmenge',
+		'Verkaufsmenge_staffel',
 	);
 
 	/**
 	 * Meta holding the manufacturer part number.
 	 */
 	const META_MPN = '_wksync_mpn';
+
+	/**
+	 * Meta holding the smallest quantity Kontor sells the article in.
+	 *
+	 * Read from Verkaufsmenge. Absent whenever the article has no minimum worth
+	 * recording, which includes the common case of Kontor sending 1 — that is
+	 * WooCommerce's own default, so storing it would put a row of meta on every
+	 * product in the catalogue to say nothing at all.
+	 */
+	const META_MIN_QTY = '_wksync_min_qty';
+
+	/**
+	 * Meta holding the quantity step the article is sold in.
+	 *
+	 * Read from Verkaufsmenge_staffel. Absent on the same terms as META_MIN_QTY.
+	 */
+	const META_QTY_STEP = '_wksync_qty_step';
 
 	/**
 	 * Meta holding a hash of the image filenames last sideloaded.
@@ -934,6 +953,7 @@ class ProductSync {
 		}
 
 		$this->apply_msrp( $product, $row );
+		$this->apply_quantities( $product, $row );
 
 		$product->set_manage_stock( true );
 		$product->set_stock_quantity( (int) round( (float) $this->text( $row, 'Lagerbestand', '0' ) ) );
@@ -982,6 +1002,83 @@ class ProductSync {
 		}
 
 		$product->update_meta_data( self::META_MSRP, $msrp );
+	}
+
+	/**
+	 * Record the quantities Kontor sells the article in.
+	 *
+	 * Verkaufsmenge is the smallest quantity that may be bought and
+	 * Verkaufsmenge_staffel the step it goes up in, so an article sold in sixes with
+	 * a step of two is bought as 6, 8, 10 and so on. Both keys are always present in
+	 * the feed and either can be null.
+	 *
+	 * The figures are recorded on every run whatever the enforcement setting says.
+	 * They are what Kontor states about the article — a fact about the goods rather
+	 * than a decision about this shop — and keeping the import independent of the
+	 * setting is what lets the setting be turned on and take effect at once, instead
+	 * of waiting for a full catalogue walk to write figures that were skipped.
+	 *
+	 * Anything absent, zero, negative, fractional or equal to 1 deletes the meta
+	 * rather than storing it. One is WooCommerce's own default, so recording it would
+	 * add a row per product to say what is already true; a fraction is not a number of
+	 * pieces and there is no honest way to round it into one.
+	 *
+	 * @param WC_Product_Simple $product Product to populate.
+	 * @param array             $row     Article row from the API.
+	 * @return void
+	 */
+	protected function apply_quantities( $product, array $row ) {
+		$fields = array(
+			self::META_MIN_QTY  => 'Verkaufsmenge',
+			self::META_QTY_STEP => 'Verkaufsmenge_staffel',
+		);
+
+		foreach ( $fields as $meta_key => $field ) {
+			$quantity = $this->quantity( $row, $field, (string) $product->get_sku() );
+
+			if ( $quantity < 2 ) {
+				$product->delete_meta_data( $meta_key );
+
+				continue;
+			}
+
+			$product->update_meta_data( $meta_key, $quantity );
+		}
+	}
+
+	/**
+	 * Read one of the sales-quantity fields as a whole number of pieces.
+	 *
+	 * A value that is present but not a positive whole number is reported, because it
+	 * is a shape the field is not defined to carry and the alternative — rounding it
+	 * into something plausible — would quietly change the rule the shop enforces. An
+	 * absent or null value is not reported: that is the ordinary case for an article
+	 * with nothing special about how it is sold.
+	 *
+	 * @param array  $row   Article row from the API.
+	 * @param string $field Field name.
+	 * @param string $sku   Article number, for the log.
+	 * @return int Quantity, or 0 when there is none to use.
+	 */
+	protected function quantity( array $row, $field, $sku ) {
+		$value = $this->text( $row, $field, '' );
+
+		if ( '' === $value ) {
+			return 0;
+		}
+
+		$number = (float) $value;
+
+		if ( ! is_numeric( $value ) || floor( $number ) !== $number ) {
+			$this->log(
+				'warning',
+				sprintf( 'Ignored %1$s "%2$s" on article %3$s: it is not a whole number of pieces.', $field, $value, $sku )
+			);
+
+			return 0;
+		}
+
+		return max( 0, (int) $number );
 	}
 
 	/**

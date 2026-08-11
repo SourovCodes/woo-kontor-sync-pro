@@ -53,6 +53,15 @@ class Settings {
 	const INTERVAL_NEVER = 0;
 
 	/**
+	 * Setting deciding whether Kontor's sales quantities bind the shop.
+	 *
+	 * Off by default, like every other setting that changes what the shop does. The
+	 * figures are imported either way — this only decides whether a customer is held
+	 * to them, so turning it on takes effect at once rather than after a sync.
+	 */
+	const ENFORCE_QUANTITIES = 'enforce_order_quantities';
+
+	/**
 	 * Hook suffix of the settings screen, used to scope asset loading.
 	 *
 	 * @var string
@@ -102,6 +111,7 @@ class Settings {
 			'manufacturer_names'     => array(),
 			'image_base_url'         => '',
 			'require_main_image'     => false,
+			self::ENFORCE_QUANTITIES => false,
 			'product_sync_interval'  => self::INTERVAL_NEVER,
 			'stock_sync_interval'    => self::INTERVAL_NEVER,
 			'order_sync_interval'    => self::INTERVAL_NEVER,
@@ -361,6 +371,7 @@ class Settings {
 			'manufacturer_names'     => $manufacturers['manufacturer_names'],
 			'image_base_url'         => isset( $input['image_base_url'] ) ? esc_url_raw( trim( $input['image_base_url'] ) ) : '',
 			'require_main_image'     => $this->pick_toggle( $input, 'require_main_image', $existing ),
+			self::ENFORCE_QUANTITIES => $this->pick_toggle( $input, self::ENFORCE_QUANTITIES, $existing ),
 			'product_sync_interval'  => $this->pick_interval( $input, 'product_sync_interval', self::product_sync_intervals(), $existing ),
 			'stock_sync_interval'    => $this->pick_interval( $input, 'stock_sync_interval', self::stock_sync_intervals(), $existing ),
 			'order_sync_interval'    => $this->pick_interval( $input, 'order_sync_interval', self::order_sync_intervals(), $existing ),
@@ -1242,6 +1253,35 @@ class Settings {
 							<p class="description">
 								<strong><?php echo esc_html__( 'This drafts products already imported.', 'woo-kontor-sync-pro' ); ?></strong>
 								<?php echo esc_html__( 'A product this plugin imported whose article now arrives without an image is drafted, exactly as one Kontor stopped listing is. It is republished by itself as soon as the article has an image again, or when this setting is turned off.', 'woo-kontor-sync-pro' ); ?>
+							</p>
+						</td>
+					</tr>
+					<tr>
+						<th scope="row"><?php echo esc_html__( 'Sales quantities', 'woo-kontor-sync-pro' ); ?></th>
+						<td>
+							<?php
+							/*
+							 * Paired with a hidden zero for the same reason as the image
+							 * requirement above: a browser sends nothing for a cleared checkbox,
+							 * and an absent field has to keep the stored value.
+							 */
+							?>
+							<input type="hidden" name="<?php echo esc_attr( self::OPTION_KEY ); ?>[<?php echo esc_attr( self::ENFORCE_QUANTITIES ); ?>]" value="0" />
+							<label for="wksync-enforce-quantities">
+								<input
+									type="checkbox"
+									id="wksync-enforce-quantities"
+									name="<?php echo esc_attr( self::OPTION_KEY ); ?>[<?php echo esc_attr( self::ENFORCE_QUANTITIES ); ?>]"
+									value="1"
+									<?php checked( ! empty( $settings[ self::ENFORCE_QUANTITIES ] ) ); ?>
+								/>
+								<?php echo esc_html__( 'Hold customers to the quantities Kontor sells each article in', 'woo-kontor-sync-pro' ); ?>
+							</label>
+							<p class="description">
+								<?php echo esc_html__( 'Kontor states a smallest quantity and a step for every article, imported as _wksync_min_qty and _wksync_qty_step. An article sold in sixes with a step of two can then only be bought as 6, 8, 10 and so on — in the quantity box, in the cart and at checkout alike.', 'woo-kontor-sync-pro' ); ?>
+							</p>
+							<p class="description">
+								<?php echo esc_html__( 'Leave it clear to ignore them. The figures are still imported, so turning this on takes effect immediately rather than after the next product sync. Order screens and refunds are never restricted by it.', 'woo-kontor-sync-pro' ); ?>
 							</p>
 						</td>
 					</tr>

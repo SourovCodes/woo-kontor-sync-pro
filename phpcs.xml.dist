@@ -72,6 +72,19 @@
 		<exclude-pattern>*/tests/bootstrap.php</exclude-pattern>
 	</rule>
 
+	<!--
+		Proving that a WooCommerce filter is honoured means firing that filter, and it
+		is WooCommerce's to name and to document. Neither the prefix rule nor the
+		hook-docblock rule has anything to say about somebody else's hook being invoked
+		from a test.
+	-->
+	<rule ref="WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound">
+		<exclude-pattern>*/tests/*</exclude-pattern>
+	</rule>
+	<rule ref="WooCommerce.Commenting.CommentHooks.MissingHookComment">
+		<exclude-pattern>*/tests/*</exclude-pattern>
+	</rule>
+
 	<!-- Test methods are camelCase per PHPUnit, and test files legitimately use direct queries. -->
 	<rule ref="WordPress.NamingConventions.ValidFunctionName.MethodNameInvalid">
 		<exclude-pattern>*/tests/*</exclude-pattern>

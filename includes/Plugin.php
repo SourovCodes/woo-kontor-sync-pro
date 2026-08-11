@@ -9,6 +9,7 @@ namespace WooKontorSync;
 
 use WooKontorSync\Admin\Settings;
 use WooKontorSync\Frontend\Invoices;
+use WooKontorSync\Frontend\Quantities;
 use WooKontorSync\Frontend\Tracking;
 use WooKontorSync\Invoices\Download;
 use WooKontorSync\Orders\PartialStatus;
@@ -101,6 +102,11 @@ final class Plugin {
 		// including inside the background job the delivery sync runs in.
 		( new Tracking() )->register();
 		( new Invoices() )->register();
+
+		// Holds the cart to the quantities Kontor sells each article in. Registered
+		// everywhere: a Store API cart request is neither an admin screen nor a
+		// template render, and it is the path the cart and checkout blocks take.
+		( new Quantities() )->register();
 
 		// Serves invoice PDFs to whoever is entitled to them, which includes guests
 		// holding an order key, so it cannot live behind the admin check either.
