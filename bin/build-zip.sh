@@ -37,7 +37,7 @@ trap 'rm -rf "$STAGE"' EXIT
 BUILD="$STAGE/$SLUG"
 mkdir -p "$BUILD"
 
-echo "Staging $SLUG $VERSION…"
+echo "Staging $SLUG ${VERSION}…"
 
 cp "$PLUGIN_DIR/$SLUG.php" "$BUILD/"
 cp "$PLUGIN_DIR/uninstall.php" "$BUILD/"
