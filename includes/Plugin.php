@@ -12,6 +12,7 @@ use WooKontorSync\Frontend\Invoices;
 use WooKontorSync\Frontend\Tracking;
 use WooKontorSync\Invoices\Download;
 use WooKontorSync\Orders\PartialStatus;
+use WooKontorSync\Rest\Products as RestProducts;
 use WooKontorSync\Sync\Scheduler;
 
 defined( 'ABSPATH' ) || exit;
@@ -104,6 +105,10 @@ final class Plugin {
 		// Serves invoice PDFs to whoever is entitled to them, which includes guests
 		// holding an order key, so it cannot live behind the admin check either.
 		( new Download() )->register();
+
+		// Adds the recommended retail price to /wc/v3/products. Registered here rather
+		// than behind is_admin(), because a REST request is neither.
+		( new RestProducts() )->register();
 
 		if ( is_admin() ) {
 			( new Settings() )->register();

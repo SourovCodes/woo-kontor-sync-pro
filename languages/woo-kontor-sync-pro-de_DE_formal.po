@@ -899,3 +899,7 @@ msgstr "%d ohne Bild übergangen."
 #: includes/Admin/Settings.php:1063
 msgid "B2B also imports the retail price as a recommended retail price, stored on each product as _wksync_msrp. It is the figure a business can resell at, and it is left off any article Kontor lists no retail price for."
 msgstr "Der Shoptyp B2B importiert zusätzlich den Endkundenpreis als unverbindliche Preisempfehlung und speichert ihn an jedem Produkt als _wksync_msrp. Es ist der Preis, zu dem ein Unternehmen die Ware weiterverkaufen kann; bei Artikeln, für die Kontor keinen Endkundenpreis führt, entfällt er."
+
+#: includes/Rest/Products.php:64
+msgid "Recommended retail price, as supplied by Kontor. Null when there is none."
+msgstr "Unverbindliche Preisempfehlung, wie von Kontor geliefert. Null, wenn keine vorhanden ist."

@@ -155,7 +155,26 @@ of them wrong produces silently wrong data rather than an error:
 - **`UVP` is the product price on a retail or education shop**, and mapping `Ek` to the price on one
   of those would sell the whole catalogue at wholesale.
 - **The retail price is stored as `ProductSync::META_MSRP`** (`_wksync_msrp`), on a wholesale shop
-  only, and nothing renders it — it is there for a template or a later change to use.
+  only, and nothing renders it — it is there for a template, another plugin or a later change.
+  - **It is served on `/wc/v3/products` as `msrp`** (`Rest\Products`), because the meta key is
+    underscore-prefixed and therefore protected: without this, anything reading products over HTTP
+    sees the price and not the figure beside it. **Null when there is none**, never `0.00` or an
+    empty string — an absent price is a different thing from a price of nothing, and the field is
+    always present so a client can tell "this shop supplies none" from "this build predates the
+    field". **Read-only**, because the sync rewrites the meta on every run and a write accepted here
+    would vanish at the next one.
+  - The field name is deliberately **unprefixed**, unlike the meta key. The prefix keeps this
+    plugin's storage out of everyone else's way; the REST field is a published name, and a consumer
+    asking for a recommended retail price should not have to know which plugin filled it in.
+  - `register_rest_field()` is the mechanism, and it does work on WooCommerce's v3 controller —
+    `WC_REST_Products_V2_Controller::prepare_object_for_response_core()` calls
+    `add_additional_fields_to_object()`, and `get_item_schema()` ends in
+    `add_additional_fields_schema()`. What it needs is to be registered **before `rest_api_init`
+    fires**, which `Plugin::init()` satisfies. Testing this from `wp eval` does not: plugins on the
+    site build the REST server during `init`, so the action has already run and the field silently
+    never appears.
+  - **Not on the Store API** (`/wc/store/v1`), which is a separate schema with its own extension
+    mechanism, and not on variations, which never carry the meta.
   - **Stored raw, never as a saving.** Kontor lists no retail price at all for some articles and one
     no higher than `Ek` for others — 25 in 986 sampled, mostly nulls, plus articles where the two are
     equal. Whether it can be shown as a discount is a question for whatever renders it.
