@@ -7,6 +7,7 @@
 
 namespace WooKontorSync;
 
+use WooKontorSync\Admin\ProductFields;
 use WooKontorSync\Admin\Settings;
 use WooKontorSync\Frontend\Invoices;
 use WooKontorSync\Frontend\Quantities;
@@ -118,6 +119,10 @@ final class Plugin {
 
 		if ( is_admin() ) {
 			( new Settings() )->register();
+
+			// Kontor's sales quantities on the product's Inventory tab. The meta keys
+			// are protected, so without this there is nowhere to see them at all.
+			( new ProductFields() )->register();
 		}
 
 		/**

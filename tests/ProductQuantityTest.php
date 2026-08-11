@@ -8,6 +8,7 @@
 namespace WooKontorSync\Tests;
 
 use WC_Product_Simple;
+use WooKontorSync\Admin\ProductFields;
 use WooKontorSync\Admin\Settings;
 use WooKontorSync\Frontend\Quantities;
 use WooKontorSync\Sync\ProductSync;
@@ -555,6 +556,79 @@ class ProductQuantityTest extends WP_UnitTestCase {
 		$this->enforce( true );
 
 		$this->assertTrue( ( new Settings() )->sanitize( array( 'shoptype' => 'B2B' ) )[ Settings::ENFORCE_QUANTITIES ] );
+	}
+
+	/**
+	 * The Inventory tab shows both figures.
+	 *
+	 * @return void
+	 */
+	public function test_the_product_screen_shows_the_quantities() {
+		$html = $this->panel( $this->product( 6, 2 ) );
+
+		$this->assertStringContainsString( 'Minimum quantity', $html );
+		$this->assertStringContainsString( '<span>6</span>', $html );
+		$this->assertStringContainsString( 'Quantity step', $html );
+		$this->assertStringContainsString( '<span>2</span>', $html );
+
+		// WooCommerce reads these from the variation rather than the parent, so a value
+		// on a variable product would mean nothing.
+		$this->assertStringContainsString( 'show_if_simple', $html );
+	}
+
+	/**
+	 * A product with nothing stored reads as having no constraint.
+	 *
+	 * Rather than as one sold in lots of nothing.
+	 *
+	 * @return void
+	 */
+	public function test_the_product_screen_shows_nothing_for_an_unconstrained_product() {
+		$html = $this->panel( $this->product( 0, 0 ) );
+
+		$this->assertStringContainsString( '<span>None</span>', $html );
+		$this->assertStringNotContainsString( '<span>0</span>', $html );
+	}
+
+	/**
+	 * Nothing on the tab can be submitted, so nothing can be lost.
+	 *
+	 * Kontor is the source of truth and every sync rewrites both figures, so an input
+	 * here would accept a change that quietly disappeared at the next run. It is not a
+	 * form field at all rather than a disabled one: there is no name to post, and no
+	 * save handler behind it that could later be made to listen.
+	 *
+	 * @return void
+	 */
+	public function test_the_product_screen_offers_nothing_to_edit() {
+		$html = $this->panel( $this->product( 6, 2 ) );
+
+		$this->assertStringNotContainsString( '<input', $html );
+		$this->assertStringNotContainsString( 'name=', $html );
+		$this->assertFalse( method_exists( ProductFields::class, 'save' ) );
+		$this->assertFalse( has_action( 'woocommerce_admin_process_product_object' ) );
+	}
+
+	/**
+	 * Render the Inventory tab's addition for one product.
+	 *
+	 * The meta box helpers are loaded by WC_Admin_Meta_Boxes on the real screen, which
+	 * is also what fires the hook this renders on, so requiring them here stands in for
+	 * a context the suite does not otherwise have.
+	 *
+	 * @param \WC_Product $product Product being edited.
+	 * @return string The markup.
+	 */
+	private function panel( $product ) {
+		require_once WC_ABSPATH . 'includes/admin/wc-meta-box-functions.php';
+
+		// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedVariableFound -- WooCommerce's global, set here to stand in for the meta box that normally fills it.
+		$GLOBALS['product_object'] = $product;
+
+		ob_start();
+		( new ProductFields() )->render();
+
+		return (string) ob_get_clean();
 	}
 
 	/**

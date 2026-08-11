@@ -225,6 +225,20 @@ of them wrong produces silently wrong data rather than an error:
     from the same product method, so `woocommerce_quantity_input_step_admin` is answered with 1.
     Refunding one item of six is an ordinary thing to do, and a shop manager repairing an order is
     not a customer being sold to.
+  - **They are shown, read-only, on the product's Inventory tab** (`Admin\ProductFields`). Without
+    the panel there is nowhere to see them at all — the meta keys are protected, so the Custom
+    Fields box will not show them, which is the whole point of the prefix — and a shop manager has
+    no way to find out why a product refuses a quantity.
+    - **Deliberately not a form field**: no `input`, no `name`, nothing submitted, and no save
+      handler behind it. Every sync rewrites both figures, so an editable box would accept a change
+      that quietly disappeared at the next run. They are changed in the ERP, and the panel says so.
+    - **Simple products only** (`show_if_simple`). WooCommerce reads these figures from the
+      *variation* rather than the parent, so a value on a variable product would mean nothing.
+    - **Nothing stored reads as "None"**, not as 0. A stored 1 cannot arise — the import treats it
+      as no constraint and stores nothing at all.
+    - The product comes from **`$product_object`**, the global WooCommerce's own inventory template
+      reads, rather than a re-fetch from the post ID: the meta box sets it to the product being
+      edited, so it carries unsaved changes.
   - **Both are served on `/wc/v3/products`** as `min_order_quantity` and `order_quantity_step`, for
     the same reason as `msrp`: the meta keys are protected, so a headless storefront would otherwise
     offer quantities the shop refuses. They report **1 rather than null** when there is no

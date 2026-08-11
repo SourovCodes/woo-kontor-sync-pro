@@ -1283,6 +1283,9 @@ class Settings {
 							<p class="description">
 								<?php echo esc_html__( 'Leave it clear to ignore them. The figures are still imported, so turning this on takes effect immediately rather than after the next product sync. Order screens and refunds are never restricted by it.', 'woo-kontor-sync-pro' ); ?>
 							</p>
+							<p class="description">
+								<?php echo esc_html__( 'Both figures are shown on each product\'s Inventory tab, where they are read-only: Kontor supplies them and every sync rewrites them, so they are changed in the ERP.', 'woo-kontor-sync-pro' ); ?>
+							</p>
 						</td>
 					</tr>
 				</table>
