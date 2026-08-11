@@ -135,14 +135,43 @@ of them wrong produces silently wrong data rather than an error:
 
 - **`shoptype` selects a price list, not a catalogue.** B2B, B2C, EDU and no filter all return the
   same 4386 articles. What changes is `UVP`: one article is 22.50 for B2B, 45.00 for B2C, 36.00 for
-  EDU, while `Ek` stays constant across all three. **`UVP` is the product price.** `Ek` is the
-  purchase price and is **not imported at all** — mapping it to the price would sell the whole
-  catalogue at wholesale.
-- **`Ek` and `Categories` are deliberately ignored**, and neither is part of the change hash. The
-  hash covers only the fields in `ProductSync::$mapped_fields`; hashing the whole row would rewrite
-  every product whenever purchase prices moved. `Herstellerid` *is* in the hash, because brands are
-  matched on it — an article skipped as unchanged never reaches `Brands::resolve()`, so a
-  manufacturer that moved would never be followed.
+  EDU, while `Ek` stays constant across all three.
+- **Kontor's B2B price list *is* `Ek`.** Verified against the live account on 986 articles sampled
+  across five pages spread through the catalogue: `Ek` equalled the B2B `UVP` on **every single
+  row**, with no exceptions, and was identical under all three shop types. So the purchase price and
+  the wholesale selling price are one number, not two.
+  - **A wholesale shop is therefore requested with the *retail* list** and prices from `Ek`
+    (`ProductSync::request_shoptype()` and `price_field()`). That single request carries both figures
+    it needs — `Ek` is what the shop charges, and the B2C `UVP` is the recommended retail price a
+    business buying here can resell at. Asking for the B2B list instead would return the same `Ek`
+    and a `UVP` that merely repeats it, so there would be no retail price to show at all, and
+    fetching one would cost a second request per page.
+  - It is **not** a shop selling at cost, and it does not contradict the rule below: the price is
+    numerically what it always was. But the arrangement rests entirely on that equality holding. If
+    Kontor ever puts a margin between the two, a wholesale shop silently sells at whichever is
+    lower, with nothing to say so — re-check it before trusting this on another account.
+  - **B2C and EDU are unchanged**: requested as themselves, priced from `UVP`, no retail price
+    recorded, because there the `UVP` already *is* the price.
+- **`UVP` is the product price on a retail or education shop**, and mapping `Ek` to the price on one
+  of those would sell the whole catalogue at wholesale.
+- **The retail price is stored as `ProductSync::META_MSRP`** (`_wksync_msrp`), on a wholesale shop
+  only, and nothing renders it — it is there for a template or a later change to use.
+  - **Stored raw, never as a saving.** Kontor lists no retail price at all for some articles and one
+    no higher than `Ek` for others — 25 in 986 sampled, mostly nulls, plus articles where the two are
+    equal. Whether it can be shown as a discount is a question for whatever renders it.
+  - **Absent, zero or negative deletes the meta** rather than writing `0.00`. That also clears the
+    figure from a shop that has since moved off wholesale.
+- **`Categories` is deliberately ignored**, and so is `Ek` on the shop types that do not price from
+  it; neither is part of the change hash there. The hash covers the fields in
+  `ProductSync::mapped_fields()`; hashing the whole row would rewrite every product whenever
+  purchase prices moved. `Ek` **joins** that list on a wholesale shop, because it is the price
+  there — left out, a price rise that moved nothing else would never reach the shop. `Herstellerid`
+  *is* in the hash on every shop type, because brands are matched on it — an article skipped as
+  unchanged never reaches `Brands::resolve()`, so a manufacturer that moved would never be followed.
+- **The configured shop type is hashed alongside the row.** Without it, switching a shop from
+  wholesale to retail would leave every product priced at `Ek` for good: both are sent the *same*
+  request, so the row that comes back is identical and nothing in it changes. This is also why
+  changing the shop type rewrites the whole catalogue on the next run, which is the intended cost.
 - **`Hersteller` becomes a WooCommerce brand** (`product_brand`, core since WooCommerce 9.6). 28
   distinct manufacturers appear in the first 500 articles and map 1:1 to names; the `manufacturer`
   entity lists **114** across the whole account. Only 2 rows in 500 carry no manufacturer at all —

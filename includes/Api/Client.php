@@ -125,6 +125,10 @@ class Client {
 	 * The shop type does not change which articles come back; it changes their
 	 * pricing. UVP is the shop type's selling price, while Ek stays constant.
 	 *
+	 * The product sync passes this explicitly rather than letting it default, because
+	 * a wholesale shop is deliberately requested with the retail list. See
+	 * ProductSync::request_shoptype().
+	 *
 	 * @param int         $skip          Number of records to skip.
 	 * @param int         $take          Page size, capped at MAX_PAGE_SIZE.
 	 * @param string|null $shoptype      Optional shop type override.

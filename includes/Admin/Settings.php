@@ -1060,6 +1060,7 @@ class Settings {
 								<?php endforeach; ?>
 							</select>
 							<p class="description"><?php echo esc_html__( 'Selects which price list is imported. The article list is the same for every shop type; only the selling price differs.', 'woo-kontor-sync-pro' ); ?></p>
+							<p class="description"><?php echo esc_html__( 'B2B also imports the retail price as a recommended retail price, stored on each product as _wksync_msrp. It is the figure a business can resell at, and it is left off any article Kontor lists no retail price for.', 'woo-kontor-sync-pro' ); ?></p>
 						</td>
 					</tr>
 					<tr>

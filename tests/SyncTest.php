@@ -53,6 +53,21 @@ class SyncTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Settings for a retail shop, where UVP is the price and Ek is ignored.
+	 *
+	 * Spelled out rather than left to the default, because the shop type now decides
+	 * which field the price is read from.
+	 *
+	 * @return array Settings array.
+	 */
+	private function retail_settings() {
+		return array(
+			'image_base_url' => '',
+			'shoptype'       => 'B2C',
+		);
+	}
+
+	/**
 	 * A new article becomes a published product with the Kontor fields mapped over.
 	 *
 	 * @return void
@@ -287,12 +302,12 @@ class SyncTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * UVP is the product price, and Ek is not imported at all.
+	 * On a retail shop UVP is the price, and Ek is not imported at all.
 	 *
 	 * @return void
 	 */
 	public function test_uvp_is_the_price_and_ek_is_ignored() {
-		$sync = new ProductSync( null, array( 'image_base_url' => '' ) );
+		$sync = new ProductSync( null, $this->retail_settings() );
 		$sync->import_article( $this->article(), 1000 );
 
 		$product = wc_get_product( wc_get_product_id_by_sku( 'abel-AB12' ) );
@@ -309,15 +324,15 @@ class SyncTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * Ek and Categories changing does not count as a change.
+	 * On a retail shop Ek and Categories changing does not count as a change.
 	 *
 	 * Hashing the whole row would rewrite the entire catalogue every time purchase
-	 * prices moved, even though neither field is imported.
+	 * prices moved, even though neither field is imported here.
 	 *
 	 * @return void
 	 */
 	public function test_ignored_fields_do_not_trigger_an_update() {
-		$sync = new ProductSync( null, array( 'image_base_url' => '' ) );
+		$sync = new ProductSync( null, $this->retail_settings() );
 
 		$this->assertSame( 'created', $sync->import_article( $this->article(), 1000 ) );
 
@@ -528,7 +543,7 @@ class SyncTest extends WP_UnitTestCase {
 	 * @return void
 	 */
 	public function test_changed_article_updates_in_place() {
-		$sync = new ProductSync( null, array( 'image_base_url' => '' ) );
+		$sync = new ProductSync( null, $this->retail_settings() );
 		$sync->import_article( $this->article(), 1000 );
 
 		$outcome = $sync->import_article( $this->article( array( 'UVP' => 99.5000 ) ), 1001 );

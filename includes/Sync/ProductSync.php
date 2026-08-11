@@ -50,12 +50,38 @@ class ProductSync {
 	const META_SYNCED_AT = '_wksync_synced_at';
 
 	/**
-	 * Fields this sync actually consumes.
+	 * Shop type whose price list Kontor returns as the purchase price.
 	 *
-	 * The change hash is built from these alone, so churn in fields we deliberately
-	 * ignore — Ek and Categories — cannot trigger a pointless rewrite of every
-	 * product. Ek is the purchase price and is not imported, and the Categories GUIDs
-	 * cannot be resolved, because Kontor's categories entity returns no rows.
+	 * See price_field() for why this one is singled out.
+	 */
+	const SHOPTYPE_WHOLESALE = 'B2B';
+
+	/**
+	 * Shop type whose UVP is the recommended retail price.
+	 *
+	 * This is the list a wholesale shop is requested with, so the retail price
+	 * arrives alongside the price it actually sells at.
+	 */
+	const SHOPTYPE_RETAIL = 'B2C';
+
+	/**
+	 * Meta holding the recommended retail price.
+	 *
+	 * Only written on a wholesale shop, where it is a different number from the
+	 * price. Absent whenever Kontor lists no retail price for the article.
+	 */
+	const META_MSRP = '_wksync_msrp';
+
+	/**
+	 * Fields this sync consumes on every shop type.
+	 *
+	 * The change hash is built from these, so churn in fields we deliberately ignore
+	 * — Categories, and Ek on the shop types that do not price from it — cannot
+	 * trigger a pointless rewrite of every product. The Categories GUIDs cannot be
+	 * resolved at all, because Kontor's categories entity returns no rows.
+	 *
+	 * mapped_fields() adds Ek for a wholesale shop, which is the one case where the
+	 * purchase price is the price the shop charges and so has to be watched.
 	 *
 	 * Herstellerid is in the list because brands are matched on it. A manufacturer
 	 * moved to a different ID has to reach Brands::resolve() to be followed, and an
@@ -223,7 +249,7 @@ class ProductSync {
 			return;
 		}
 
-		$response = $this->client->fetch_products( $skip, Client::PRODUCT_PAGE_SIZE, null, $this->manufacturers() );
+		$response = $this->client->fetch_products( $skip, Client::PRODUCT_PAGE_SIZE, $this->request_shoptype(), $this->manufacturers() );
 
 		if ( is_wp_error( $response ) ) {
 			Status::fail( self::JOB, $response->get_error_message() );
@@ -716,19 +742,91 @@ class ProductSync {
 	}
 
 	/**
+	 * The shop type the shop is configured as.
+	 *
+	 * @return string One of the keys of Settings::shoptypes().
+	 */
+	protected function shoptype() {
+		$shoptype = isset( $this->settings['shoptype'] ) ? (string) $this->settings['shoptype'] : self::SHOPTYPE_WHOLESALE;
+
+		return '' === $shoptype ? self::SHOPTYPE_WHOLESALE : $shoptype;
+	}
+
+	/**
+	 * The shop type the catalogue is actually requested with.
+	 *
+	 * A wholesale shop asks for the retail list, because that one request carries
+	 * both numbers it needs: Ek is the wholesale price and UVP is the retail price.
+	 * Asking for the wholesale list instead would return the same Ek and a UVP that
+	 * merely repeats it, so there would be no retail price to show at all.
+	 *
+	 * Every other shop type is requested as itself, where UVP is the price and there
+	 * is no second figure to fetch.
+	 *
+	 * @return string Shop type to send as the filter.
+	 */
+	protected function request_shoptype() {
+		return self::SHOPTYPE_WHOLESALE === $this->shoptype() ? self::SHOPTYPE_RETAIL : $this->shoptype();
+	}
+
+	/**
+	 * The field the product price is read from.
+	 *
+	 * Ek on a wholesale shop, UVP everywhere else. That is not a purchase price
+	 * being sold at cost: Kontor's B2B price list *is* Ek, confirmed against the live
+	 * account on 986 articles sampled across the catalogue, where Ek equalled the B2B
+	 * UVP on every row and stayed constant across all three shop types. A wholesale
+	 * shop pricing from Ek therefore charges exactly what it charged when it priced
+	 * from the B2B UVP.
+	 *
+	 * The equality is what the whole arrangement rests on. Should Kontor ever put a
+	 * margin between the two, a wholesale shop would sell at whichever is lower with
+	 * nothing to say so, so re-check it before trusting this on another account.
+	 *
+	 * @return string Field name.
+	 */
+	protected function price_field() {
+		return self::SHOPTYPE_WHOLESALE === $this->shoptype() ? 'Ek' : 'UVP';
+	}
+
+	/**
+	 * The feed fields this run consumes.
+	 *
+	 * Ek joins the list on a wholesale shop, where it is the price. Leaving it out
+	 * there would mean a price change that moved Ek alone never altered the hash, so
+	 * the article would read as unchanged and keep its old price for good.
+	 *
+	 * @return string[] Field names.
+	 */
+	protected function mapped_fields() {
+		$fields = self::$mapped_fields;
+
+		if ( self::SHOPTYPE_WHOLESALE === $this->shoptype() ) {
+			$fields[] = 'Ek';
+		}
+
+		return $fields;
+	}
+
+	/**
 	 * Hash the fields this sync maps, so unchanged articles can be skipped.
 	 *
-	 * Deliberately not a hash of the whole row: Ek moves independently of the
-	 * selling price and is not imported, so hashing it would rewrite the entire
-	 * catalogue whenever purchase prices shifted.
+	 * Deliberately not a hash of the whole row: the fields this sync ignores move
+	 * independently of the ones it imports, so hashing them would rewrite the entire
+	 * catalogue whenever a purchase price shifted on a shop that does not sell at it.
+	 *
+	 * The configured shop type is hashed alongside the row, because it decides which
+	 * field becomes the price. Without it, switching a shop from wholesale to retail
+	 * would leave every product priced at Ek: both shops are sent the same request,
+	 * so the row that comes back is identical and nothing in it would have changed.
 	 *
 	 * @param array $row Article row from the API.
 	 * @return string Hash of the mapped fields.
 	 */
 	protected function hash( array $row ) {
-		$mapped = array();
+		$mapped = array( '_wksync_shoptype' => $this->shoptype() );
 
-		foreach ( array_merge( self::$mapped_fields, $this->image_keys() ) as $field ) {
+		foreach ( array_merge( $this->mapped_fields(), $this->image_keys() ) as $field ) {
 			$mapped[ $field ] = isset( $row[ $field ] ) ? $row[ $field ] : null;
 		}
 
@@ -825,15 +923,17 @@ class ProductSync {
 		$product->set_short_description( wp_kses_post( $this->text( $row, 'Kurztext', '' ) ) );
 
 		/*
-		 * UVP is the product price. It is the selling price for the configured shop
-		 * type: the same article comes back at 22.50 for B2B, 45.00 for B2C and 36.00
-		 * for EDU. Ek is the purchase price and is deliberately not imported.
+		 * The price comes from the field the configured shop type sells at — UVP for a
+		 * retail or education shop, Ek for a wholesale one, where Kontor's B2B price
+		 * list and the purchase price are the same number. See price_field().
 		 */
-		$price = wc_format_decimal( $this->text( $row, 'UVP', '' ) );
+		$price = wc_format_decimal( $this->text( $row, $this->price_field(), '' ) );
 
 		if ( '' !== $price ) {
 			$product->set_regular_price( $price );
 		}
+
+		$this->apply_msrp( $product, $row );
 
 		$product->set_manage_stock( true );
 		$product->set_stock_quantity( (int) round( (float) $this->text( $row, 'Lagerbestand', '0' ) ) );
@@ -845,6 +945,43 @@ class ProductSync {
 		}
 
 		$this->apply_ean( $product, $this->text( $row, 'Artean', '' ) );
+	}
+
+	/**
+	 * Record the recommended retail price, where there is one to record.
+	 *
+	 * Only a wholesale shop has one: it sells at Ek, so the retail UVP arriving in the
+	 * same row is a genuinely different figure, and it is the number a business buying
+	 * here needs in order to know what it can resell at. On a retail or education shop
+	 * the UVP already is the price, so there is nothing to record beside it.
+	 *
+	 * The value is stored raw rather than as a saving. Kontor lists no retail price at
+	 * all for some articles and one no higher than Ek for others — 25 in 986 sampled,
+	 * mostly nulls — so whether it can be shown as a discount is a question for
+	 * whatever renders it, not one to bake into the import.
+	 *
+	 * Anything absent, zero or negative deletes the meta rather than writing a
+	 * misleading 0.00, which also clears the figure from a shop that has since moved
+	 * off wholesale.
+	 *
+	 * @param WC_Product_Simple $product Product to populate.
+	 * @param array             $row     Article row from the API.
+	 * @return void
+	 */
+	protected function apply_msrp( $product, array $row ) {
+		$msrp = '';
+
+		if ( self::SHOPTYPE_WHOLESALE === $this->shoptype() ) {
+			$msrp = wc_format_decimal( $this->text( $row, 'UVP', '' ) );
+		}
+
+		if ( '' === $msrp || 0 >= (float) $msrp ) {
+			$product->delete_meta_data( self::META_MSRP );
+
+			return;
+		}
+
+		$product->update_meta_data( self::META_MSRP, $msrp );
 	}
 
 	/**
