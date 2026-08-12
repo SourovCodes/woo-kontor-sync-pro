@@ -84,11 +84,6 @@ class Scheduler {
 	const ACTION_SYNC_STOCK_CHUNK = 'woo_kontor_sync_stock_chunk';
 
 	/**
-	 * Runs after the last stock chunk, drafting articles the feed no longer carries.
-	 */
-	const ACTION_SYNC_STOCK_FINALISE = 'woo_kontor_sync_stock_finalise';
-
-	/**
 	 * Entry point for the order upload sweep.
 	 */
 	const ACTION_SYNC_ORDERS = 'woo_kontor_sync_orders';
@@ -145,7 +140,7 @@ class Scheduler {
 			),
 			'stock'    => array(
 				'label'       => __( 'Stock sync', 'woo-kontor-sync-pro' ),
-				'description' => __( 'Updates stock levels for every article Kontor reports. Imported products the stock feed no longer carries are drafted, and republished when they return.', 'woo-kontor-sync-pro' ),
+				'description' => __( 'Updates stock levels for every article Kontor reports. An article the stock feed does not carry keeps the level it already had.', 'woo-kontor-sync-pro' ),
 				'direction'   => __( 'From Kontor', 'woo-kontor-sync-pro' ),
 				'action'      => self::ACTION_SYNC_STOCK,
 				'setting'     => 'stock_sync_interval',
@@ -201,7 +196,6 @@ class Scheduler {
 			self::ACTION_SYNC_PRODUCTS_FINALISE => 'products',
 			self::ACTION_SYNC_STOCK             => 'stock',
 			self::ACTION_SYNC_STOCK_CHUNK       => 'stock',
-			self::ACTION_SYNC_STOCK_FINALISE    => 'stock',
 			self::ACTION_SYNC_ORDERS            => 'orders',
 			self::ACTION_SYNC_ORDERS_BATCH      => 'orders',
 			self::ACTION_SYNC_DELIVERY          => 'delivery',
@@ -226,7 +220,6 @@ class Scheduler {
 
 		add_action( self::ACTION_SYNC_STOCK, array( $this, 'handle_stock' ) );
 		add_action( self::ACTION_SYNC_STOCK_CHUNK, array( $this, 'handle_stock_chunk' ), 10, 2 );
-		add_action( self::ACTION_SYNC_STOCK_FINALISE, array( $this, 'handle_stock_finalise' ), 10, 1 );
 
 		add_action( self::ACTION_SYNC_ORDERS, array( $this, 'handle_orders' ) );
 		add_action( self::ACTION_SYNC_ORDERS_BATCH, array( $this, 'handle_orders_batch' ), 10, 2 );
@@ -460,16 +453,6 @@ class Scheduler {
 	 */
 	public function handle_stock_chunk( $offset = 0, $run = 0 ) {
 		( new StockSync() )->apply_chunk( absint( $offset ), absint( $run ) );
-	}
-
-	/**
-	 * Draft the articles the stock feed no longer carries and close the run.
-	 *
-	 * @param int $run Run identifier.
-	 * @return void
-	 */
-	public function handle_stock_finalise( $run = 0 ) {
-		( new StockSync() )->finalise( absint( $run ) );
 	}
 
 	/**
