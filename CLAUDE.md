@@ -310,11 +310,12 @@ of them wrong produces silently wrong data rather than an error:
     `MainImageURL` alone would pass over a product about to get exactly what the setting asks for.
   - **Checked before the unchanged-article shortcut**, or turning the setting on would leave the
     existing catalogue published until every article in it happened to change.
-  - **Its own marker, like the stock sync's.** A product can be held back for having no image *and*
-    for having left a feed, and the reasons clear at different moments on different feeds — so
-    `StockSync::restore_if_stock_drafted()` treats this marker as a blocker exactly as it does
-    `META_SYNC_DRAFTED`, and a returning stock level cannot republish an imageless article. Turning
-    the setting off, or the image coming back, clears it through `restore_if_sync_drafted()`.
+  - **Its own marker, not `META_SYNC_DRAFTED`.** That one means "Kontor stopped listing this
+    article" and this one means "Kontor lists it, without a picture" — two conditions that clear at
+    different moments, and sharing a marker would let an article returning to the catalogue
+    republish itself while it is still imageless. Turning the setting off, or the image coming back,
+    clears it through `restore_if_sync_drafted()`. Both are checked before the restore path is
+    entered, so a still-imageless article is withheld again rather than freed.
   - **Only products carrying `META_SYNCED_AT` are drafted**, and only from `publish`. A shop
     manager's own product answering to the same article number was never ours to unpublish, and
     marking a `private` or `pending` one would hand a later run the right to publish something
@@ -403,56 +404,34 @@ of them wrong produces silently wrong data rather than an error:
   because images are downloaded elsewhere; do not put them back in the page action.
 - **The `stock` entity takes no paging and no filter.** One request returns a level for every
   article (~2945 rows in ~65ms). Sending paging to it is not an error, just pointless.
-  - **It is narrower than the catalogue, and the stock sync drafts the difference.** Measured
+  - **It is narrower than the catalogue, and as of 0.13.0 the difference is a non-event.** Measured
     against the live account: the catalogue lists **4386** articles and the stock entity returns
-    **2945**, so a product this plugin imported that the stock feed does not carry is drafted by
-    `StockSync::finalise()`, exactly as `ProductSync::finalise()` drafts one the catalogue drops.
-    The first run on the development site drafted **1082** products. That is the intended effect —
-    an article Kontor holds no stock record for is not one the shop can sell — but it is a fifth of
-    the published catalogue going dark on a single run, so it is said out loud in the job
-    description on the settings screen rather than left to be discovered.
-  - **That drafting is what `Settings::DRAFT_MISSING_STOCK` (`draft_missing_stock`) turns off**, and
-    it is the one setting here that defaults to **on**. It is not a new behaviour being offered but
-    an old one being made optional: defaulting it to off would change what every existing shop does
-    on the day it updates, silently leaving articles Kontor holds no stock record for on sale. A
-    settings array that omits the key is read as on too (`StockSync::drafts_missing_articles()`), so
-    passing settings in rather than reading them cannot turn the drafting off by accident.
-  - **Turned off, the finalising pass releases this sync's drafts instead of adding to them**
-    (`StockSync::release_stock_drafts()`). Nothing else could: a product drafted for missing the
-    stock feed is by definition absent from that feed, so `apply()` never reaches it and
-    `restore_if_stock_drafted()` is never called for it — without the release pass, clearing the
-    setting would leave everything it had already drafted hidden for good. The pass is batched and
-    chained like the drafting one, because a shop clearing the setting after a first run has
-    upwards of a thousand products to give back.
-    - `StockSync::release()` is the shared half of both routes out of a draft of ours: the marker
-      goes either way, because this sync's reason has gone, but the product is only republished
-      when it is the last reason left. The product sync's two markers are a different feed's
-      verdict and are never cleared here.
-    - The release query finds drafts by the marker, and the marker is deleted on everything it
-      loads, so each pass makes progress. It chains again only when the batch was full **and**
-      something was actually cleared — a batch of products `wc_get_product()` cannot load would
-      otherwise be found again for ever.
-  - Staleness is the same mechanism as the product walk: `StockSync::META_STOCK_AT` records the run
-    that last saw the article, and finalise drafts anything carrying `ProductSync::META_SYNCED_AT`
-    — the marker for "this plugin imported this" — whose stock stamp is older or absent. **The
-    absent branch is what makes the first run work at all**; without it a product that has never
-    been in a stock feed would never be drafted.
-  - **An empty response finishes the run without finalising.** `start()` returns early on no rows,
-    which is the guard that stops an authentication failure or an empty reply drafting the entire
-    catalogue. A short-but-non-empty response is not guarded, exactly as the product walk is not.
-  - **The two syncs draft under separate markers** — `StockSync::META_STOCK_DRAFTED` and
-    `ProductSync::META_SYNC_DRAFTED` — and each clears only its own. An article can be missing from
-    both feeds, and sharing one marker would let whichever feed listed it first republish it: the
-    catalogue naming an article again says nothing about whether there is stock of it, and a stock
-    level arriving says nothing about whether Kontor still sells it. A product carrying both stays
-    drafted until both syncs have seen it.
-    - The residual gap: a product already drafted by one sync does not pick up the *other* sync's
-      marker while it is drafted, because both finalise passes only look at published products.
-      So an article that leaves the stock feed, then leaves the catalogue, then returns to the
-      stock feed is republished with no catalogue entry behind it. It self-corrects on the next
-      product sync, which is what drafts it again. Closing it properly would mean a second
-      paginated walk per job over drafts carrying the sibling marker, which is not worth it for a
-      window that only opens when the two feeds disagree about an article twice in a row.
+    **2945**. A product whose article the stock feed does not carry keeps the level it already had
+    and stays published; `StockSync` writes levels and nothing else.
+  - **This sync used to draft that difference, and no longer does.** `StockSync::finalise()` drafted
+    anything ours the feed had not stamped, exactly as `ProductSync::finalise()` drafts an article
+    the catalogue drops — 1082 products on the development site's first run, a fifth of the
+    published catalogue going dark for articles Kontor still sells. Absence from the stock feed is a
+    routine gap, not a verdict; whether an article belongs in the shop is the catalogue's answer to
+    give, and the product sync is the one pass that acts on it. Gone with it: `META_STOCK_AT`,
+    `META_STOCK_DRAFTED`, `restore_if_stock_drafted()`, `FINALISE_BATCH` and
+    `Scheduler::ACTION_SYNC_STOCK_FINALISE`. **The last chunk now calls `complete()` directly** —
+    there is no finalising action left to chain to, and a chunk that reached the end without closing
+    the run would strand the job as `running` for `Status::STALE_AFTER`. The hook name lives on as
+    `Scheduler::ACTION_LEGACY_STOCK_FINALISE` so an action queued before the upgrade still closes
+    its run; see the chain-ownership rule below for why an upgrade cannot be trusted to sweep it.
+  - **`apply()` never touches a product's status**, in either direction. It does not republish
+    either, so a product a person or the product sync drafted quietly keeps its level updated and
+    stays hidden.
+  - **`ProductSync::META_LEGACY_STOCK_DRAFTED` is `_wksync_drafted_by_stock` kept alive to undo it.**
+    Nothing writes it. Every product still carrying it is hidden for a reason nothing would ever
+    clear again, so `restore_if_sync_drafted()` treats it as spent: on its own it is enough to
+    republish, and it is cleared alongside this sync's own markers the next time the catalogue lists
+    the article. It is *not* a blocker any more — that check is what used to hold a product drafted
+    until both feeds agreed. Drop the constant when no shop upgrading from before 0.13.0 is left.
+  - **An empty response finishes the run early.** `start()` returns before queuing anything on no
+    rows. It mattered far more when finalise existed — it was the guard against an authentication
+    failure drafting the whole catalogue — but it still avoids a pointless chain.
 - **The `shops` entity takes no paging or filter either**, and returns one row per shop — 13 on the
   account this was built against — as a `Shopid` GUID and a display `Name`. The chosen `Shopid` is
   stored as the `shop_id` setting, picked in the admin from a list fetched on demand by the **Fetch
@@ -606,10 +585,11 @@ sync** pushing to Kontor, **delivery sync** pulling status and tracking back, an
 (1 hour–1 day) downloading invoice PDFs. Nothing shorter than an hour for invoices: the listing has
 no incremental filter, so a tighter schedule only re-reads the same history more often.
 
-**Two jobs draft products, not one.** Both the product sync and the stock sync end in a finalising
-pass that unpublishes what their feed no longer carries, and both chain that pass across actions
-rather than tacking it onto the last chunk — a first stock run has upwards of a thousand products to
-draft, which is the one thing that would put a chunk action over a slow host's execution limit.
+**One job drafts products, and it is the product sync.** It ends in a finalising pass that
+unpublishes what the catalogue no longer carries, chained across actions rather than tacked onto the
+last page — the walk is unbounded, which is the one thing that would put a chunk action over a slow
+host's execution limit. The stock sync used to do the same for its own feed and no longer does; see
+the `stock` entity above for why, and for the marker left behind to undo it.
 
 **No job runs until its preconditions hold** — `Preflight::check()`, called at the top of every
 `start()`. Three gates, cheapest first: the API base URL and key are set; every job that talks to
@@ -677,6 +657,16 @@ calling it queues real work: it is not a way to test whether a job would be allo
   sweep. `ACTION_SYNC_ORDERS_BATCH` *is* listed, because that one is part of the sweep and a batch
   that dies has to close the run behind it. A failure carrying a superseded `run`, or arriving after
   the job reported its own reason, is ignored.
+  - **Deleting a chained action is breaking the chain, and an upgrade does not sweep the queue for
+    you.** WordPress deactivates a plugin **silently** before replacing it — core's own comment on
+    `Plugin_Upgrader::deactivate_plugin_before_upgrade()` reads *"Prevent deactivation hooks from
+    running"* — and under cron, where automatic updates happen, it does not deactivate at all. So
+    `Deactivator::deactivate()` does **not** run on an update, and an action queued by the outgoing
+    version is still there when the incoming one loads. Unanswered it fires into nothing and strands
+    its run for the full six hours. `Scheduler::ACTION_LEGACY_STOCK_FINALISE` is what that costs:
+    the removed stock finalising pass, still listened for, answered by
+    `StockSync::close_legacy_run()`, which closes the run and drafts nothing. Removing a chained
+    action means keeping its hook until no shop can still be upgrading across the change.
 - **`Scheduler::SCHEDULE_GUARD` means "the queue matches the settings"**, which is why
   `unschedule_all()` deletes it: it stops being true the moment the queue is emptied, and leaving
   it set makes `ensure_recurring_actions()` return early for the rest of the hour. A plugin

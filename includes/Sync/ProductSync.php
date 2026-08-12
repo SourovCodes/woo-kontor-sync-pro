@@ -161,6 +161,20 @@ class ProductSync {
 	const META_NO_IMAGE_DRAFTED = '_wksync_drafted_no_image';
 
 	/**
+	 * Marks a product the stock sync drafted, before it stopped drafting anything.
+	 *
+	 * The stock feed is narrower than the catalogue, so that pass took a fifth of the
+	 * shop dark on its first run for articles Kontor still sells. It is gone, and this
+	 * key is kept for one purpose only: to undo it. Every product still carrying it is
+	 * hidden for a reason nothing will ever clear again, so restore_if_sync_drafted()
+	 * treats it as spent and publishes the product the next time the catalogue lists
+	 * the article.
+	 *
+	 * Nothing writes it. When no shop upgrading from before 0.13.0 is left, it goes.
+	 */
+	const META_LEGACY_STOCK_DRAFTED = '_wksync_drafted_by_stock';
+
+	/**
 	 * How many stale products to draft per finalising pass.
 	 */
 	const FINALISE_BATCH = 200;
@@ -865,10 +879,13 @@ class ProductSync {
 	 *
 	 * Both of this sync's reasons are cleared here, because reaching this method means
 	 * both have gone: the article is in the feed, and import_article() has already
-	 * turned back anything still imageless. The stock sync's marker is a different
-	 * feed's verdict and is left alone — the catalogue listing an article again says
-	 * nothing about whether there is any stock of it, so the product comes back only
-	 * when the last marker goes.
+	 * turned back anything still imageless.
+	 *
+	 * The stock sync's old marker is cleared as well, and on its own is enough to
+	 * bring a product back. It is not a verdict this shop still holds — nothing writes
+	 * it and nothing else would ever clear it — so a product carrying only that one is
+	 * hidden for a reason that no longer exists, and the next run of this sync is what
+	 * puts it back on the shelf.
 	 *
 	 * @param WC_Product_Simple $product Existing product.
 	 * @return bool True when the product changed and therefore needs saving.
@@ -892,17 +909,14 @@ class ProductSync {
 			$reasons[] = 'it has an image again';
 		}
 
-		if ( empty( $reasons ) ) {
-			return false;
+		if ( $product->get_meta( self::META_LEGACY_STOCK_DRAFTED ) ) {
+			$product->delete_meta_data( self::META_LEGACY_STOCK_DRAFTED );
+
+			$reasons[] = 'the stock sync no longer drafts articles it does not carry';
 		}
 
-		if ( $product->get_meta( StockSync::META_STOCK_DRAFTED ) ) {
-			$this->log(
-				'info',
-				sprintf( 'Article %s is importable again, but has no stock level; leaving it drafted.', $product->get_sku() )
-			);
-
-			return true;
+		if ( empty( $reasons ) ) {
+			return false;
 		}
 
 		$product->set_status( 'publish' );

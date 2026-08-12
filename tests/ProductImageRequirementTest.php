@@ -285,8 +285,9 @@ class ProductImageRequirementTest extends WP_UnitTestCase {
 	/**
 	 * A product held back for its image is not republished by the stock sync.
 	 *
-	 * Each reason a product is drafted clears on its own feed. A stock level arriving
-	 * says nothing about whether Kontor has a picture of the article.
+	 * The stock sync no longer touches a product's status at all, so a level arriving
+	 * for an article Kontor has no picture of leaves the product exactly where the
+	 * image requirement put it.
 	 *
 	 * @return void
 	 */
@@ -294,15 +295,11 @@ class ProductImageRequirementTest extends WP_UnitTestCase {
 		$id = $this->imported_product(
 			'abel-AB12',
 			'draft',
-			array(
-				ProductSync::META_NO_IMAGE_DRAFTED => 1,
-				StockSync::META_STOCK_DRAFTED      => 1,
-			)
+			array( ProductSync::META_NO_IMAGE_DRAFTED => 1 )
 		);
 
-		$counts = ( new StockSync( null, array() ) )->apply( array( 'abel-AB12' => 4 ), time() );
+		( new StockSync( null, array() ) )->apply( array( 'abel-AB12' => 4 ) );
 
-		$this->assertSame( 0, $counts['restored'] );
 		$this->assertSame( 'draft', wc_get_product( $id )->get_status() );
 
 		// The catalogue listing it with an image is what finally brings it back.
@@ -312,27 +309,38 @@ class ProductImageRequirementTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * A product missing from the catalogue as well stays drafted.
+	 * An article that is still imageless stays drafted, spent marker or not.
+	 *
+	 * Clearing the old stock marker must not reach past its own reason. The image
+	 * requirement is checked before the restore path is ever entered, so a product
+	 * carrying both is held back by the live reason and the spent one simply waits.
 	 *
 	 * @return void
 	 */
-	public function test_product_missing_from_the_stock_feed_too_stays_drafted() {
+	public function test_a_still_imageless_product_is_not_freed_by_the_spent_stock_marker() {
 		$id = $this->imported_product(
 			'abel-AB12',
 			'draft',
 			array(
-				ProductSync::META_NO_IMAGE_DRAFTED => 1,
-				StockSync::META_STOCK_DRAFTED      => 1,
+				ProductSync::META_NO_IMAGE_DRAFTED     => 1,
+				ProductSync::META_LEGACY_STOCK_DRAFTED => 1,
 			)
 		);
 
-		$this->sync()->import_article( $this->article( array( 'MainImageURL' => 'x.jpg' ) ), 2000 );
+		$this->sync()->import_article( $this->article(), 2000 );
 
 		$product = wc_get_product( $id );
 
 		$this->assertSame( 'draft', $product->get_status() );
-		$this->assertSame( '', (string) $product->get_meta( ProductSync::META_NO_IMAGE_DRAFTED ) );
-		$this->assertSame( '1', (string) $product->get_meta( StockSync::META_STOCK_DRAFTED ) );
+		$this->assertSame( '1', (string) $product->get_meta( ProductSync::META_NO_IMAGE_DRAFTED ) );
+
+		// The picture arriving clears both at once.
+		$this->sync()->import_article( $this->article( array( 'MainImageURL' => 'x.jpg' ) ), 2001 );
+
+		$restored = wc_get_product( $id );
+
+		$this->assertSame( 'publish', $restored->get_status() );
+		$this->assertSame( '', (string) $restored->get_meta( ProductSync::META_LEGACY_STOCK_DRAFTED ) );
 	}
 
 	/**

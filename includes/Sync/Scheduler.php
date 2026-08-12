@@ -84,9 +84,19 @@ class Scheduler {
 	const ACTION_SYNC_STOCK_CHUNK = 'woo_kontor_sync_stock_chunk';
 
 	/**
-	 * Runs after the last stock chunk, drafting articles the feed no longer carries.
+	 * The stock finalising pass, removed in 0.13.0 and still answered.
+	 *
+	 * A run queued one of these after its last chunk, and an upgrade can land while
+	 * one is sitting in the queue: WordPress deactivates a plugin *silently* before
+	 * replacing it, so Deactivator::deactivate() does not run and the pending action
+	 * is not swept up. Left unanswered it fires into nothing, and because a run only
+	 * ever leaves the running state from inside its own chain, the job would report
+	 * itself running — and refuse to start another — until Status::STALE_AFTER.
+	 *
+	 * Nothing queues it any more. Remove it when no shop can still be upgrading from
+	 * before 0.13.0.
 	 */
-	const ACTION_SYNC_STOCK_FINALISE = 'woo_kontor_sync_stock_finalise';
+	const ACTION_LEGACY_STOCK_FINALISE = 'woo_kontor_sync_stock_finalise';
 
 	/**
 	 * Entry point for the order upload sweep.
@@ -145,7 +155,7 @@ class Scheduler {
 			),
 			'stock'    => array(
 				'label'       => __( 'Stock sync', 'woo-kontor-sync-pro' ),
-				'description' => __( 'Updates stock levels for every article Kontor reports. Unless the setting is cleared, imported products the stock feed no longer carries are drafted, and republished when they return.', 'woo-kontor-sync-pro' ),
+				'description' => __( 'Updates stock levels for every article Kontor reports. An article the stock feed does not carry keeps the level it already had.', 'woo-kontor-sync-pro' ),
 				'direction'   => __( 'From Kontor', 'woo-kontor-sync-pro' ),
 				'action'      => self::ACTION_SYNC_STOCK,
 				'setting'     => 'stock_sync_interval',
@@ -201,7 +211,7 @@ class Scheduler {
 			self::ACTION_SYNC_PRODUCTS_FINALISE => 'products',
 			self::ACTION_SYNC_STOCK             => 'stock',
 			self::ACTION_SYNC_STOCK_CHUNK       => 'stock',
-			self::ACTION_SYNC_STOCK_FINALISE    => 'stock',
+			self::ACTION_LEGACY_STOCK_FINALISE  => 'stock',
 			self::ACTION_SYNC_ORDERS            => 'orders',
 			self::ACTION_SYNC_ORDERS_BATCH      => 'orders',
 			self::ACTION_SYNC_DELIVERY          => 'delivery',
@@ -226,7 +236,7 @@ class Scheduler {
 
 		add_action( self::ACTION_SYNC_STOCK, array( $this, 'handle_stock' ) );
 		add_action( self::ACTION_SYNC_STOCK_CHUNK, array( $this, 'handle_stock_chunk' ), 10, 2 );
-		add_action( self::ACTION_SYNC_STOCK_FINALISE, array( $this, 'handle_stock_finalise' ), 10, 1 );
+		add_action( self::ACTION_LEGACY_STOCK_FINALISE, array( $this, 'handle_legacy_stock_finalise' ), 10, 1 );
 
 		add_action( self::ACTION_SYNC_ORDERS, array( $this, 'handle_orders' ) );
 		add_action( self::ACTION_SYNC_ORDERS_BATCH, array( $this, 'handle_orders_batch' ), 10, 2 );
@@ -463,13 +473,13 @@ class Scheduler {
 	}
 
 	/**
-	 * Draft the articles the stock feed no longer carries and close the run.
+	 * Close a run whose finalising action outlived the pass itself.
 	 *
 	 * @param int $run Run identifier.
 	 * @return void
 	 */
-	public function handle_stock_finalise( $run = 0 ) {
-		( new StockSync() )->finalise( absint( $run ) );
+	public function handle_legacy_stock_finalise( $run = 0 ) {
+		( new StockSync() )->close_legacy_run( absint( $run ) );
 	}
 
 	/**
