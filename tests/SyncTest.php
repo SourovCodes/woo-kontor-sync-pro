@@ -967,6 +967,44 @@ class SyncTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A finalising action left in the queue by an older version closes its run.
+	 *
+	 * The pass is gone, but WordPress deactivates a plugin silently before replacing
+	 * it, so nothing empties the queue on the way past. Unanswered, the action fires
+	 * into nothing and the job reports itself running — refusing to start another —
+	 * until it goes stale six hours later.
+	 *
+	 * @return void
+	 */
+	public function test_a_finalise_action_queued_before_the_upgrade_closes_its_run() {
+		$product = $this->imported_product( 'GONE-FROM-STOCK' );
+		$run     = Status::start( StockSync::JOB );
+
+		$this->assertTrue( Status::is_running( StockSync::JOB ) );
+
+		( new Scheduler() )->handle_legacy_stock_finalise( $run );
+
+		$this->assertFalse( Status::is_running( StockSync::JOB ) );
+		$this->assertSame( 'success', Status::get( StockSync::JOB )['state'] );
+
+		// Closing the run must not be an excuse to draft anything on the way out.
+		$this->assertSame( 'publish', wc_get_product( $product )->get_status() );
+	}
+
+	/**
+	 * A finalising action belonging to a superseded run closes nothing.
+	 *
+	 * @return void
+	 */
+	public function test_a_superseded_legacy_finalise_action_is_discarded() {
+		$current = Status::start( StockSync::JOB );
+
+		( new StockSync( null, array() ) )->close_legacy_run( $current - 500 );
+
+		$this->assertTrue( Status::is_running( StockSync::JOB ) );
+	}
+
+	/**
 	 * The run summary reports what the levels did.
 	 *
 	 * @return void

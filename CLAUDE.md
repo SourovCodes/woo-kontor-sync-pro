@@ -417,7 +417,9 @@ of them wrong produces silently wrong data rather than an error:
     `META_STOCK_DRAFTED`, `restore_if_stock_drafted()`, `FINALISE_BATCH` and
     `Scheduler::ACTION_SYNC_STOCK_FINALISE`. **The last chunk now calls `complete()` directly** —
     there is no finalising action left to chain to, and a chunk that reached the end without closing
-    the run would strand the job as `running` for `Status::STALE_AFTER`.
+    the run would strand the job as `running` for `Status::STALE_AFTER`. The hook name lives on as
+    `Scheduler::ACTION_LEGACY_STOCK_FINALISE` so an action queued before the upgrade still closes
+    its run; see the chain-ownership rule below for why an upgrade cannot be trusted to sweep it.
   - **`apply()` never touches a product's status**, in either direction. It does not republish
     either, so a product a person or the product sync drafted quietly keeps its level updated and
     stays hidden.
@@ -655,6 +657,16 @@ calling it queues real work: it is not a way to test whether a job would be allo
   sweep. `ACTION_SYNC_ORDERS_BATCH` *is* listed, because that one is part of the sweep and a batch
   that dies has to close the run behind it. A failure carrying a superseded `run`, or arriving after
   the job reported its own reason, is ignored.
+  - **Deleting a chained action is breaking the chain, and an upgrade does not sweep the queue for
+    you.** WordPress deactivates a plugin **silently** before replacing it — core's own comment on
+    `Plugin_Upgrader::deactivate_plugin_before_upgrade()` reads *"Prevent deactivation hooks from
+    running"* — and under cron, where automatic updates happen, it does not deactivate at all. So
+    `Deactivator::deactivate()` does **not** run on an update, and an action queued by the outgoing
+    version is still there when the incoming one loads. Unanswered it fires into nothing and strands
+    its run for the full six hours. `Scheduler::ACTION_LEGACY_STOCK_FINALISE` is what that costs:
+    the removed stock finalising pass, still listened for, answered by
+    `StockSync::close_legacy_run()`, which closes the run and drafts nothing. Removing a chained
+    action means keeping its hook until no shop can still be upgrading across the change.
 - **`Scheduler::SCHEDULE_GUARD` means "the queue matches the settings"**, which is why
   `unschedule_all()` deletes it: it stops being true the moment the queue is emptied, and leaving
   it set makes `ensure_recurring_actions()` return early for the rest of the hour. A plugin

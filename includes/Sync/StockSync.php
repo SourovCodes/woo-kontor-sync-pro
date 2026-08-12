@@ -307,6 +307,33 @@ class StockSync {
 	}
 
 	/**
+	 * Close a run left mid-chain by the removal of the finalising pass.
+	 *
+	 * The pass is gone, but an action queuing it can still be sitting in the queue
+	 * when the upgrade lands — WordPress deactivates a plugin silently before
+	 * replacing it, so nothing sweeps the queue on the way past. All this does is what
+	 * the pass did last: close the run behind it. Nothing is drafted.
+	 *
+	 * A superseded run is left alone, exactly as the pass left it alone: a newer run
+	 * owns the status by then, and finishing it here would report the wrong one as
+	 * complete.
+	 *
+	 * @param int $run Run identifier.
+	 * @return void
+	 */
+	public function close_legacy_run( $run ) {
+		if ( ! Status::is_current_run( self::JOB, $run ) ) {
+			$this->log( 'info', sprintf( 'Discarding a stock finalise action from run %d: the run has been superseded.', $run ) );
+
+			return;
+		}
+
+		$this->log( 'info', sprintf( 'Closing stock run %d: its finalising action was queued before the pass was removed.', $run ) );
+
+		$this->complete( $run );
+	}
+
+	/**
 	 * Close out a run and drop its cached payload.
 	 *
 	 * Called straight from the last chunk. There is no finalising pass to chain to:
