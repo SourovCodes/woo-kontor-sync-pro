@@ -99,6 +99,16 @@ class Scheduler {
 	const ACTION_LEGACY_STOCK_FINALISE = 'woo_kontor_sync_stock_finalise';
 
 	/**
+	 * Drafts the articles the stock feed left out, or gives them back.
+	 *
+	 * A hook of its own rather than the one above. That one belongs to the pass 0.13.0
+	 * removed and answers it by closing the run and drafting nothing, which is the
+	 * right answer to an action queued by a version that no longer exists here — and
+	 * exactly the wrong one for an action this version queues on purpose.
+	 */
+	const ACTION_SYNC_STOCK_DRAFT = 'woo_kontor_sync_stock_draft';
+
+	/**
 	 * Entry point for the order upload sweep.
 	 */
 	const ACTION_SYNC_ORDERS = 'woo_kontor_sync_orders';
@@ -155,7 +165,7 @@ class Scheduler {
 			),
 			'stock'    => array(
 				'label'       => __( 'Stock sync', 'woo-kontor-sync-pro' ),
-				'description' => __( 'Updates stock levels for every article Kontor reports. An article the stock feed does not carry keeps the level it already had.', 'woo-kontor-sync-pro' ),
+				'description' => __( 'Updates stock levels for every article Kontor reports. An article the stock feed does not carry keeps the level it already had, unless the settings ask for those articles to be drafted.', 'woo-kontor-sync-pro' ),
 				'direction'   => __( 'From Kontor', 'woo-kontor-sync-pro' ),
 				'action'      => self::ACTION_SYNC_STOCK,
 				'setting'     => 'stock_sync_interval',
@@ -212,6 +222,7 @@ class Scheduler {
 			self::ACTION_SYNC_STOCK             => 'stock',
 			self::ACTION_SYNC_STOCK_CHUNK       => 'stock',
 			self::ACTION_LEGACY_STOCK_FINALISE  => 'stock',
+			self::ACTION_SYNC_STOCK_DRAFT       => 'stock',
 			self::ACTION_SYNC_ORDERS            => 'orders',
 			self::ACTION_SYNC_ORDERS_BATCH      => 'orders',
 			self::ACTION_SYNC_DELIVERY          => 'delivery',
@@ -237,6 +248,7 @@ class Scheduler {
 		add_action( self::ACTION_SYNC_STOCK, array( $this, 'handle_stock' ) );
 		add_action( self::ACTION_SYNC_STOCK_CHUNK, array( $this, 'handle_stock_chunk' ), 10, 2 );
 		add_action( self::ACTION_LEGACY_STOCK_FINALISE, array( $this, 'handle_legacy_stock_finalise' ), 10, 1 );
+		add_action( self::ACTION_SYNC_STOCK_DRAFT, array( $this, 'handle_stock_draft' ), 10, 1 );
 
 		add_action( self::ACTION_SYNC_ORDERS, array( $this, 'handle_orders' ) );
 		add_action( self::ACTION_SYNC_ORDERS_BATCH, array( $this, 'handle_orders_batch' ), 10, 2 );
@@ -480,6 +492,16 @@ class Scheduler {
 	 */
 	public function handle_legacy_stock_finalise( $run = 0 ) {
 		( new StockSync() )->close_legacy_run( absint( $run ) );
+	}
+
+	/**
+	 * Draft the articles the stock feed left out, or give them back.
+	 *
+	 * @param int $run Run identifier.
+	 * @return void
+	 */
+	public function handle_stock_draft( $run = 0 ) {
+		( new StockSync() )->finalise( absint( $run ) );
 	}
 
 	/**

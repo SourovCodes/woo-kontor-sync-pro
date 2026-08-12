@@ -420,15 +420,50 @@ of them wrong produces silently wrong data rather than an error:
     the run would strand the job as `running` for `Status::STALE_AFTER`. The hook name lives on as
     `Scheduler::ACTION_LEGACY_STOCK_FINALISE` so an action queued before the upgrade still closes
     its run; see the chain-ownership rule below for why an upgrade cannot be trusted to sweep it.
-  - **`apply()` never touches a product's status**, in either direction. It does not republish
-    either, so a product a person or the product sync drafted quietly keeps its level updated and
-    stays hidden.
+  - **`apply()` never touches a product's status**, in either direction, unless the drafting below
+    is switched on. It does not republish either, so a product a person or the product sync drafted
+    quietly keeps its level updated and stays hidden.
+  - **A shop can ask for the drafting back, with `Settings::DRAFT_MISSING_STOCK`
+    (`draft_missing_stock`), off by default.** The paragraph above is what a shop does unless
+    somebody decides otherwise; this is for the account where the two feeds agree, or whose ERP is
+    kept so that no stock record really does mean no longer sellable. Everything the pass needs is
+    switched on with it, and nothing when it is off — in particular the run stamp, because writing
+    one per product on a feed of three thousand articles every fifteen minutes is not a cost to
+    carry for a pass that is not going to run. Nothing is lost by that: `apply()` stamps the whole
+    feed before `finalise()` looks at anything, so the first pass after the setting is turned on
+    already sees a complete set of stamps and only drafts what the feed genuinely left out.
+    - **The marker is `_wksync_stock_drafted`, not the key this sync used before 0.13.0.** That one
+      is `ProductSync::META_LEGACY_STOCK_DRAFTED` and now means the *opposite* — a draft nothing
+      will ever clear, which the product sync therefore treats as reason enough to publish. Writing
+      it here would have every product this pass drafts republished by the next product sync.
+    - **The new marker blocks `restore_if_sync_drafted()`, exactly as the old one used to.** A shop
+      that switched the drafting on is saying an article with no stock record does not belong in the
+      shop, and the catalogue listing it again says nothing about whether Kontor holds stock of it.
+      Each sync clears only its own marker, so a product missing from both feeds stays drafted until
+      both have seen the article again.
+    - **`Scheduler::ACTION_SYNC_STOCK_DRAFT` is its own hook**, never
+      `ACTION_LEGACY_STOCK_FINALISE`. That one belongs to the removed pass and answers by closing
+      the run and drafting nothing, which is right for an action queued by a version that no longer
+      exists here and exactly wrong for one this version queues on purpose.
+    - **Turning the setting off releases what the pass drafted**, in `StockSync::finalise()`, which
+      is why the pass is entered on the setting's *current* value rather than the one the action was
+      queued under. Nothing else could: those products are absent from the stock feed by definition,
+      so `apply()` never reaches them and clearing the setting would otherwise leave them hidden for
+      good. Both halves are batched at `FINALISE_BATCH` and chained, and each chains again only when
+      it actually changed something, so a batch of products `wc_get_product()` cannot load stops
+      rather than repeating for ever.
+    - **A run with the setting off still asks whether there is anything to release**, once, with a
+      single-row indexed lookup in `has_stock_drafts()`. On the overwhelmingly common path there is
+      none and the last chunk closes the run directly, which is 0.13.0's behaviour.
+    - **The summary only mentions drafting when there was some**, so a shop that leaves the setting
+      alone reads the same sentence it read before the setting existed.
   - **`ProductSync::META_LEGACY_STOCK_DRAFTED` is `_wksync_drafted_by_stock` kept alive to undo it.**
     Nothing writes it. Every product still carrying it is hidden for a reason nothing would ever
     clear again, so `restore_if_sync_drafted()` treats it as spent: on its own it is enough to
     republish, and it is cleared alongside this sync's own markers the next time the catalogue lists
     the article. It is *not* a blocker any more — that check is what used to hold a product drafted
-    until both feeds agreed. Drop the constant when no shop upgrading from before 0.13.0 is left.
+    until both feeds agreed, and `StockSync::META_STOCK_DRAFTED` is what does it now, for the shops
+    that ask. Drop the constant when no shop upgrading from before 0.13.0 is left.
   - **An empty response finishes the run early.** `start()` returns before queuing anything on no
     rows. It mattered far more when finalise existed — it was the guard against an authentication
     failure drafting the whole catalogue — but it still avoids a pointless chain.

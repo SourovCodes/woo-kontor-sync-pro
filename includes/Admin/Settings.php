@@ -62,6 +62,22 @@ class Settings {
 	const ENFORCE_QUANTITIES = 'enforce_order_quantities';
 
 	/**
+	 * Setting deciding whether the stock sync drafts what its feed leaves out.
+	 *
+	 * Off by default, like every other setting here that changes what the shop does.
+	 * The stock sync drafted these articles until 0.13.0, which stopped: Kontor's
+	 * stock list is narrower than its catalogue, so absence from it is a routine gap
+	 * rather than a verdict, and treating it as one took a fifth of the catalogue out
+	 * of the shop on a single run. That is still the default, and this is for the shop
+	 * whose ERP means something stricter by it.
+	 *
+	 * Turning it off again does not leave the products it drafted stranded. They are
+	 * absent from the feed by definition, so nothing in apply() will ever see them —
+	 * StockSync::finalise() releases them instead.
+	 */
+	const DRAFT_MISSING_STOCK = 'draft_missing_stock';
+
+	/**
 	 * Hook suffix of the settings screen, used to scope asset loading.
 	 *
 	 * @var string
@@ -102,21 +118,22 @@ class Settings {
 	 */
 	public static function default_settings() {
 		return array(
-			'api_base_url'           => 'https://sp3api.kontor-crm.de/api/v1/kontor',
-			'api_key'                => '',
-			'shoptype'               => 'B2B',
-			'shop_id'                => '',
-			'shop_name'              => '',
-			'manufacturer_ids'       => array(),
-			'manufacturer_names'     => array(),
-			'image_base_url'         => '',
-			'require_main_image'     => false,
-			self::ENFORCE_QUANTITIES => false,
-			'product_sync_interval'  => self::INTERVAL_NEVER,
-			'stock_sync_interval'    => self::INTERVAL_NEVER,
-			'order_sync_interval'    => self::INTERVAL_NEVER,
-			'delivery_sync_interval' => self::INTERVAL_NEVER,
-			'invoice_sync_interval'  => self::INTERVAL_NEVER,
+			'api_base_url'            => 'https://sp3api.kontor-crm.de/api/v1/kontor',
+			'api_key'                 => '',
+			'shoptype'                => 'B2B',
+			'shop_id'                 => '',
+			'shop_name'               => '',
+			'manufacturer_ids'        => array(),
+			'manufacturer_names'      => array(),
+			'image_base_url'          => '',
+			'require_main_image'      => false,
+			self::ENFORCE_QUANTITIES  => false,
+			self::DRAFT_MISSING_STOCK => false,
+			'product_sync_interval'   => self::INTERVAL_NEVER,
+			'stock_sync_interval'     => self::INTERVAL_NEVER,
+			'order_sync_interval'     => self::INTERVAL_NEVER,
+			'delivery_sync_interval'  => self::INTERVAL_NEVER,
+			'invoice_sync_interval'   => self::INTERVAL_NEVER,
 		);
 	}
 
@@ -362,21 +379,22 @@ class Settings {
 		$manufacturers = $this->pick_manufacturers( $input, $existing );
 
 		return array(
-			'api_base_url'           => isset( $input['api_base_url'] ) ? esc_url_raw( trim( $input['api_base_url'] ) ) : '',
-			'api_key'                => '' === $submitted_key ? $existing['api_key'] : $submitted_key,
-			'shoptype'               => array_key_exists( $shoptype, self::shoptypes() ) ? $shoptype : $existing['shoptype'],
-			'shop_id'                => $shop['shop_id'],
-			'shop_name'              => $shop['shop_name'],
-			'manufacturer_ids'       => $manufacturers['manufacturer_ids'],
-			'manufacturer_names'     => $manufacturers['manufacturer_names'],
-			'image_base_url'         => isset( $input['image_base_url'] ) ? esc_url_raw( trim( $input['image_base_url'] ) ) : '',
-			'require_main_image'     => $this->pick_toggle( $input, 'require_main_image', $existing ),
-			self::ENFORCE_QUANTITIES => $this->pick_toggle( $input, self::ENFORCE_QUANTITIES, $existing ),
-			'product_sync_interval'  => $this->pick_interval( $input, 'product_sync_interval', self::product_sync_intervals(), $existing ),
-			'stock_sync_interval'    => $this->pick_interval( $input, 'stock_sync_interval', self::stock_sync_intervals(), $existing ),
-			'order_sync_interval'    => $this->pick_interval( $input, 'order_sync_interval', self::order_sync_intervals(), $existing ),
-			'delivery_sync_interval' => $this->pick_interval( $input, 'delivery_sync_interval', self::delivery_sync_intervals(), $existing ),
-			'invoice_sync_interval'  => $this->pick_interval( $input, 'invoice_sync_interval', self::invoice_sync_intervals(), $existing ),
+			'api_base_url'            => isset( $input['api_base_url'] ) ? esc_url_raw( trim( $input['api_base_url'] ) ) : '',
+			'api_key'                 => '' === $submitted_key ? $existing['api_key'] : $submitted_key,
+			'shoptype'                => array_key_exists( $shoptype, self::shoptypes() ) ? $shoptype : $existing['shoptype'],
+			'shop_id'                 => $shop['shop_id'],
+			'shop_name'               => $shop['shop_name'],
+			'manufacturer_ids'        => $manufacturers['manufacturer_ids'],
+			'manufacturer_names'      => $manufacturers['manufacturer_names'],
+			'image_base_url'          => isset( $input['image_base_url'] ) ? esc_url_raw( trim( $input['image_base_url'] ) ) : '',
+			'require_main_image'      => $this->pick_toggle( $input, 'require_main_image', $existing ),
+			self::ENFORCE_QUANTITIES  => $this->pick_toggle( $input, self::ENFORCE_QUANTITIES, $existing ),
+			self::DRAFT_MISSING_STOCK => $this->pick_toggle( $input, self::DRAFT_MISSING_STOCK, $existing ),
+			'product_sync_interval'   => $this->pick_interval( $input, 'product_sync_interval', self::product_sync_intervals(), $existing ),
+			'stock_sync_interval'     => $this->pick_interval( $input, 'stock_sync_interval', self::stock_sync_intervals(), $existing ),
+			'order_sync_interval'     => $this->pick_interval( $input, 'order_sync_interval', self::order_sync_intervals(), $existing ),
+			'delivery_sync_interval'  => $this->pick_interval( $input, 'delivery_sync_interval', self::delivery_sync_intervals(), $existing ),
+			'invoice_sync_interval'   => $this->pick_interval( $input, 'invoice_sync_interval', self::invoice_sync_intervals(), $existing ),
 		);
 	}
 
@@ -1285,6 +1303,39 @@ class Settings {
 							</p>
 							<p class="description">
 								<?php echo esc_html__( 'Both figures are shown on each product\'s Inventory tab, where they are read-only: Kontor supplies them and every sync rewrites them, so they are changed in the ERP.', 'woo-kontor-sync-pro' ); ?>
+							</p>
+						</td>
+					</tr>
+					<tr>
+						<th scope="row"><?php echo esc_html__( 'Articles without stock records', 'woo-kontor-sync-pro' ); ?></th>
+						<td>
+							<?php
+							/*
+							 * Paired with a hidden zero for the same reason as the two above: a
+							 * browser sends nothing for a cleared checkbox, and an absent field
+							 * has to keep the stored value.
+							 */
+							?>
+							<input type="hidden" name="<?php echo esc_attr( self::OPTION_KEY ); ?>[<?php echo esc_attr( self::DRAFT_MISSING_STOCK ); ?>]" value="0" />
+							<label for="wksync-draft-missing-stock">
+								<input
+									type="checkbox"
+									id="wksync-draft-missing-stock"
+									name="<?php echo esc_attr( self::OPTION_KEY ); ?>[<?php echo esc_attr( self::DRAFT_MISSING_STOCK ); ?>]"
+									value="1"
+									<?php checked( ! empty( $settings[ self::DRAFT_MISSING_STOCK ] ) ); ?>
+								/>
+								<?php echo esc_html__( 'Draft imported products the stock feed does not carry', 'woo-kontor-sync-pro' ); ?>
+							</label>
+							<p class="description">
+								<?php echo esc_html__( 'Kontor\'s stock list is narrower than its catalogue: it holds no record at all for some articles the catalogue lists. Left clear, those products keep the level they last had and stay published, and whether Kontor still sells an article is left to the product sync to answer.', 'woo-kontor-sync-pro' ); ?>
+							</p>
+							<p class="description">
+								<strong><?php echo esc_html__( 'Ticking this hides a large part of the catalogue.', 'woo-kontor-sync-pro' ); ?></strong>
+								<?php echo esc_html__( 'On the account this was built against the catalogue lists 4386 articles and the stock feed carries 2945, so the first run after ticking it drafts some 1400 products. Each one comes back by itself as soon as a stock level for it arrives again.', 'woo-kontor-sync-pro' ); ?>
+							</p>
+							<p class="description">
+								<?php echo esc_html__( 'Clearing it again republishes what it drafted, on the next stock sync — unless the product sync is holding the product back for its own reason.', 'woo-kontor-sync-pro' ); ?>
 							</p>
 						</td>
 					</tr>

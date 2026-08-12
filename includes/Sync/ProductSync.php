@@ -887,6 +887,12 @@ class ProductSync {
 	 * hidden for a reason that no longer exists, and the next run of this sync is what
 	 * puts it back on the shelf.
 	 *
+	 * Its *current* marker is the opposite, and blocks. A shop that has switched the
+	 * drafting back on is saying that an article with no stock record does not belong
+	 * in the shop, and the catalogue listing the article again says nothing about
+	 * whether Kontor holds any stock of it. That marker is left for the stock sync to
+	 * clear when a level arrives, exactly as this sync's markers are left for this one.
+	 *
 	 * @param WC_Product_Simple $product Existing product.
 	 * @return bool True when the product changed and therefore needs saving.
 	 */
@@ -917,6 +923,15 @@ class ProductSync {
 
 		if ( empty( $reasons ) ) {
 			return false;
+		}
+
+		if ( $product->get_meta( StockSync::META_STOCK_DRAFTED ) ) {
+			$this->log(
+				'info',
+				sprintf( 'Article %s is importable again, but has no stock record; leaving it drafted.', $product->get_sku() )
+			);
+
+			return true;
 		}
 
 		$product->set_status( 'publish' );
