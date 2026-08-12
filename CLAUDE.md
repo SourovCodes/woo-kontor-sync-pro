@@ -411,6 +411,27 @@ of them wrong produces silently wrong data rather than an error:
     an article Kontor holds no stock record for is not one the shop can sell — but it is a fifth of
     the published catalogue going dark on a single run, so it is said out loud in the job
     description on the settings screen rather than left to be discovered.
+  - **That drafting is what `Settings::DRAFT_MISSING_STOCK` (`draft_missing_stock`) turns off**, and
+    it is the one setting here that defaults to **on**. It is not a new behaviour being offered but
+    an old one being made optional: defaulting it to off would change what every existing shop does
+    on the day it updates, silently leaving articles Kontor holds no stock record for on sale. A
+    settings array that omits the key is read as on too (`StockSync::drafts_missing_articles()`), so
+    passing settings in rather than reading them cannot turn the drafting off by accident.
+  - **Turned off, the finalising pass releases this sync's drafts instead of adding to them**
+    (`StockSync::release_stock_drafts()`). Nothing else could: a product drafted for missing the
+    stock feed is by definition absent from that feed, so `apply()` never reaches it and
+    `restore_if_stock_drafted()` is never called for it — without the release pass, clearing the
+    setting would leave everything it had already drafted hidden for good. The pass is batched and
+    chained like the drafting one, because a shop clearing the setting after a first run has
+    upwards of a thousand products to give back.
+    - `StockSync::release()` is the shared half of both routes out of a draft of ours: the marker
+      goes either way, because this sync's reason has gone, but the product is only republished
+      when it is the last reason left. The product sync's two markers are a different feed's
+      verdict and are never cleared here.
+    - The release query finds drafts by the marker, and the marker is deleted on everything it
+      loads, so each pass makes progress. It chains again only when the batch was full **and**
+      something was actually cleared — a batch of products `wc_get_product()` cannot load would
+      otherwise be found again for ever.
   - Staleness is the same mechanism as the product walk: `StockSync::META_STOCK_AT` records the run
     that last saw the article, and finalise drafts anything carrying `ProductSync::META_SYNCED_AT`
     — the marker for "this plugin imported this" — whose stock stamp is older or absent. **The

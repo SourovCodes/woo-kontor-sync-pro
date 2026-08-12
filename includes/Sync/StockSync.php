@@ -29,6 +29,11 @@ defined( 'ABSPATH' ) || exit;
  * product sync gives an article Kontor drops from the catalogue. The two are
  * tracked separately, because they are separate reasons to hide a product and
  * either one going away must not undo the other.
+ *
+ * That drafting is what Settings::DRAFT_MISSING_STOCK turns off. With it off the
+ * finalising pass releases the products this sync drafted instead of adding to
+ * them: they are absent from the feed by definition, so apply() will never reach
+ * them and nothing else would ever give them back.
  */
 class StockSync {
 
@@ -281,29 +286,63 @@ class StockSync {
 	 * both feeds carries both markers and stays drafted until each sync has seen the
 	 * article again — clearing only our own marker is what makes that work.
 	 *
+	 * A product carrying the marker that is no longer a draft was republished by hand
+	 * between the two runs. The marker is stale and is dropped rather than left: it
+	 * outlives the draft it describes, and ProductSync::restore_if_sync_drafted()
+	 * reads it as this feed still having nothing for the article — so a stale one
+	 * keeps a product drafted, months later, for a stock level that has been arriving
+	 * all along.
+	 *
 	 * @param \WC_Product $product Product being updated.
 	 * @return bool True when the product was republished.
 	 */
 	protected function restore_if_stock_drafted( $product ) {
-		if ( 'draft' !== $product->get_status() || ! $product->get_meta( self::META_STOCK_DRAFTED ) ) {
+		if ( ! $product->get_meta( self::META_STOCK_DRAFTED ) ) {
 			return false;
 		}
 
-		$product->delete_meta_data( self::META_STOCK_DRAFTED );
+		if ( 'draft' !== $product->get_status() ) {
+			$product->delete_meta_data( self::META_STOCK_DRAFTED );
 
-		if ( $product->get_meta( ProductSync::META_SYNC_DRAFTED ) ) {
 			$this->log(
 				'info',
-				sprintf( 'Article %s has a stock level again, but Kontor still does not list it in the catalogue; leaving it drafted.', $product->get_sku() )
+				sprintf( 'Cleared the stock draft marker on article %s: it has a stock level and is no longer a draft.', $product->get_sku() )
 			);
 
 			return false;
 		}
 
-		if ( $product->get_meta( ProductSync::META_NO_IMAGE_DRAFTED ) ) {
+		return $this->release( $product, 'Kontor reports a stock level for it again' );
+	}
+
+	/**
+	 * Drop this sync's draft marker and republish, unless something else holds it back.
+	 *
+	 * Shared by the two ways a draft of ours can end: the article returning to the
+	 * feed, and the shop deciding it no longer wants absent articles drafted at all.
+	 * The marker goes either way — the reason this sync drafted the product has gone —
+	 * but the product only comes back when it is the last reason left. The product
+	 * sync's markers are a different feed's verdict and are never cleared here.
+	 *
+	 * @param \WC_Product $product Product carrying this sync's draft marker.
+	 * @param string      $because Why it is being released, for the log.
+	 * @return bool True when the product was republished.
+	 */
+	protected function release( $product, $because ) {
+		$product->delete_meta_data( self::META_STOCK_DRAFTED );
+
+		$blocker = '';
+
+		if ( $product->get_meta( ProductSync::META_SYNC_DRAFTED ) ) {
+			$blocker = 'Kontor still does not list it in the catalogue';
+		} elseif ( $product->get_meta( ProductSync::META_NO_IMAGE_DRAFTED ) ) {
+			$blocker = 'Kontor lists no image for it';
+		}
+
+		if ( '' !== $blocker ) {
 			$this->log(
 				'info',
-				sprintf( 'Article %s has a stock level again, but Kontor lists no image for it; leaving it drafted.', $product->get_sku() )
+				sprintf( 'Article %1$s is no longer held back by the stock feed (%2$s), but %3$s; leaving it drafted.', $product->get_sku(), $because, $blocker )
 			);
 
 			return false;
@@ -311,7 +350,7 @@ class StockSync {
 
 		$product->set_status( 'publish' );
 
-		$this->log( 'info', sprintf( 'Republished article %s: Kontor reports a stock level for it again.', $product->get_sku() ) );
+		$this->log( 'info', sprintf( 'Republished article %1$s: %2$s.', $product->get_sku(), $because ) );
 
 		return true;
 	}
@@ -410,12 +449,21 @@ class StockSync {
 	 * marker for "this plugin imported this product", so a shop manager's own product
 	 * is never drafted for being absent from a feed it was never part of.
 	 *
+	 * The whole pass is what Settings::DRAFT_MISSING_STOCK governs. Turned off, it
+	 * releases this sync's own drafts rather than drafting anything.
+	 *
 	 * @param int $run Run identifier.
 	 * @return void
 	 */
 	public function finalise( $run ) {
 		if ( ! Status::is_current_run( self::JOB, $run ) ) {
 			$this->log( 'info', sprintf( 'Discarding stock finalise pass: run %d has been superseded.', $run ) );
+
+			return;
+		}
+
+		if ( ! $this->drafts_missing_articles() ) {
+			$this->release_stock_drafts( $run );
 
 			return;
 		}
@@ -472,6 +520,94 @@ class StockSync {
 
 		// A full batch means there may be more; come back for another pass.
 		if ( count( $stale ) === self::FINALISE_BATCH ) {
+			Scheduler::chain( Scheduler::ACTION_SYNC_STOCK_FINALISE, array( 'run' => $run ) );
+
+			return;
+		}
+
+		$this->complete( $run );
+	}
+
+	/**
+	 * Whether the shop wants articles missing from the stock feed drafted.
+	 *
+	 * On unless the setting says otherwise, including when it is absent entirely: the
+	 * settings array is merged over the defaults everywhere it comes from the option,
+	 * so an absent key means a hand-built array rather than a shop that chose. Reading
+	 * that as "off" would turn the drafting off wherever the settings were passed in
+	 * rather than read.
+	 *
+	 * @return bool True when finalise() should draft.
+	 */
+	protected function drafts_missing_articles() {
+		return ! isset( $this->settings[ Settings::DRAFT_MISSING_STOCK ] )
+			|| ! empty( $this->settings[ Settings::DRAFT_MISSING_STOCK ] );
+	}
+
+	/**
+	 * Give back the products this sync drafted, then close the run.
+	 *
+	 * Runs in place of the drafting pass when the shop has turned the drafting off.
+	 * It is not housekeeping that could be left for later: a product drafted for
+	 * missing the stock feed is not in the stock feed, so apply() never sees it and
+	 * restore_if_stock_drafted() is never reached for it. Without this pass, turning
+	 * the setting off would leave every product it had already drafted hidden for
+	 * good.
+	 *
+	 * Batched and chained exactly like the drafting pass, and for the same reason: a
+	 * shop turning this off after a first run has upwards of a thousand products to
+	 * republish.
+	 *
+	 * @param int $run Run identifier.
+	 * @return void
+	 */
+	protected function release_stock_drafts( $run ) {
+		$held = get_posts(
+			array(
+				'post_type'        => 'product',
+				'post_status'      => 'draft',
+				'posts_per_page'   => self::FINALISE_BATCH,
+				'fields'           => 'ids',
+				'suppress_filters' => false,
+
+				// phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query -- Runs in a background job; the marker is the only record of which drafts are ours.
+				'meta_query'       => array(
+					array(
+						'key'     => self::META_STOCK_DRAFTED,
+						'compare' => 'EXISTS',
+					),
+				),
+			)
+		);
+
+		$cleared  = 0;
+		$restored = 0;
+
+		foreach ( $held as $product_id ) {
+			$product = wc_get_product( $product_id );
+
+			if ( ! $product ) {
+				continue;
+			}
+
+			if ( $this->release( $product, 'this shop no longer drafts articles the stock feed leaves out' ) ) {
+				++$restored;
+			}
+
+			// Saved whether or not it was republished: the marker has gone either way,
+			// and it is the marker that keeps this query returning the product.
+			$product->save();
+			++$cleared;
+		}
+
+		Status::progress( self::JOB, array( 'restored' => $restored ) );
+
+		/*
+		 * A full batch means there may be more. Nothing cleared means the whole batch
+		 * was products that could not be loaded, which the next pass would find again —
+		 * so stop rather than chain forever.
+		 */
+		if ( count( $held ) === self::FINALISE_BATCH && $cleared > 0 ) {
 			Scheduler::chain( Scheduler::ACTION_SYNC_STOCK_FINALISE, array( 'run' => $run ) );
 
 			return;

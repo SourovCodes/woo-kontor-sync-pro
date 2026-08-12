@@ -145,7 +145,7 @@ class Scheduler {
 			),
 			'stock'    => array(
 				'label'       => __( 'Stock sync', 'woo-kontor-sync-pro' ),
-				'description' => __( 'Updates stock levels for every article Kontor reports. Imported products the stock feed no longer carries are drafted, and republished when they return.', 'woo-kontor-sync-pro' ),
+				'description' => __( 'Updates stock levels for every article Kontor reports. Unless the setting is cleared, imported products the stock feed no longer carries are drafted, and republished when they return.', 'woo-kontor-sync-pro' ),
 				'direction'   => __( 'From Kontor', 'woo-kontor-sync-pro' ),
 				'action'      => self::ACTION_SYNC_STOCK,
 				'setting'     => 'stock_sync_interval',
