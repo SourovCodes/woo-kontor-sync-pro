@@ -93,13 +93,26 @@ class ProductImageRequirementTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * An article Kontor lists no image for is not created.
+	 * An article Kontor lists no image for is imported as a draft.
+	 *
+	 * Created rather than passed over: the shop then holds the whole catalogue, and a
+	 * picture arriving is one status change away from putting the article on sale
+	 * rather than a full import.
 	 *
 	 * @return void
 	 */
-	public function test_imageless_article_is_not_imported() {
+	public function test_imageless_article_is_imported_as_a_draft() {
 		$this->assertSame( 'no_image', $this->sync()->import_article( $this->article(), 1000 ) );
-		$this->assertSame( 0, wc_get_product_id_by_sku( 'abel-AB12' ) );
+
+		$product = wc_get_product( wc_get_product_id_by_sku( 'abel-AB12' ) );
+
+		$this->assertInstanceOf( 'WC_Product', $product );
+		$this->assertSame( 'draft', $product->get_status() );
+		$this->assertSame( '1', (string) $product->get_meta( ProductSync::META_NO_IMAGE_DRAFTED ) );
+
+		// Imported in full, so nothing is missing when the picture arrives.
+		$this->assertSame( 'Abel blocks 12', $product->get_name() );
+		$this->assertSame( '1000', (string) $product->get_meta( ProductSync::META_SYNCED_AT ) );
 	}
 
 	/**
@@ -344,7 +357,7 @@ class ProductImageRequirementTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * The run summary says how many articles were passed over.
+	 * The run summary says how many articles were held back.
 	 *
 	 * @return void
 	 */
@@ -362,7 +375,7 @@ class ProductImageRequirementTest extends WP_UnitTestCase {
 
 		$sync->finalise( $run );
 
-		$this->assertStringContainsString( 'Passed over 7 with no image.', Status::get( ProductSync::JOB )['message'] );
+		$this->assertStringContainsString( 'Held 7 back as drafts for having no image.', Status::get( ProductSync::JOB )['message'] );
 	}
 
 	/**

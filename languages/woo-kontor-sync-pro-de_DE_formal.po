@@ -533,7 +533,7 @@ msgid "No Kontor shop has been selected. Choose one on the settings screen befor
 msgstr "Es wurde kein Kontor-Shop ausgewählt. Wählen Sie auf der Einstellungsseite einen aus, bevor Sie Bestellungen synchronisieren."
 
 #. translators: 1: created count, 2: updated count, 3: unchanged count, 4: drafted count.
-#: includes/Sync/ProductSync.php:429
+#: includes/Sync/ProductSync.php:441
 #, php-format
 msgid "%1$d created, %2$d updated, %3$d unchanged, %4$d drafted."
 msgstr "%1$d erstellt, %2$d aktualisiert, %3$d unverändert, %4$d auf Entwurf gesetzt."
@@ -790,7 +790,7 @@ msgid "The run stopped because a background task ended unexpectedly: %s"
 msgstr "Der Durchlauf wurde abgebrochen, weil eine Hintergrundaufgabe unerwartet beendet wurde: %s"
 
 #. translators: 1: articles with no article number, 2: articles whose article number matched more than one product.
-#: includes/Sync/ProductSync.php:463
+#: includes/Sync/ProductSync.php:491
 #, php-format
 msgid "Passed over %1$d with no article number and %2$d matching more than one product; see the log."
 msgstr "%1$d ohne Artikelnummer und %2$d mit mehr als einem passenden Produkt übersprungen; siehe Log."
@@ -880,12 +880,6 @@ msgstr "Das setzt bereits importierte Produkte auf Entwurf."
 msgid "A product this plugin imported whose article now arrives without an image is drafted, exactly as one Kontor stopped listing is. It is republished by itself as soon as the article has an image again, or when this setting is turned off."
 msgstr "Ein von diesem Plugin importiertes Produkt, dessen Artikel jetzt ohne Bild ankommt, wird auf Entwurf gesetzt – genau wie eines, das Kontor nicht mehr führt. Es wird von selbst wieder veröffentlicht, sobald der Artikel wieder ein Bild hat oder diese Einstellung ausgeschaltet wird."
 
-#. translators: %d: number of articles Kontor listed no image for.
-#: includes/Sync/ProductSync.php:447
-#, php-format
-msgid "Passed over %d with no image."
-msgstr "%d ohne Bild übergangen."
-
 #: includes/Admin/Settings.php:1092
 msgid "B2B also imports the retail price as a recommended retail price, stored on each product as _wksync_msrp. It is the figure a business can resell at, and it is left off any article Kontor lists no retail price for."
 msgstr "Der Shoptyp B2B importiert zusätzlich den Endkundenpreis als unverbindliche Preisempfehlung und speichert ihn an jedem Produkt als _wksync_msrp. Es ist der Preis, zu dem ein Unternehmen die Ware weiterverkaufen kann; bei Artikeln, für die Kontor keinen Endkundenpreis führt, entfällt er."
@@ -951,7 +945,7 @@ msgid "Both figures are shown on each product's Inventory tab, where they are re
 msgstr "Beide Werte werden im Reiter „Lagerbestand“ jedes Produkts angezeigt, dort aber nur lesend: Kontor liefert sie und jede Synchronisation schreibt sie neu, geändert werden sie also im ERP."
 
 #. translators: 1: products updated, 2: article numbers with no matching product, 3: products left alone because they do not manage stock.
-#: includes/Sync/StockSync.php:714
+#: includes/Sync/StockSync.php:717
 #, php-format
 msgid "%1$d products updated, %2$d article numbers had no matching SKU, %3$d skipped as not stock-managed."
 msgstr "%1$d Produkte aktualisiert, %2$d Artikelnummern ohne passende SKU, %3$d übersprungen, da ohne Bestandsverwaltung."
@@ -985,7 +979,19 @@ msgid "Updates stock levels for every article Kontor reports. An article the sto
 msgstr "Aktualisiert die Lagerbestände für jeden von Kontor gemeldeten Artikel. Ein Artikel, den der Bestandsfeed nicht enthält, behält den Bestand, den er bereits hatte – es sei denn, die Einstellungen verlangen, solche Artikel auf Entwurf zu setzen."
 
 #. translators: 1: products drafted for having no stock record, 2: products published again.
-#: includes/Sync/StockSync.php:731
+#: includes/Sync/StockSync.php:734
 #, php-format
 msgid "%1$d drafted for having no stock record, %2$d republished."
 msgstr "%1$d mangels Bestandssatz auf Entwurf gesetzt, %2$d erneut veröffentlicht."
+
+#. translators: %d: number of articles Kontor listed no image for.
+#: includes/Sync/ProductSync.php:459
+#, php-format
+msgid "Held %d back as drafts for having no image."
+msgstr "%d mangels Bild als Entwurf zurückgehalten."
+
+#. translators: %d: number of articles Kontor has switched off for the webshop.
+#: includes/Sync/ProductSync.php:475
+#, php-format
+msgid "Held %d back as drafts, switched off for the webshop in Kontor."
+msgstr "%d als Entwurf zurückgehalten, im Kontor für den Webshop deaktiviert."

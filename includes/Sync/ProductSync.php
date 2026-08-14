@@ -161,6 +161,17 @@ class ProductSync {
 	const META_NO_IMAGE_DRAFTED = '_wksync_drafted_no_image';
 
 	/**
+	 * Marks a product this sync drafted for arriving switched off for the webshop.
+	 *
+	 * Its own marker, for the same reason META_NO_IMAGE_DRAFTED is: it means "Kontor
+	 * lists this article and does not want it sold here", which clears the moment
+	 * Ws_aktiv comes back true and at no other moment. Sharing a marker with either of
+	 * the others would let one sync's reason going away republish a product the shop
+	 * has been told to keep off the shelf.
+	 */
+	const META_INACTIVE_DRAFTED = '_wksync_drafted_inactive';
+
+	/**
 	 * Marks a product the stock sync drafted, before it stopped drafting anything.
 	 *
 	 * The stock feed is narrower than the catalogue, so that pass took a fifth of the
@@ -307,6 +318,7 @@ class ProductSync {
 			'skipped'       => 0,
 			'no_sku'        => 0,
 			'no_image'      => 0,
+			'inactive'      => 0,
 			'duplicate_sku' => 0,
 			'failed'        => 0,
 		);
@@ -444,8 +456,24 @@ class ProductSync {
 		if ( $no_image > 0 ) {
 			$message .= ' ' . sprintf(
 				/* translators: %d: number of articles Kontor listed no image for. */
-				__( 'Passed over %d with no image.', 'woo-kontor-sync-pro' ),
+				__( 'Held %d back as drafts for having no image.', 'woo-kontor-sync-pro' ),
 				$no_image
+			);
+		}
+
+		$inactive = isset( $counts['inactive'] ) ? (int) $counts['inactive'] : 0;
+
+		/*
+		 * Said out loud because it is the one number here nobody chose: the shop turned
+		 * on no setting to get it, and a fifth of a catalogue can arrive switched off.
+		 * Without the line, a run that held hundreds of articles back reads exactly like
+		 * a run that found hundreds fewer articles to import.
+		 */
+		if ( $inactive > 0 ) {
+			$message .= ' ' . sprintf(
+				/* translators: %d: number of articles Kontor has switched off for the webshop. */
+				__( 'Held %d back as drafts, switched off for the webshop in Kontor.', 'woo-kontor-sync-pro' ),
+				$inactive
 			);
 		}
 
@@ -526,21 +554,35 @@ class ProductSync {
 		$existing   = $product_id ? wc_get_product( $product_id ) : null;
 
 		/*
-		 * Checked before the unchanged-article shortcut below, not after. An article
-		 * that has not moved since the last run is exactly the case this has to catch:
-		 * turning the requirement on has to take effect on the next run rather than
-		 * waiting for every article in the shop to change.
+		 * Whether anything is holding this article out of the shop, asked before the
+		 * unchanged-article shortcut below rather than after. An article that has not
+		 * moved in any other respect is exactly the case this has to catch: Ws_aktiv is
+		 * not part of the change hash, and turning the image requirement on has to take
+		 * effect on the next run rather than waiting for every article in the shop to
+		 * change.
 		 */
-		if ( $this->image_withheld( $row ) ) {
-			return $this->withhold( $existing, $sku, $run );
+		$withheld = $this->withheld_reason( $row );
+
+		/*
+		 * A product this plugin never imported is left entirely alone — neither drafted
+		 * nor rewritten. A shop manager's own product answering to the same article
+		 * number was never ours to unpublish, and adopting it here would only mean
+		 * drafting it on the run after this one.
+		 */
+		if ( '' !== $withheld && $existing && '' === (string) $existing->get_meta( self::META_SYNCED_AT ) ) {
+			return $withheld;
 		}
 
-		$hash     = $this->hash( $row );
-		$restored = $existing ? $this->restore_if_sync_drafted( $existing ) : false;
+		$hash = $this->hash( $row );
+
+		// Exactly one of these can apply: either something is holding the article back
+		// or nothing is.
+		$restored = ( '' === $withheld && $existing ) ? $this->restore_if_sync_drafted( $existing ) : false;
+		$held     = ( '' !== $withheld && $existing ) ? $this->hold_back( $existing, $sku, $withheld ) : false;
 
 		// Nothing changed since the last run, so only refresh the run stamp. Writing
 		// just the meta avoids a full product save for every unchanged article.
-		if ( $existing && ! $restored && $hash === (string) $existing->get_meta( self::META_HASH ) ) {
+		if ( $existing && ! $restored && ! $held && $hash === (string) $existing->get_meta( self::META_HASH ) ) {
 			$existing->update_meta_data( self::META_SYNCED_AT, $run );
 			$existing->save_meta_data();
 
@@ -552,7 +594,7 @@ class ProductSync {
 			 */
 			$this->queue_images( $existing->get_id(), $row, $run );
 
-			return 'skipped';
+			return '' === $withheld ? 'skipped' : $withheld;
 		}
 
 		$product   = $existing ? $existing : new WC_Product_Simple();
@@ -560,10 +602,25 @@ class ProductSync {
 
 		if ( $is_create ) {
 			$product->set_sku( $sku );
-
-			// New articles go live; anything Kontor drops is drafted in finalise().
-			$product->set_status( 'publish' );
 			$product->set_catalog_visibility( 'visible' );
+
+			/*
+			 * A new article goes live unless something is holding it back, and then it is
+			 * created as a draft rather than not created at all. The shop ends up holding
+			 * the whole catalogue, priced, stocked and pictured, with the part it may not
+			 * sell sitting one status change away — which is what makes the article
+			 * appearing in the shop the moment Kontor switches it on possible.
+			 */
+			$product->set_status( '' === $withheld ? 'publish' : 'draft' );
+
+			if ( '' !== $withheld ) {
+				$product->update_meta_data( $this->marker_for( $withheld ), 1 );
+
+				$this->log(
+					'info',
+					sprintf( 'Created article %1$s as a draft: %2$s.', $sku, $this->reason_for( $withheld ) )
+				);
+			}
 		}
 
 		$this->apply_fields( $product, $row );
@@ -582,7 +639,18 @@ class ProductSync {
 
 		Brands::assign( $saved_id, $this->text( $row, 'Hersteller', '' ), $this->text( $row, 'Herstellerid', '' ) );
 
+		/*
+		 * A withheld product is pictured like any other. It is in the shop, a shop
+		 * manager opening it should see the article rather than a placeholder, and one
+		 * switched on tomorrow goes in front of customers complete instead of bare while
+		 * its downloads catch up. Images are the one thing this plugin queues below
+		 * everything else, so the extra work cannot delay a sync that matters.
+		 */
 		$this->queue_images( $saved_id, $row, $run );
+
+		if ( '' !== $withheld ) {
+			return $withheld;
+		}
 
 		return $is_create ? 'created' : 'updated';
 	}
@@ -666,7 +734,7 @@ class ProductSync {
 	 * entire catalogue.
 	 *
 	 * @param array $row Article row from the API.
-	 * @return bool True when the article must not be imported.
+	 * @return bool True when the article must not go on sale.
 	 */
 	protected function image_withheld( array $row ) {
 		if ( empty( $this->settings['require_main_image'] ) ) {
@@ -698,61 +766,140 @@ class ProductSync {
 	}
 
 	/**
-	 * Pass over an imageless article, drafting anything already imported for it.
+	 * Whether Kontor has switched this article off for the webshop.
 	 *
-	 * Drafted rather than deleted, matching every other reason this plugin takes a
-	 * product out of the shop: an article that gains a picture tomorrow comes straight
-	 * back, and nothing a shop has built around the product — its URL, its reviews, its
-	 * place in an order — is destroyed by a feed that was briefly incomplete.
+	 * Ws_aktiv is the ERP saying whether an article belongs in the shop at all, and it
+	 * is not a small number: 827 of the 4386 articles on the account this was built
+	 * against arrive false. It is a real boolean there, present on every row.
 	 *
-	 * Only products this plugin imported are touched, which META_SYNCED_AT is the
-	 * marker for. A shop manager's own product answering to the same article number was
-	 * never ours to unpublish, and drafting it would be this setting reaching past the
-	 * catalogue it governs.
+	 * Only a value that unmistakably reads as false withholds the article. A missing
+	 * key, a null, or a word this does not recognise is treated as active, because the
+	 * two ways of being wrong are not equal — reading "active" as "inactive" takes a
+	 * fifth of the shop dark on the strength of a field that changed shape, while the
+	 * reverse leaves a handful of articles on sale until somebody notices.
 	 *
-	 * @param \WC_Product|null $existing Product already holding the article number.
-	 * @param string           $sku      Article number, for the log.
-	 * @param int              $run      Run identifier.
-	 * @return string Always "no_image".
+	 * @param array $row Article row from the API.
+	 * @return bool True when the article must not be sold here.
 	 */
-	protected function withhold( $existing, $sku, $run ) {
-		if ( ! $existing || '' === (string) $existing->get_meta( self::META_SYNCED_AT ) ) {
+	protected function is_inactive( array $row ) {
+		if ( ! array_key_exists( 'Ws_aktiv', $row ) ) {
+			return false;
+		}
+
+		$flag = $row['Ws_aktiv'];
+
+		if ( is_bool( $flag ) ) {
+			return ! $flag;
+		}
+
+		if ( ! is_scalar( $flag ) ) {
+			return false;
+		}
+
+		return in_array( strtolower( trim( (string) $flag ) ), array( '0', 'false', 'no', 'nein' ), true );
+	}
+
+	/**
+	 * What, if anything, is holding this article out of the shop.
+	 *
+	 * Kontor's own verdict is asked for first and settles the question on its own: an
+	 * article switched off for the webshop is held back whether or not it has a
+	 * picture, so the image requirement is only ever asked about an article Kontor is
+	 * willing to sell here. Reversing the two would let a shop's own setting decide
+	 * which of the ERP's articles were mentioned in the run summary.
+	 *
+	 * The decision is made on the feed row alone, never on what the product currently
+	 * looks like in the shop, and it never asks whether the images can be *fetched* —
+	 * see image_withheld() for both.
+	 *
+	 * @param array $row Article row from the API.
+	 * @return string "inactive", "no_image", or an empty string when nothing is.
+	 */
+	protected function withheld_reason( array $row ) {
+		if ( $this->is_inactive( $row ) ) {
+			return 'inactive';
+		}
+
+		if ( $this->image_withheld( $row ) ) {
 			return 'no_image';
 		}
 
-		// The article is in the feed, whatever is being done about it, and finalise()
-		// must not later read a missing stamp as Kontor having dropped it.
-		$existing->update_meta_data( self::META_SYNCED_AT, $run );
+		return '';
+	}
 
-		$status = $existing->get_status();
+	/**
+	 * The meta key recording that this sync drafted a product for a given reason.
+	 *
+	 * @param string $withheld Reason from withheld_reason().
+	 * @return string Meta key.
+	 */
+	protected function marker_for( $withheld ) {
+		return 'inactive' === $withheld ? self::META_INACTIVE_DRAFTED : self::META_NO_IMAGE_DRAFTED;
+	}
+
+	/**
+	 * How a reason reads in the log.
+	 *
+	 * @param string $withheld Reason from withheld_reason().
+	 * @return string Sentence fragment naming the reason.
+	 */
+	protected function reason_for( $withheld ) {
+		return 'inactive' === $withheld
+			? 'Kontor has switched it off for the webshop'
+			: 'Kontor lists no image for it';
+	}
+
+	/**
+	 * Draft an existing product, marking why.
+	 *
+	 * Drafted rather than deleted, and the article's data is still written over it:
+	 * everything a withheld product needs to go on sale is kept ready, so an article
+	 * switched back on tomorrow is published complete rather than as whatever it looked
+	 * like the day it was withdrawn. Nothing a shop has built around the product — its
+	 * URL, its reviews, its place in an order — is destroyed by a feed that was briefly
+	 * incomplete.
+	 *
+	 * The marker goes on a product already drafted as well as one being drafted now.
+	 * Without it, whichever sync drafted the product for its own reason would clear that
+	 * reason and republish an article this one is still holding back.
+	 *
+	 * @param WC_Product_Simple $product  Product holding the article number.
+	 * @param string            $sku      Article number, for the log.
+	 * @param string            $withheld Reason from withheld_reason().
+	 * @return bool True when the product changed and therefore needs saving.
+	 */
+	protected function hold_back( $product, $sku, $withheld ) {
+		$status = $product->get_status();
 
 		/*
 		 * Published and draft are the two states this sync owns. Anything else — private,
 		 * pending, a status another plugin registered — is a decision somebody made about
-		 * the product, and marking it would hand a later run the right to publish it.
+		 * the product, and marking it would hand a later run the right to publish it. The
+		 * article's data is still written; only the status is left where it was put.
 		 */
 		if ( 'publish' !== $status && 'draft' !== $status ) {
-			$existing->save_meta_data();
-
-			return 'no_image';
+			return false;
 		}
 
-		$existing->update_meta_data( self::META_NO_IMAGE_DRAFTED, 1 );
+		$marker  = $this->marker_for( $withheld );
+		$changed = false;
 
-		/*
-		 * A product already drafted is marked but not logged again. The marker still has
-		 * to go on: without it, the sync that drafted it for its own reason would clear
-		 * that reason and republish an article this one is still holding back.
-		 */
+		if ( ! $product->get_meta( $marker ) ) {
+			$product->update_meta_data( $marker, 1 );
+
+			$changed = true;
+		}
+
+		// A product already drafted is marked but not logged again.
 		if ( 'publish' === $status ) {
-			$existing->set_status( 'draft' );
+			$product->set_status( 'draft' );
 
-			$this->log( 'info', sprintf( 'Drafted article %s: Kontor lists no image for it.', $sku ) );
+			$this->log( 'info', sprintf( 'Drafted article %1$s: %2$s.', $sku, $this->reason_for( $withheld ) ) );
+
+			$changed = true;
 		}
 
-		$existing->save();
-
-		return 'no_image';
+		return $changed;
 	}
 
 	/**
@@ -869,17 +1016,18 @@ class ProductSync {
 	/**
 	 * Republish a product that an earlier run of this sync drafted.
 	 *
-	 * An article can leave the feed and come back, and one Kontor listed no picture for
-	 * can gain one. Without this, either drafts the product once and it stays hidden
-	 * forever even though the reason has gone.
+	 * An article can leave the feed and come back, one Kontor listed no picture for can
+	 * gain one, and one switched off for the webshop can be switched back on. Without
+	 * this, any of the three drafts the product once and it stays hidden forever even
+	 * though the reason has gone.
 	 *
 	 * Only drafts this plugin created are restored: the marker meta is what
 	 * distinguishes them from a product a shop manager deliberately unpublished,
 	 * which must be left alone.
 	 *
-	 * Both of this sync's reasons are cleared here, because reaching this method means
-	 * both have gone: the article is in the feed, and import_article() has already
-	 * turned back anything still imageless.
+	 * All three of this sync's reasons are cleared here, because reaching this method
+	 * means all three have gone: the article is in the feed, and import_article() has
+	 * already turned back anything still imageless or still switched off.
 	 *
 	 * The stock sync's old marker is cleared as well, and on its own is enough to
 	 * bring a product back. It is not a verdict this shop still holds — nothing writes
@@ -913,6 +1061,12 @@ class ProductSync {
 			$product->delete_meta_data( self::META_NO_IMAGE_DRAFTED );
 
 			$reasons[] = 'it has an image again';
+		}
+
+		if ( $product->get_meta( self::META_INACTIVE_DRAFTED ) ) {
+			$product->delete_meta_data( self::META_INACTIVE_DRAFTED );
+
+			$reasons[] = 'Kontor has switched it on for the webshop again';
 		}
 
 		if ( $product->get_meta( self::META_LEGACY_STOCK_DRAFTED ) ) {

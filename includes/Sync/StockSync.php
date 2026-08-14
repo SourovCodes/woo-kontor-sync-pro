@@ -350,6 +350,8 @@ class StockSync {
 			$blocker = 'Kontor still does not list it in the catalogue';
 		} elseif ( $product->get_meta( ProductSync::META_NO_IMAGE_DRAFTED ) ) {
 			$blocker = 'Kontor lists no image for it';
+		} elseif ( $product->get_meta( ProductSync::META_INACTIVE_DRAFTED ) ) {
+			$blocker = 'Kontor has switched it off for the webshop';
 		}
 
 		if ( '' !== $blocker ) {
@@ -643,7 +645,8 @@ class StockSync {
 			$product->delete_meta_data( self::META_STOCK_DRAFTED );
 
 			$blocked = $product->get_meta( ProductSync::META_SYNC_DRAFTED )
-				|| $product->get_meta( ProductSync::META_NO_IMAGE_DRAFTED );
+				|| $product->get_meta( ProductSync::META_NO_IMAGE_DRAFTED )
+				|| $product->get_meta( ProductSync::META_INACTIVE_DRAFTED );
 
 			if ( $blocked ) {
 				$this->log(

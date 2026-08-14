@@ -11,3 +11,7 @@ composer.phar
 .DS_Store
 *.log
 /tests/wp-tests-config.php
+
+# Exports taken from a live shop. Customer names and addresses have no business in
+# a public repository, and a working copy is the one place they end up by accident.
+/*.csv

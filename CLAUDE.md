@@ -294,11 +294,64 @@ of them wrong produces silently wrong data rather than an error:
     the list. Same reasoning as the intervals and the shop.
   - Pressing **Fetch manufacturers** keeps a ticked manufacturer that Kontor no longer lists, at the
     end of the list. Looking something up must not quietly edit the selection underneath it.
+- **Two things hold an article out of the shop — `Ws_aktiv` and the image requirement — and both
+  answer the same way: import it and leave it a draft.** `ProductSync::withheld_reason()` is the one
+  place that decides which, if either, applies, and everything below follows from it.
+  - **A withheld article is created, not passed over.** The shop ends up holding the whole
+    catalogue — priced, stocked, branded and pictured — with the part it may not sell sitting one
+    status change away, which is what lets an article switched on in the ERP appear in the shop on
+    the next run instead of being imported from scratch. Nothing else in the plugin would notice a
+    missing product until it was too late: a product that does not exist has no URL to keep, no
+    reviews and no place in an order.
+  - **Its data keeps following the feed while it is drafted.** The write path is the ordinary one,
+    so a price that moves while an article is switched off is right when it comes back, and the
+    change hash still short-circuits the runs where nothing moved — the status and the marker are
+    settled once, not rewritten on every pass.
+  - **Its images are downloaded like anyone else's.** A shop manager opening the draft should see
+    the article rather than a placeholder, and one switched on tomorrow should go in front of
+    customers complete. Images are already queued below every other job
+    (`Scheduler::PRIORITY_IMAGES`), so the extra downloads cannot delay a sync that matters.
+  - **A product this plugin never imported is left entirely alone** — not drafted *and not
+    rewritten*. `import_article()` returns before touching it. Adopting it would only mean drafting
+    it on the run after this one, once the stamp it wrote made it ours, which is a worse answer than
+    either doing it at once or not at all.
+  - **A status this sync does not own is left where it was put**, `private`, `pending` or anything
+    another plugin registered. The article's data is still written over it; only the status and the
+    marker are withheld, because marking it would hand a later run the right to publish something
+    somebody deliberately took out of the shop.
+  - **Each reason is counted and named in the run summary**, never folded into `created` or
+    `updated`. "3 created … Held 827 back as drafts, switched off for the webshop in Kontor" is the
+    sentence that tells a shop manager where a fifth of the catalogue went.
+- **`Ws_aktiv` is Kontor saying whether an article belongs in the webshop at all**, and it is
+  obeyed unconditionally — there is no setting, because it is not this shop's decision to make. A
+  false article is **imported as a draft** and marked `ProductSync::META_INACTIVE_DRAFTED`
+  (`_wksync_drafted_inactive`); true publishes it again through `restore_if_sync_drafted()`. A
+  product already in the right state is left untouched in either direction.
+  - **It is not a rare flag.** Measured across the whole live catalogue: 4386 articles, **3559 true
+    and 827 false**, a real JSON boolean on every row, never absent and never any other value. The
+    first run after this change therefore drafts a fifth of the shop — the same intended cost as
+    narrowing the manufacturer filter, and reversible the same way.
+  - **Only an unmistakable false withholds an article.** A missing key, a null, or a word this does
+    not recognise reads as active, because the two ways of being wrong are not equal: reading
+    "active" as "inactive" takes a fifth of the shop dark the day the field changes shape, while the
+    reverse leaves a few articles on sale until somebody notices.
+  - **Its own marker**, for the reason `META_NO_IMAGE_DRAFTED` has one: the conditions clear at
+    different moments, and sharing a marker would let a picture arriving republish an article Kontor
+    has switched off. It blocks the stock sync's release paths for the same reason.
+  - **Deliberately not in the change hash.** `withheld_reason()` is read off the row before the
+    unchanged-article shortcut on every run, so hashing it would buy nothing and rewrite the whole
+    catalogue once to buy it.
+  - **It outranks the image requirement**, and `withheld_reason()` is the one place that says so:
+    Kontor's verdict is the ERP's statement about the article, the requirement is this shop's
+    setting, and an article switched off is not one whose pictures anybody needs to weigh. Exactly
+    one reason answers per run, so a product that is both switched off and imageless carries the
+    inactive marker alone; switching it on hands the reason to the image gate rather than
+    publishing it.
 - **The import can be restricted to articles Kontor lists an image for**, via the
-  `require_main_image` setting, off by default. An article with no image is passed over (`no_image`)
-  rather than created, and a product already imported for one is **drafted**, marked with
-  `ProductSync::META_NO_IMAGE_DRAFTED` — the same answer as every other reason this plugin takes a
-  product out of the shop, so a briefly incomplete feed costs nothing that cannot be got back.
+  `require_main_image` setting, off by default. An article with no image is **imported as a draft**
+  (`no_image`) and marked with `ProductSync::META_NO_IMAGE_DRAFTED` — the same answer as every other
+  reason this plugin takes a product out of the shop, so a briefly incomplete feed costs nothing
+  that cannot be got back.
   - **The decision is made on the feed row, never on the product.** Images are downloaded in a
     chained action of their own, so a product written moments ago legitimately has no featured image
     yet; judging by the shop would draft products whose pictures were merely still on their way.
@@ -307,19 +360,18 @@ of them wrong produces silently wrong data rather than an error:
     base URL silently drafted the whole catalogue.
   - **Any image counts, not `MainImageURL` alone.** The featured image is the first image the
     article carries, so an article whose only picture is `ImageURL_1` does end up with one; reading
-    `MainImageURL` alone would pass over a product about to get exactly what the setting asks for.
+    `MainImageURL` alone would draft a product about to get exactly what the setting asks for.
   - **Checked before the unchanged-article shortcut**, or turning the setting on would leave the
     existing catalogue published until every article in it happened to change.
+  - **Asked only about an article Kontor is willing to sell here**, because `Ws_aktiv` is checked
+    first. A shop's own setting does not get to decide which of the ERP's articles are named in the
+    run summary.
   - **Its own marker, not `META_SYNC_DRAFTED`.** That one means "Kontor stopped listing this
     article" and this one means "Kontor lists it, without a picture" — two conditions that clear at
     different moments, and sharing a marker would let an article returning to the catalogue
     republish itself while it is still imageless. Turning the setting off, or the image coming back,
     clears it through `restore_if_sync_drafted()`. Both are checked before the restore path is
     entered, so a still-imageless article is withheld again rather than freed.
-  - **Only products carrying `META_SYNCED_AT` are drafted**, and only from `publish`. A shop
-    manager's own product answering to the same article number was never ours to unpublish, and
-    marking a `private` or `pending` one would hand a later run the right to publish something
-    somebody deliberately took out of the shop.
   - The checkbox is paired with a **hidden `0` field**, so "off" is a value that arrives rather than
     one inferred from a browser's silence. Absent still means "keep the stored value" — same
     reasoning as the intervals, the shop and the manufacturers.
