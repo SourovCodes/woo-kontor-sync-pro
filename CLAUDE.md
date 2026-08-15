@@ -824,11 +824,101 @@ calling it queues real work: it is not a way to test whether a job would be allo
 - Credentials live in a single autoloaded-`no` option and are never echoed back into an admin field
   in plaintext.
 
+## REST API
+
+The outward-facing half of the sync layer: **start the product or stock sync, and report on a run.**
+`Rest\Jobs` is all of it — `GET /jobs`, `GET /jobs/{job}`, `POST /jobs/{job}/run` — and
+`docs/rest-api.md` is the client-facing reference. The `msrp` and quantity fields on `/wc/v3/products`
+are a separate thing and stay documented where they are, beside the Kontor fields they publish.
+
+- **The namespace is `wc-wksync/v1`, and the `wc-` is load-bearing, not decoration.**
+  `WC_REST_Authentication` authenticates a consumer key on `determine_current_user`, but only for a
+  request `is_request_to_rest_api()` recognises — and that method decides by looking for `wc/` or
+  `wc-` in the request URI. A namespace of `wksync/v1` registers and routes perfectly and then
+  answers 401 to every client holding a key, because the credentials are never read at all. The
+  prefix is WooCommerce's documented opening for exactly this; core's comment beside it reads *"Allow
+  third party plugins use our authentication methods"*.
+  `RestJobsTest::test_the_namespace_keeps_woocommerces_authentication_prefix` is the guard, because
+  renaming it would break nothing else in the suite and every integration in the field. WooCommerce
+  also gates a key **by method**, so the GETs need a Read key and the POST a Write one, refused
+  before any callback here runs.
+- **Only `products` and `stock` are exposed**, as a path segment with an `enum` of
+  `Jobs::EXPOSED`, so WordPress answers `orders` — a real job with a real action behind it — or a
+  typo with `rest_invalid_param` before `Scheduler::trigger()` is reached, and there is one list of
+  served jobs rather than two to keep in step. The other three are not refused on principle: they
+  need a shop, they push financial records, and the delivery sync completes orders, which emails
+  customers.
+  - **Trap: do not add a `sanitize_callback` to that argument.** Core injects no default
+    `validate_callback` for a route argument, and the enum would otherwise be enforced only by the
+    fallback `sanitize_params()` reaches for — which a declared `sanitize_callback` silently
+    replaces, switching the validation off. `validate_callback` is therefore declared explicitly.
+- **The four refusal codes are the admin path's codes, unchanged**, and the HTTP status is added by
+  re-wrapping in `Jobs::refusal()` — never by putting a `status` on `Scheduler::trigger()`'s
+  `WP_Error`s, which also travel into the settings screen's redirect as bare codes and have no notion
+  of HTTP. `wksync_already_running` is **409**; the three "this shop is not ready" refusals are
+  **503**, because there is nothing wrong with the request to correct and a setting nobody filled in
+  is not a bug; anything unrecognised stays 500 rather than being dressed up as one of the four.
+- **202 is what a trigger can honestly promise, and the docs say what it cannot.** `trigger()` runs
+  the local gates only and makes no request to Kontor, so a 202 is entirely compatible with
+  credentials that do not authenticate. That answer arrives later, in the job's own status.
+- **The response cannot carry a handle for the run it just asked for**, because nothing has minted
+  one: `Status::start()` does that from inside the action. So the payload publishes `run_id` — the
+  stored `started`, as an opaque identifier — and a caller watches for it to change. `previous_run_id`
+  is read *before* the enqueue and the embedded `progress` *after*, so the comparison still holds when
+  the queue is quick enough to have started the run before the response was assembled.
+  - **The REST layer must not call `Status::start()` itself** to mint one. It would mark the job
+    running before any work existed, the action's own `Status::start()` would mint a second identifier
+    that every chained action then failed `is_current_run()` against, and a trigger whose action never
+    ran would leave the job running — and `trigger()` refusing — for the whole of `STALE_AFTER`.
+  - **`Status::fail()` keeps the old `started`**, so a preflight refusal inside the action never
+    changes `run_id`. Watching the identifier alone would therefore wait for ever on the likeliest
+    failure of all. The contract in `docs/rest-api.md` names that case explicitly, and the one below
+    it: `abandon_run()` returns early unless the stored state is `running`, so an action that fatals
+    before `Status::start()` records nothing at all.
+- **`Scheduler::queued_count()` exists because two obvious queries both give a useless answer.**
+  `pending_count()` counts only actions still waiting, so it reads zero for the whole time the action
+  is executing — which is exactly where the preflight's round trip to Kontor happens — and a caller
+  would take that zero for "answered, nothing changed". And counting everything pending is worse: a
+  job with an interval keeps a recurring action in the queue permanently, days out, so `queued` would
+  read true on every scheduled shop for ever. Measured on the development site, which is how this was
+  found: both jobs reported `queued: true` with nothing whatever happening. So it counts pending
+  **and** in-progress, **due by now** — which still catches an overdue recurring action, correctly,
+  since that is about to run and will stamp a run of its own. An async action is stored with its save
+  time as its scheduled date, so it is always due. `pending_count()` keeps the image sentence, where
+  the file currently downloading is not one left to do.
+- **The image queue is on the collection, never inside a job object.** Downloads outlive the run that
+  queued them, so a run object mentioning them would make a finished product sync look unfinished —
+  and `image_queue: 0` on the stock job would be a field that can only ever be zero, while putting it
+  on products alone would make the object's shape depend on which job was asked for. There are no
+  conditional keys in the payload.
+- **Raw numbers, not sentences.** `Admin\Settings::describe_status()` and its three siblings stay
+  protected. Publishing them would owe every machine a stable *translated* wording and give a client
+  nothing to key on but text. For the same reason `label` and `message` are documented as display
+  only, and every refusal is keyed on `code`.
+- **`percent` is `int|null` and `null` is not `0`**, `total: 0` means "not known", and `counts` is
+  cast to an object — `Status`' default is `array()`, which would encode as `[]` and hand an idle job
+  a list where every other response has an object. All three are pinned by tests, including on the
+  encoded JSON.
+- **No nonce on the POST, and that is not a hole in a state change.** Core authenticates a REST
+  request before the callback — a signed WooCommerce key, or `X-WP-Nonce` for a cookie client, which
+  WordPress verifies itself — and the authorisation half is the `permission_callback`, gated on
+  `Settings::CAPABILITY`. What would be wrong is `__return_true`.
+- **A poll is one non-autoloaded option read plus a couple of counting queries.** Call
+  `Scheduler::next_run()` once per job into a variable; `Admin\Settings::handle_job_progress()` calls
+  it twice per job, which is a small defect there and not a pattern to copy.
+- **A wrong method is answered by WordPress with 404 `rest_no_route`, not 405.** Worth knowing before
+  reaching for a 405 assertion.
+- `Rest\Jobs` holds `REST_NAMESPACE` itself rather than there being a registrar class with one line
+  in it. **When a second controller appears, move the constant to a `Rest\RestApi`** that registers
+  both, or two classes end up importing it off one of their own siblings.
+
 ## Working agreement
 
 - Run `composer lint` before calling any change done. The hook covers files you edit; the full run
   catches everything else.
 - Add or update a test with each behaviour change — `composer test`.
+- Update `docs/rest-api.md` whenever a route, a field or an error code changes. It is what somebody
+  integrating with the shop reads, and it cannot be checked by a test.
 - Verify against the real site (`./bin/wp`, http://testshop.local/wp-admin) rather than reasoning
   about what WooCommerce would do.
 - Bump the version in both the `woo-kontor-sync-pro.php` header and the `WKSYNC_VERSION` constant
@@ -914,7 +1004,9 @@ Releases are cut by pushing a `v*` tag (`.github/workflows/release.yml`):
 The zip carries only what WordPress runs: the main file, `includes/`, `assets/`, `languages/`,
 `uninstall.php` and a `--no-dev` `vendor/`. Composer runs inside the staging copy rather than the
 checkout, so building never disturbs the dev dependencies the suite needs, and `composer.json` is
-removed from the build so nobody is invited to run Composer inside a live plugins directory.
+removed from the build so nobody is invited to run Composer inside a live plugins directory. `docs/`
+is left out by construction — the script whitelists the three directories above — because it is
+written for whoever integrates with the REST API, not for the site that runs the plugin.
 
 `.github/dependabot.yml` watches Composer and the actions themselves weekly. It is told to ignore
 PHPUnit 10+ and PHP_CodeSniffer 4+, because both pins below are deliberate.

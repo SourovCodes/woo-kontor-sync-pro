@@ -768,6 +768,57 @@ class Scheduler {
 	}
 
 	/**
+	 * How many runs of one job are due now or already under way.
+	 *
+	 * Written for the REST API, which has to answer "has my trigger been dealt with?"
+	 * about a job whose run identifier does not exist until the action is already
+	 * executing. Two things make that harder than counting rows, and both of them turn
+	 * an obvious query into a useless answer.
+	 *
+	 * **In-progress actions have to count.** pending_count() sees only actions still
+	 * waiting, so it reads zero for the whole time the action is executing — which is
+	 * exactly where a job's preflight round trip to Kontor happens, seconds on a slow
+	 * link — and a caller would take that zero for "answered, nothing changed" and stop
+	 * watching a run that was about to start. Action Scheduler marks an action
+	 * in-progress before it calls the hook, so pending and in-progress together cover
+	 * the whole way from the enqueue to the run being stamped, with no gap. Both in one
+	 * query, because the status filter has accepted a list since Action Scheduler 3.3.0.
+	 *
+	 * **Actions scheduled for later must not count.** Every job with an interval has a
+	 * recurring action sitting in the queue permanently, days out; counting it would
+	 * make the answer "yes" on every scheduled shop forever, which tells a caller
+	 * nothing at all. So only actions due by now are counted — which still includes an
+	 * overdue recurring one, correctly, because that is about to run and will stamp a
+	 * run of its own. An async action is stored with the moment it was saved as its
+	 * scheduled date, so it is always due.
+	 *
+	 * pending_count() keeps its own caller: the image queue is a count of what is left
+	 * to download, and the file currently downloading is not left to do.
+	 *
+	 * @param string $hook Action hook.
+	 * @return int Actions due or in progress.
+	 */
+	public static function queued_count( $hook ) {
+		if ( ! class_exists( 'ActionScheduler' ) || ! class_exists( 'ActionScheduler_Store' ) ) {
+			return 0;
+		}
+
+		return (int) \ActionScheduler::store()->query_actions(
+			array(
+				'hook'         => $hook,
+				'group'        => self::GROUP,
+				'status'       => array(
+					\ActionScheduler_Store::STATUS_PENDING,
+					\ActionScheduler_Store::STATUS_RUNNING,
+				),
+				'date'         => new \DateTime( 'now', new \DateTimeZone( 'UTC' ) ),
+				'date_compare' => '<=',
+			),
+			'count'
+		);
+	}
+
+	/**
 	 * Put the recurring actions back, now rather than on the next `init`.
 	 *
 	 * Called from activation. Dropping the guard alone would be enough eventually,

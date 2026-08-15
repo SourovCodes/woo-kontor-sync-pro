@@ -182,6 +182,19 @@ class I18nTest extends WP_UnitTestCase {
 
 			$translated = $po->entries[ $key ];
 
+			/*
+			 * An entry whose msgstr is empty reads back as *no* translations at all
+			 * rather than as one empty string, so the loop below never runs for it and
+			 * the string would pass as translated. That is the exact shape every string
+			 * has the moment `composer i18n` merges it into the catalogue, which made
+			 * this the one case the check most needed to catch and the one case it
+			 * missed.
+			 */
+			if ( array() === (array) $translated->translations ) {
+				$untranslated[] = $entry->singular;
+				continue;
+			}
+
 			foreach ( (array) $translated->translations as $translation ) {
 				if ( '' === trim( (string) $translation ) ) {
 					$untranslated[] = $entry->singular;

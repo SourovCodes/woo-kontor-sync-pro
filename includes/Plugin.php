@@ -14,6 +14,7 @@ use WooKontorSync\Frontend\Quantities;
 use WooKontorSync\Frontend\Tracking;
 use WooKontorSync\Invoices\Download;
 use WooKontorSync\Orders\PartialStatus;
+use WooKontorSync\Rest\Jobs as RestJobs;
 use WooKontorSync\Rest\Products as RestProducts;
 use WooKontorSync\Sync\Scheduler;
 
@@ -116,6 +117,10 @@ final class Plugin {
 		// Adds the recommended retail price to /wc/v3/products. Registered here rather
 		// than behind is_admin(), because a REST request is neither.
 		( new RestProducts() )->register();
+
+		// Starts the product and stock syncs, and reports on a run, for callers with no
+		// browser to press Run now in. Not behind the admin check for the same reason.
+		( new RestJobs() )->register();
 
 		if ( is_admin() ) {
 			( new Settings() )->register();

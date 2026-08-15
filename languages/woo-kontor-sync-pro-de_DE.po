@@ -163,6 +163,7 @@ msgstr "Hersteller geladen. Hake die zu importierenden an und speichere die Eins
 #: includes/Admin/Settings.php:899
 #: includes/Admin/Settings.php:938
 #: includes/Admin/Settings.php:981
+#: includes/Rest/Jobs.php:172
 msgid "You do not have permission to do that."
 msgstr "Du hast keine Berechtigung für diese Aktion."
 
@@ -995,3 +996,83 @@ msgstr "%d mangels Bild als Entwurf zurückgehalten."
 #, php-format
 msgid "Held %d back as drafts, switched off for the webshop in Kontor."
 msgstr "%d als Entwurf zurückgehalten, im Kontor für den Webshop deaktiviert."
+
+#: includes/Rest/Jobs.php:387
+msgid "Which sync the request is about."
+msgstr "Auf welche Synchronisation sich die Anfrage bezieht."
+
+#: includes/Rest/Jobs.php:408
+msgid "Every sync this API serves."
+msgstr "Alle Synchronisationen, die diese API bereitstellt."
+
+#: includes/Rest/Jobs.php:415
+msgid "Product images still waiting to be downloaded."
+msgstr "Produktbilder, die noch heruntergeladen werden müssen."
+
+#: includes/Rest/Jobs.php:450
+msgid "The sync that was queued."
+msgstr "Die Synchronisation, die in die Warteschlange gestellt wurde."
+
+#: includes/Rest/Jobs.php:457
+msgid "The run this job had recorded before the request. Watch for the identifier to change from this one."
+msgstr "Der Durchlauf, den dieser Job vor der Anfrage verzeichnet hatte. Achte darauf, wann die Kennung von dieser abweicht."
+
+#: includes/Rest/Jobs.php:463
+msgid "How the job stood immediately after being queued."
+msgstr "Wie der Job unmittelbar nach dem Einreihen in die Warteschlange dastand."
+
+#: includes/Rest/Jobs.php:484
+msgid "Which sync this is. Key logic on this rather than on the label."
+msgstr "Um welche Synchronisation es sich handelt. Richte deine Logik danach aus, nicht nach der Bezeichnung."
+
+#: includes/Rest/Jobs.php:491
+msgid "The job's name for display, in the site's language."
+msgstr "Der Anzeigename des Jobs, in der Sprache der Website."
+
+#: includes/Rest/Jobs.php:497
+msgid "What the job last recorded about itself."
+msgstr "Was der Job zuletzt über sich selbst verzeichnet hat."
+
+#: includes/Rest/Jobs.php:504
+msgid "Whether a run is in flight and recent enough to believe."
+msgstr "Ob ein Durchlauf läuft und aktuell genug ist, um ihm zu glauben."
+
+#: includes/Rest/Jobs.php:510
+msgid "Whether a run of this job is waiting or under way."
+msgstr "Ob ein Durchlauf dieses Jobs wartet oder bereits läuft."
+
+#: includes/Rest/Jobs.php:516
+msgid "Identifies the run being reported. Zero when the job has never run. Compare it; do not read it as a time."
+msgstr "Kennzeichnet den gemeldeten Durchlauf. Null, wenn der Job noch nie gelaufen ist. Vergleiche sie nur, lies sie nicht als Zeitangabe."
+
+#: includes/Rest/Jobs.php:522
+msgid "When the run began, in UTC. Null when the job has never run."
+msgstr "Wann der Durchlauf begonnen hat, in UTC. Null, wenn der Job noch nie gelaufen ist."
+
+#: includes/Rest/Jobs.php:529
+msgid "When the run ended, in UTC. Null while it is still going."
+msgstr "Wann der Durchlauf beendet wurde, in UTC. Null, solange er noch läuft."
+
+#: includes/Rest/Jobs.php:536
+msgid "How far through the run is. Null when it cannot be measured, which is not the same as nothing done yet."
+msgstr "Wie weit der Durchlauf fortgeschritten ist. Null, wenn sich das nicht messen lässt, was nicht dasselbe ist wie noch nichts erledigt."
+
+#: includes/Rest/Jobs.php:542
+msgid "Records the run expects to handle. Zero means not yet known."
+msgstr "Datensätze, die der Durchlauf zu bearbeiten erwartet. Null bedeutet noch nicht bekannt."
+
+#: includes/Rest/Jobs.php:548
+msgid "Records the run has handled so far."
+msgstr "Datensätze, die der Durchlauf bisher bearbeitet hat."
+
+#: includes/Rest/Jobs.php:554
+msgid "What happened to each record, by outcome. The names are the jobs' own and are not a fixed set."
+msgstr "Was mit jedem Datensatz geschehen ist, nach Ergebnis. Die Namen gehören den Jobs selbst und sind keine feste Menge."
+
+#: includes/Rest/Jobs.php:563
+msgid "The run's summary, or the reason it failed."
+msgstr "Die Zusammenfassung des Durchlaufs oder der Grund für den Fehlschlag."
+
+#: includes/Rest/Jobs.php:569
+msgid "When the schedule next runs this job, in UTC. Null when nothing is scheduled."
+msgstr "Wann der Zeitplan diesen Job als Nächstes ausführt, in UTC. Null, wenn nichts geplant ist."
