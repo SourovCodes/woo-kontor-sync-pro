@@ -10,6 +10,7 @@ namespace WooKontorSync;
 use WooKontorSync\Admin\ProductFields;
 use WooKontorSync\Admin\Settings;
 use WooKontorSync\Frontend\Invoices;
+use WooKontorSync\Frontend\ProductMeta;
 use WooKontorSync\Frontend\Quantities;
 use WooKontorSync\Frontend\Tracking;
 use WooKontorSync\Invoices\Download;
@@ -109,6 +110,11 @@ final class Plugin {
 		// everywhere: a Store API cart request is neither an admin screen nor a
 		// template render, and it is the path the cart and checkout blocks take.
 		( new Quantities() )->register();
+
+		// Kontor's retail price and EAN in the product page's meta block. A template
+		// render is not an admin screen, so this cannot go behind the check below
+		// either.
+		( new ProductMeta() )->register();
 
 		// Serves invoice PDFs to whoever is entitled to them, which includes guests
 		// holding an order key, so it cannot live behind the admin check either.

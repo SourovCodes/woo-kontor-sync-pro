@@ -8,6 +8,7 @@
 namespace WooKontorSync\Admin;
 
 use WooKontorSync\Api\Client;
+use WooKontorSync\Frontend\ProductMeta;
 use WooKontorSync\Invoices\Storage;
 use WooKontorSync\Sync\OrderSync;
 use WooKontorSync\Sync\ProductSync;
@@ -78,6 +79,38 @@ class Settings {
 	const DRAFT_MISSING_STOCK = 'draft_missing_stock';
 
 	/**
+	 * Setting deciding whether the product page shows the recommended retail price.
+	 *
+	 * Off by default, like every other setting here that changes what the shop does.
+	 * The figure is imported either way, on a wholesale shop; this decides whether a
+	 * customer is shown it, which is a public statement about the shop's pricing and
+	 * not something an update should start making on its own.
+	 */
+	const SHOW_MSRP = 'show_msrp';
+
+	/**
+	 * Label shown in front of the recommended retail price.
+	 *
+	 * Empty means "use the translated default", which is why the default is not stored
+	 * as a string: storing one would freeze the wording into whichever language the
+	 * settings happened to be saved in.
+	 */
+	const MSRP_LABEL = 'msrp_label';
+
+	/**
+	 * Setting deciding whether the product page shows the EAN.
+	 *
+	 * Off by default for the same reason as the retail price, though a good deal less
+	 * consequential: the EAN is an identifier rather than a price.
+	 */
+	const SHOW_EAN = 'show_ean';
+
+	/**
+	 * Label shown in front of the EAN.
+	 */
+	const EAN_LABEL = 'ean_label';
+
+	/**
 	 * Hook suffix of the settings screen, used to scope asset loading.
 	 *
 	 * @var string
@@ -129,6 +162,10 @@ class Settings {
 			'require_main_image'      => false,
 			self::ENFORCE_QUANTITIES  => false,
 			self::DRAFT_MISSING_STOCK => false,
+			self::SHOW_MSRP           => false,
+			self::MSRP_LABEL          => '',
+			self::SHOW_EAN            => false,
+			self::EAN_LABEL           => '',
 			'product_sync_interval'   => self::INTERVAL_NEVER,
 			'stock_sync_interval'     => self::INTERVAL_NEVER,
 			'order_sync_interval'     => self::INTERVAL_NEVER,
@@ -390,6 +427,10 @@ class Settings {
 			'require_main_image'      => $this->pick_toggle( $input, 'require_main_image', $existing ),
 			self::ENFORCE_QUANTITIES  => $this->pick_toggle( $input, self::ENFORCE_QUANTITIES, $existing ),
 			self::DRAFT_MISSING_STOCK => $this->pick_toggle( $input, self::DRAFT_MISSING_STOCK, $existing ),
+			self::SHOW_MSRP           => $this->pick_toggle( $input, self::SHOW_MSRP, $existing ),
+			self::MSRP_LABEL          => $this->pick_label( $input, self::MSRP_LABEL, $existing ),
+			self::SHOW_EAN            => $this->pick_toggle( $input, self::SHOW_EAN, $existing ),
+			self::EAN_LABEL           => $this->pick_label( $input, self::EAN_LABEL, $existing ),
 			'product_sync_interval'   => $this->pick_interval( $input, 'product_sync_interval', self::product_sync_intervals(), $existing ),
 			'stock_sync_interval'     => $this->pick_interval( $input, 'stock_sync_interval', self::stock_sync_intervals(), $existing ),
 			'order_sync_interval'     => $this->pick_interval( $input, 'order_sync_interval', self::order_sync_intervals(), $existing ),
@@ -466,6 +507,31 @@ class Settings {
 		}
 
 		return (bool) absint( $input[ $key ] );
+	}
+
+	/**
+	 * Read a submitted label.
+	 *
+	 * An absent field keeps the stored label, matching the toggles and the intervals: a
+	 * partial submission must never silently reset the wording a shop chose. An
+	 * explicitly empty one clears it, which is how a shop asks for the translated
+	 * default back.
+	 *
+	 * Stripped rather than passed through sanitize_text_field(), which eats percent
+	 * octets — a label along the lines of "UVP inkl. 20% MwSt." would silently lose the
+	 * rest of itself.
+	 *
+	 * @param array  $input    Raw submitted settings.
+	 * @param string $key      Setting name.
+	 * @param array  $existing Currently stored settings.
+	 * @return string The label to store.
+	 */
+	protected function pick_label( array $input, $key, array $existing ) {
+		if ( ! isset( $input[ $key ] ) ) {
+			return isset( $existing[ $key ] ) ? (string) $existing[ $key ] : '';
+		}
+
+		return trim( wp_strip_all_tags( (string) $input[ $key ] ) );
 	}
 
 	/**
@@ -1336,6 +1402,83 @@ class Settings {
 							</p>
 							<p class="description">
 								<?php echo esc_html__( 'Clearing it again republishes what it drafted, on the next stock sync — unless the product sync is holding the product back for its own reason.', 'woo-kontor-sync-pro' ); ?>
+							</p>
+						</td>
+					</tr>
+				</table>
+
+				<h2><?php echo esc_html__( 'Product page', 'woo-kontor-sync-pro' ); ?></h2>
+				<p class="description">
+					<?php echo esc_html__( 'Both rows are added to the product meta block, beside the article number and the categories, and each is shown only on a product that has the figure.', 'woo-kontor-sync-pro' ); ?>
+				</p>
+				<table class="form-table" role="presentation">
+					<tr>
+						<th scope="row"><?php echo esc_html__( 'Recommended retail price', 'woo-kontor-sync-pro' ); ?></th>
+						<td>
+							<?php
+							/*
+							 * Paired with a hidden zero like every other checkbox here: a browser
+							 * sends nothing for a cleared box, and an absent field has to keep the
+							 * stored value.
+							 */
+							?>
+							<input type="hidden" name="<?php echo esc_attr( self::OPTION_KEY ); ?>[<?php echo esc_attr( self::SHOW_MSRP ); ?>]" value="0" />
+							<label for="wksync-show-msrp">
+								<input
+									type="checkbox"
+									id="wksync-show-msrp"
+									name="<?php echo esc_attr( self::OPTION_KEY ); ?>[<?php echo esc_attr( self::SHOW_MSRP ); ?>]"
+									value="1"
+									<?php checked( ! empty( $settings[ self::SHOW_MSRP ] ) ); ?>
+								/>
+								<?php echo esc_html__( 'Show the recommended retail price on the product page', 'woo-kontor-sync-pro' ); ?>
+							</label>
+							<p>
+								<label for="wksync-msrp-label"><?php echo esc_html__( 'Label', 'woo-kontor-sync-pro' ); ?></label>
+								<input
+									type="text"
+									class="regular-text"
+									id="wksync-msrp-label"
+									name="<?php echo esc_attr( self::OPTION_KEY ); ?>[<?php echo esc_attr( self::MSRP_LABEL ); ?>]"
+									value="<?php echo esc_attr( (string) $settings[ self::MSRP_LABEL ] ); ?>"
+									placeholder="<?php echo esc_attr( ProductMeta::msrp_label() ); ?>"
+								/>
+							</p>
+							<p class="description">
+								<?php echo esc_html__( 'Kontor supplies this figure on a wholesale shop only, where it sells at Ek and the UVP beside it is the price a business buying here can resell at. It is imported as _wksync_msrp and, until now, nothing rendered it.', 'woo-kontor-sync-pro' ); ?>
+							</p>
+							<p class="description">
+								<?php echo esc_html__( 'The label is shown in front of the amount. Leave it empty for the default wording in the shop\'s language, and remember that it is what the customer reads: the figure is stated raw, not as a saving, and Kontor lists a retail price no higher than the shop\'s own for a small number of articles.', 'woo-kontor-sync-pro' ); ?>
+							</p>
+						</td>
+					</tr>
+					<tr>
+						<th scope="row"><?php echo esc_html__( 'EAN', 'woo-kontor-sync-pro' ); ?></th>
+						<td>
+							<input type="hidden" name="<?php echo esc_attr( self::OPTION_KEY ); ?>[<?php echo esc_attr( self::SHOW_EAN ); ?>]" value="0" />
+							<label for="wksync-show-ean">
+								<input
+									type="checkbox"
+									id="wksync-show-ean"
+									name="<?php echo esc_attr( self::OPTION_KEY ); ?>[<?php echo esc_attr( self::SHOW_EAN ); ?>]"
+									value="1"
+									<?php checked( ! empty( $settings[ self::SHOW_EAN ] ) ); ?>
+								/>
+								<?php echo esc_html__( 'Show the EAN on the product page', 'woo-kontor-sync-pro' ); ?>
+							</label>
+							<p>
+								<label for="wksync-ean-label"><?php echo esc_html__( 'Label', 'woo-kontor-sync-pro' ); ?></label>
+								<input
+									type="text"
+									class="regular-text"
+									id="wksync-ean-label"
+									name="<?php echo esc_attr( self::OPTION_KEY ); ?>[<?php echo esc_attr( self::EAN_LABEL ); ?>]"
+									value="<?php echo esc_attr( (string) $settings[ self::EAN_LABEL ] ); ?>"
+									placeholder="<?php echo esc_attr( ProductMeta::ean_label() ); ?>"
+								/>
+							</p>
+							<p class="description">
+								<?php echo esc_html__( 'The EAN Kontor sends as Artean, held in WooCommerce\'s own GTIN field. EANs repeat across articles in the feed and WooCommerce refuses a duplicate, so a product whose EAN another already holds has none and shows no row.', 'woo-kontor-sync-pro' ); ?>
 							</p>
 						</td>
 					</tr>

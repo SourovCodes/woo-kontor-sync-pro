@@ -155,7 +155,27 @@ of them wrong produces silently wrong data rather than an error:
 - **`UVP` is the product price on a retail or education shop**, and mapping `Ek` to the price on one
   of those would sell the whole catalogue at wholesale.
 - **The retail price is stored as `ProductSync::META_MSRP`** (`_wksync_msrp`), on a wholesale shop
-  only, and nothing renders it — it is there for a template, another plugin or a later change.
+  only. `Frontend\ProductMeta` renders it on the product page and `Rest\Products` serves it; nothing
+  else reads it.
+  - **The product page shows it in the meta block**, beside the article number and the categories,
+    through `woocommerce_product_meta_end` — the extension point a theme overriding
+    `single-product/meta.php` keeps, and the one place a customer already looks for the article's
+    identifiers. The row mirrors core's own SKU markup (`wksync_msrp_wrapper` / `wksync-msrp`, with
+    the label in a `meta-label` span), and the amount goes through `wc_price()` so it carries the
+    shop's currency.
+  - **Off by default** (`Settings::SHOW_MSRP`), like every other setting that changes what the shop
+    does. This one is public: it states a second price to every customer, on every product, and an
+    update is not the thing that should decide to start.
+  - **The label is a setting, not a translated string** (`Settings::MSRP_LABEL`). RRP, UVP, list
+    price — what the figure is called differs between shops in the same language, which is the one
+    thing a catalogue cannot answer. **Empty means the translated default**, resolved at render in
+    `ProductMeta::label()` rather than stored, so a shop that never touched the field reads its own
+    language and an emptied field is the way back rather than a row with nothing in front of it.
+    Sanitised with `wp_strip_all_tags()`, never `sanitize_text_field()`, which would eat the percent
+    out of "UVP inkl. 20% MwSt.".
+  - **A zero or absent figure shows no row**, which the import already guarantees by deleting the
+    meta rather than writing `0.00` — but a recommended price of nothing in front of a customer is
+    worth being sure of twice.
   - **It is served on `/wc/v3/products` as `msrp`** (`Rest\Products`), because the meta key is
     underscore-prefixed and therefore protected: without this, anything reading products over HTTP
     sees the price and not the figure beside it. **Null when there is none**, never `0.00` or an
@@ -177,9 +197,15 @@ of them wrong produces silently wrong data rather than an error:
     mechanism, and not on variations, which never carry the meta.
   - **Stored raw, never as a saving.** Kontor lists no retail price at all for some articles and one
     no higher than `Ek` for others — 25 in 986 sampled, mostly nulls, plus articles where the two are
-    equal. Whether it can be shown as a discount is a question for whatever renders it.
+    equal. The product page states it raw for exactly that reason: a row promising a saving would be
+    lying on those articles, and neither the import nor the template can tell which.
   - **Absent, zero or negative deletes the meta** rather than writing `0.00`. That also clears the
     figure from a shop that has since moved off wholesale.
+- **The EAN is shown the same way** (`Settings::SHOW_EAN`, `Settings::EAN_LABEL`, off by default),
+  read from WooCommerce's own `global_unique_id` rather than from a meta key of this plugin's. Core
+  prints only the SKU, the categories and the tags, so without this the EAN sits in a field nobody
+  but an admin sees. A product whose EAN another product already holds has none — the import passes
+  over the duplicate — so it shows no row rather than an empty one.
 - **`Verkaufsmenge` and `Verkaufsmenge_staffel` are the quantities an article is sold in** — the
   smallest that may be bought and the step it goes up in. Both keys are **always present and either
   can be null**. They become `ProductSync::META_MIN_QTY` (`_wksync_min_qty`) and
