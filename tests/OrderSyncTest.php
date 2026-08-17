@@ -1008,4 +1008,157 @@ class OrderSyncTest extends WP_UnitTestCase {
 		$this->assertNotContains( 'cancelled', $statuses );
 		$this->assertNotContains( 'refunded', $statuses );
 	}
+
+	/**
+	 * A force push is the one caller that asks Kontor to overwrite.
+	 *
+	 * Every other path leaves the flag false, because an ordinary retry has to stay a
+	 * no-op. Asserted on the encoded request rather than on a return value, since the
+	 * flag only matters as something Kontor receives.
+	 *
+	 * @return void
+	 */
+	public function test_force_push_sets_overwrite_all() {
+		$order = $this->make_order();
+
+		$this->fake_response( $this->upsert_reply( (string) $order->get_id() ) );
+
+		( new OrderSync( null, $this->settings() ) )->force_push( array( $order->get_id() ) );
+
+		$this->assertTrue( $this->captured['body']['params']['overwrite_all'] );
+		$this->assertCount( 1, $this->captured['body']['params']['orders'] );
+	}
+
+	/**
+	 * An order already in Kontor is re-sent rather than skipped.
+	 *
+	 * This is the whole point of the feature: push_one() and the sweep both refuse an
+	 * order carrying the pushed stamp, so without this an edit made after the order
+	 * was sent has no route to the ERP at all.
+	 *
+	 * @return void
+	 */
+	public function test_force_push_re_sends_an_order_already_pushed() {
+		$order = $this->make_order();
+		$order->update_meta_data( OrderSync::META_PUSHED_AT, time() - 3600 );
+		$order->save();
+
+		$this->fake_response( $this->upsert_reply( (string) $order->get_id() ) );
+
+		$result = ( new OrderSync( null, $this->settings() ) )->force_push( array( $order->get_id() ) );
+
+		$this->assertSame( 1, $result['sent'] );
+		$this->assertSame( 0, $result['failed'] );
+
+		// The ordinary path would have sent nothing at all.
+		$this->assertNotEmpty( $this->captured );
+		$this->assertSame( 'AW 214807', wc_get_order( $order->get_id() )->get_meta( OrderSync::META_KONTOR_ORDER ) );
+	}
+
+	/**
+	 * A Dublette under overwrite is a failure to overwrite, not a success.
+	 *
+	 * On an ordinary push it means the order is in the ERP, which is the goal. Here
+	 * the goal was to replace what the ERP holds, so the same row means the edit did
+	 * not land and counting it as sent would say the opposite.
+	 *
+	 * @return void
+	 */
+	public function test_force_push_reports_a_persisting_duplicate_separately() {
+		$order = $this->make_order();
+
+		$this->fake_response(
+			$this->upsert_reply( (string) $order->get_id(), 'fehler', 'Auftrag bereits vorhanden (Dublette).' )
+		);
+
+		$result = ( new OrderSync( null, $this->settings() ) )->force_push( array( $order->get_id() ) );
+
+		$this->assertSame( 1, $result['duplicate'] );
+		$this->assertSame( 0, $result['sent'] );
+		$this->assertSame( 'duplicate', $result['rows'][0]['status'] );
+	}
+
+	/**
+	 * The reply is kept verbatim for the screen to print.
+	 *
+	 * Kontor's behaviour under overwrite_all was never established against the live
+	 * API, so the envelope is the evidence and this plugin's reading of it is not.
+	 *
+	 * @return void
+	 */
+	public function test_force_push_keeps_the_raw_envelope() {
+		$order = $this->make_order();
+
+		$this->fake_response( $this->upsert_reply( (string) $order->get_id() ) );
+
+		$result = ( new OrderSync( null, $this->settings() ) )->force_push( array( $order->get_id() ) );
+
+		$this->assertCount( 1, $result['responses'] );
+		$this->assertTrue( $result['responses'][0]['ok'] );
+		$this->assertSame( 'Operation completed successfully', $result['responses'][0]['raw']['message'] );
+		$this->assertTrue( $result['responses'][0]['raw']['success'] );
+	}
+
+	/**
+	 * A refused preflight sends nothing and says why.
+	 *
+	 * @return void
+	 */
+	public function test_force_push_refuses_without_a_shop() {
+		$order = $this->make_order();
+
+		$this->fake_response( $this->upsert_reply( (string) $order->get_id() ) );
+
+		$result = ( new OrderSync( null, $this->settings( array( 'shop_id' => '' ) ) ) )
+			->force_push( array( $order->get_id() ) );
+
+		$this->assertNotSame( '', $result['error'] );
+		$this->assertSame( 0, $result['sent'] );
+		$this->assertSame( array(), $result['responses'] );
+	}
+
+	/**
+	 * The bulk scope covers orders already sent, and only those.
+	 *
+	 * An order never pushed is left to the ordinary sweep: overwriting it would
+	 * replace nothing, and it is already on its way.
+	 *
+	 * @return void
+	 */
+	public function test_pushed_order_ids_lists_only_orders_already_sent() {
+		$sent = $this->make_order( 'abel-AB12' );
+		$sent->update_meta_data( OrderSync::META_PUSHED_AT, time() );
+		$sent->save();
+
+		// A SKU of its own: WooCommerce refuses a duplicate, and both orders need a line.
+		$unsent = $this->make_order( 'abel-AB13' );
+
+		$ids = ( new OrderSync( null, $this->settings() ) )->pushed_order_ids( OrderSync::FORCE_LIMIT );
+
+		$this->assertContains( $sent->get_id(), $ids );
+		$this->assertNotContains( $unsent->get_id(), $ids );
+	}
+
+	/**
+	 * A force push never touches the order sync's run status.
+	 *
+	 * It runs in an admin request with no chained actions behind it, so marking the
+	 * job running would collide with a real sweep and, if the request were cut short,
+	 * strand the job for the whole of Status::STALE_AFTER.
+	 *
+	 * @return void
+	 */
+	public function test_force_push_leaves_the_job_status_alone() {
+		$order = $this->make_order();
+
+		$this->fake_response( $this->upsert_reply( (string) $order->get_id() ) );
+
+		( new OrderSync( null, $this->settings() ) )->force_push( array( $order->get_id() ) );
+
+		$this->assertFalse( Status::is_running( OrderSync::JOB ) );
+
+		// "never" is the state of a job that has not run, which is what this must
+		// leave behind: a force push is not a run and must not look like one.
+		$this->assertSame( 'never', Status::get( OrderSync::JOB )['state'] );
+	}
 }

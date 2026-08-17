@@ -45,6 +45,27 @@ class Settings {
 	const CAPABILITY = 'manage_woocommerce';
 
 	/**
+	 * Transient holding the result of a force push until the screen renders it.
+	 *
+	 * The handler redirects rather than printing, so a reload cannot re-send the
+	 * batch. The result is too big for a query argument and must not travel in one
+	 * anyway — it carries Kontor's own wording, which would then have to survive a
+	 * round trip through a URL anybody could edit. Per user, so two administrators
+	 * pressing the button do not read each other's answer.
+	 */
+	const FORCE_PUSH_RESULT = 'wksync_force_push_result_';
+
+	/**
+	 * Word an operator must type to force push every order that has been sent.
+	 *
+	 * Not translated, and deliberately so: a confirmation is only a confirmation if
+	 * what has to be typed is exact, and a translated one would differ between the
+	 * screen's language and whatever the operator was told to type. The single-order
+	 * path asks for no such thing — one order is a repairable mistake.
+	 */
+	const FORCE_PUSH_CONFIRMATION = 'OVERWRITE';
+
+	/**
 	 * Interval value meaning "do not schedule this job at all".
 	 *
 	 * This is the default for both jobs: a fresh install has no API key, so nothing
@@ -295,6 +316,7 @@ class Settings {
 		add_action( 'wp_ajax_wksync_job_progress', array( $this, 'handle_job_progress' ) );
 		add_action( 'admin_post_wksync_run_job', array( $this, 'handle_run_job' ) );
 		add_action( 'admin_post_wksync_check_updates', array( $this, 'handle_check_updates' ) );
+		add_action( 'admin_post_wksync_force_push', array( $this, 'handle_force_push' ) );
 	}
 
 	/**
@@ -989,6 +1011,109 @@ class Settings {
 	}
 
 	/**
+	 * Force orders back to Kontor with overwrite enabled, in this request.
+	 *
+	 * Everything here runs before the redirect, so the operator waits for it and then
+	 * reads the reply. That is the point: the sync jobs are queued precisely so that
+	 * nobody waits on Kontor, and this is the one action where the answer matters more
+	 * than the wait.
+	 *
+	 * @return void
+	 */
+	public function handle_force_push() {
+		if ( ! current_user_can( self::CAPABILITY ) ) {
+			wp_die( esc_html__( 'You do not have permission to do that.', 'woo-kontor-sync-pro' ) );
+		}
+
+		check_admin_referer( 'wksync_force_push' );
+
+		$scope     = isset( $_POST['scope'] ) ? sanitize_key( wp_unslash( $_POST['scope'] ) ) : '';
+		$order_ids = array();
+		$refusal   = '';
+
+		if ( 'all' === $scope ) {
+			$typed = isset( $_POST['confirmation'] )
+				? trim( sanitize_text_field( wp_unslash( $_POST['confirmation'] ) ) )
+				: '';
+
+			/*
+			 * Checked on the server rather than with a JavaScript confirm, which is a
+			 * courtesy to a browser in exactly the way a min attribute is: it can be
+			 * turned off, and this request can be made without ever loading the page.
+			 */
+			if ( self::FORCE_PUSH_CONFIRMATION !== $typed ) {
+				$refusal = sprintf(
+					/* translators: %s: the word that must be typed to confirm. */
+					__( 'Nothing was sent. Type %s to confirm overwriting every order already in Kontor.', 'woo-kontor-sync-pro' ),
+					self::FORCE_PUSH_CONFIRMATION
+				);
+			} else {
+				$order_ids = ( new OrderSync() )->pushed_order_ids( OrderSync::FORCE_LIMIT );
+
+				if ( empty( $order_ids ) ) {
+					$refusal = __( 'No orders have been sent to Kontor yet, so there is nothing to overwrite.', 'woo-kontor-sync-pro' );
+				}
+			}
+		} else {
+			$order_id = isset( $_POST['order_id'] ) ? absint( wp_unslash( $_POST['order_id'] ) ) : 0;
+			$order    = $order_id ? wc_get_order( $order_id ) : null;
+
+			if ( ! $order ) {
+				$refusal = __( 'No order with that number could be found.', 'woo-kontor-sync-pro' );
+			} else {
+				$order_ids = array( $order_id );
+			}
+		}
+
+		if ( '' !== $refusal ) {
+			$this->store_force_push_result( array( 'error' => $refusal ) );
+			$this->redirect_after_force_push();
+		}
+
+		/*
+		 * A hundred orders is up to four round trips at Client::REQUEST_TIMEOUT each,
+		 * and the host's own limit is what would otherwise cut the reply off after the
+		 * work had already been done in the ERP. WooCommerce's helper is a no-op where
+		 * the host forbids it, which is why the batch is bounded as well.
+		 */
+		if ( function_exists( 'wc_set_time_limit' ) ) {
+			wc_set_time_limit( 0 );
+		}
+
+		$this->store_force_push_result( ( new OrderSync() )->force_push( $order_ids ) );
+		$this->redirect_after_force_push();
+	}
+
+	/**
+	 * Keep a force push's result for the screen that follows the redirect.
+	 *
+	 * @param array $result Result from OrderSync::force_push(), or a bare error.
+	 * @return void
+	 */
+	protected function store_force_push_result( array $result ) {
+		set_transient( self::FORCE_PUSH_RESULT . get_current_user_id(), $result, 5 * MINUTE_IN_SECONDS );
+	}
+
+	/**
+	 * Return to the settings screen after a force push and stop.
+	 *
+	 * @return void
+	 */
+	protected function redirect_after_force_push() {
+		wp_safe_redirect(
+			add_query_arg(
+				array(
+					'page'         => self::PAGE_SLUG,
+					'wksync_force' => '1',
+				),
+				admin_url( 'admin.php' )
+			)
+		);
+
+		exit;
+	}
+
+	/**
 	 * Report where every job has got to, for the progress bars.
 	 *
 	 * Deliberately cheap: the whole answer comes from one non-autoloaded option, plus
@@ -1572,9 +1697,232 @@ class Settings {
 			<h2><?php echo esc_html__( 'Scheduled jobs', 'woo-kontor-sync-pro' ); ?></h2>
 			<?php $this->render_jobs_table(); ?>
 
+			<?php $this->render_force_push_section(); ?>
+
 			<?php $this->render_updates_section(); ?>
 		</div>
 		<?php
+	}
+
+	/**
+	 * Offer to re-send orders to Kontor with overwrite enabled.
+	 *
+	 * Two paths, and the single-order one comes first because it is how the bulk one
+	 * should be approached: overwrite_all's behaviour was never established against a
+	 * live account, so the first press should risk one order rather than the shop.
+	 *
+	 * @return void
+	 */
+	protected function render_force_push_section() {
+		?>
+		<h2><?php echo esc_html__( 'Force push to Kontor', 'woo-kontor-sync-pro' ); ?></h2>
+
+		<div class="notice notice-warning inline">
+			<p>
+				<?php echo esc_html__( 'An ordinary push cannot change an order Kontor already holds. Kontor deduplicates on the order number and the sync leaves overwrite off, so a re-send is answered with "Dublette" and an order edited after it was sent never reaches the ERP. This sends it again with overwrite enabled.', 'woo-kontor-sync-pro' ); ?>
+			</p>
+			<p>
+				<strong><?php echo esc_html__( 'Kontor\'s exact behaviour under overwrite has not been established against a live account.', 'woo-kontor-sync-pro' ); ?></strong>
+				<?php echo esc_html__( 'Try one order first and read the reply below before using this on the whole shop. It runs in this request rather than in the background, so leave the page open until it answers.', 'woo-kontor-sync-pro' ); ?>
+			</p>
+		</div>
+
+		<?php $this->render_force_push_result(); ?>
+
+		<form action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" method="post">
+			<input type="hidden" name="action" value="wksync_force_push"/>
+			<input type="hidden" name="scope" value="single"/>
+			<?php wp_nonce_field( 'wksync_force_push' ); ?>
+
+			<table class="form-table" role="presentation">
+				<tr>
+					<th scope="row">
+						<label for="wksync-force-order"><?php echo esc_html__( 'Order number', 'woo-kontor-sync-pro' ); ?></label>
+					</th>
+					<td>
+						<input type="number" min="1" step="1" class="small-text" id="wksync-force-order" name="order_id" value=""/>
+						<button type="submit" class="button"><?php echo esc_html__( 'Force push this order', 'woo-kontor-sync-pro' ); ?></button>
+						<p class="description">
+							<?php echo esc_html__( 'The order ID, which is what this plugin sends as the order number. It is shown in the order screen\'s URL, and is not always the number the shop displays.', 'woo-kontor-sync-pro' ); ?>
+						</p>
+					</td>
+				</tr>
+			</table>
+		</form>
+
+		<form action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" method="post">
+			<input type="hidden" name="action" value="wksync_force_push"/>
+			<input type="hidden" name="scope" value="all"/>
+			<?php wp_nonce_field( 'wksync_force_push' ); ?>
+
+			<table class="form-table" role="presentation">
+				<tr>
+					<th scope="row">
+						<label for="wksync-force-confirm"><?php echo esc_html__( 'Force push every sent order', 'woo-kontor-sync-pro' ); ?></label>
+					</th>
+					<td>
+						<input type="text" class="regular-text" id="wksync-force-confirm" name="confirmation" value="" autocomplete="off"/>
+						<button type="submit" class="button"><?php echo esc_html__( 'Force push all', 'woo-kontor-sync-pro' ); ?></button>
+						<p class="description">
+							<?php
+							printf(
+								/* translators: 1: the word that must be typed to confirm, 2: largest number of orders one press sends. */
+								esc_html__( 'Type %1$s to confirm. This overwrites what Kontor holds for every order this plugin has already sent, oldest first, up to %2$d of them in one press. Orders never sent are left alone — the ordinary sweep is already sending those.', 'woo-kontor-sync-pro' ),
+								esc_html( self::FORCE_PUSH_CONFIRMATION ),
+								absint( OrderSync::FORCE_LIMIT )
+							);
+							?>
+						</p>
+					</td>
+				</tr>
+			</table>
+		</form>
+		<?php
+	}
+
+	/**
+	 * Show what the last force push did, then forget it.
+	 *
+	 * The raw envelope is printed alongside the counts because the counts are this
+	 * plugin's reading of the reply and the envelope is the reply. Under a flag whose
+	 * behaviour nobody has pinned down, the second is the one worth having.
+	 *
+	 * @return void
+	 */
+	protected function render_force_push_result() {
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only display flag set by our own redirect; the push itself was nonce-checked.
+		if ( ! isset( $_GET['wksync_force'] ) ) {
+			return;
+		}
+
+		$key    = self::FORCE_PUSH_RESULT . get_current_user_id();
+		$result = get_transient( $key );
+
+		if ( ! is_array( $result ) ) {
+			return;
+		}
+
+		// Read once. A reload would otherwise keep reporting a push that is long over.
+		delete_transient( $key );
+
+		if ( ! empty( $result['error'] ) ) {
+			printf(
+				'<div class="notice notice-error"><p>%s</p></div>',
+				esc_html( $result['error'] )
+			);
+		}
+
+		if ( empty( $result['rows'] ) && empty( $result['responses'] ) ) {
+			return;
+		}
+
+		$failed = isset( $result['failed'] ) ? (int) $result['failed'] : 0;
+		?>
+		<div class="notice <?php echo esc_attr( $failed > 0 ? 'notice-warning' : 'notice-success' ); ?>">
+			<p>
+				<?php
+				printf(
+					/* translators: 1: orders overwritten, 2: orders Kontor still called duplicates, 3: orders rejected, 4: orders skipped. */
+					esc_html__( '%1$d overwritten, %2$d still reported as duplicates, %3$d rejected, %4$d skipped.', 'woo-kontor-sync-pro' ),
+					isset( $result['sent'] ) ? (int) $result['sent'] : 0,
+					isset( $result['duplicate'] ) ? (int) $result['duplicate'] : 0,
+					absint( $failed ),
+					isset( $result['skipped'] ) ? (int) $result['skipped'] : 0
+				);
+				?>
+			</p>
+			<?php if ( ! empty( $result['duplicate'] ) ) : ?>
+				<p>
+					<?php echo esc_html__( 'An order still reported as a duplicate means Kontor declined to overwrite it. The edit has not reached the ERP and has to be made there.', 'woo-kontor-sync-pro' ); ?>
+				</p>
+			<?php endif; ?>
+		</div>
+
+		<?php if ( ! empty( $result['rows'] ) ) : ?>
+			<table class="widefat striped">
+				<thead>
+					<tr>
+						<th scope="col"><?php echo esc_html__( 'Order', 'woo-kontor-sync-pro' ); ?></th>
+						<th scope="col"><?php echo esc_html__( 'Result', 'woo-kontor-sync-pro' ); ?></th>
+						<th scope="col"><?php echo esc_html__( 'What Kontor said', 'woo-kontor-sync-pro' ); ?></th>
+					</tr>
+				</thead>
+				<tbody>
+					<?php foreach ( $result['rows'] as $row ) : ?>
+						<tr>
+							<td>
+								<a href="<?php echo esc_url( admin_url( 'admin.php?page=wc-orders&action=edit&id=' . absint( $row['order'] ) ) ); ?>">
+									<?php echo esc_html( '#' . absint( $row['order'] ) ); ?>
+								</a>
+							</td>
+							<td><?php echo esc_html( $this->describe_force_row( (string) $row['status'] ) ); ?></td>
+							<td><?php echo esc_html( '' === $row['message'] ? '—' : $row['message'] ); ?></td>
+						</tr>
+					<?php endforeach; ?>
+				</tbody>
+			</table>
+		<?php endif; ?>
+
+		<?php if ( ! empty( $result['responses'] ) ) : ?>
+			<h3><?php echo esc_html__( 'What Kontor returned', 'woo-kontor-sync-pro' ); ?></h3>
+			<?php foreach ( $result['responses'] as $index => $response ) : ?>
+				<p>
+					<strong>
+						<?php
+						printf(
+							/* translators: %d: request number within this force push. */
+							esc_html__( 'Request %d', 'woo-kontor-sync-pro' ),
+							absint( $index ) + 1
+						);
+						?>
+					</strong>
+					<?php if ( empty( $response['ok'] ) ) : ?>
+						&mdash; <?php echo esc_html( $response['message'] ); ?>
+						<?php if ( '' !== $response['code'] ) : ?>
+							(<?php echo esc_html( $response['code'] ); ?>)
+						<?php endif; ?>
+					<?php endif; ?>
+				</p>
+				<pre class="wksync-force-response"><?php echo esc_html( $this->encode_force_response( $response['raw'] ) ); ?></pre>
+			<?php endforeach; ?>
+			<p class="description">
+				<?php echo esc_html__( 'The same replies are in WooCommerce → Status → Logs, under woo-kontor-sync.', 'woo-kontor-sync-pro' ); ?>
+			</p>
+		<?php endif; ?>
+		<?php
+	}
+
+	/**
+	 * Name one order's outcome in a force push.
+	 *
+	 * @param string $status Outcome recorded by OrderSync::force_push().
+	 * @return string Wording for the table.
+	 */
+	protected function describe_force_row( $status ) {
+		switch ( $status ) {
+			case 'ok':
+				return __( 'Overwritten', 'woo-kontor-sync-pro' );
+			case 'duplicate':
+				return __( 'Refused as a duplicate', 'woo-kontor-sync-pro' );
+			default:
+				return __( 'Rejected', 'woo-kontor-sync-pro' );
+		}
+	}
+
+	/**
+	 * Render a reply for display.
+	 *
+	 * @param mixed $raw Decoded envelope, or null when there was nothing to decode.
+	 * @return string Pretty-printed JSON, or a note that there was no body.
+	 */
+	protected function encode_force_response( $raw ) {
+		if ( null === $raw ) {
+			return __( 'Kontor returned no body that could be decoded.', 'woo-kontor-sync-pro' );
+		}
+
+		$encoded = wp_json_encode( $raw, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE );
+
+		return false === $encoded ? __( 'The reply could not be rendered.', 'woo-kontor-sync-pro' ) : $encoded;
 	}
 
 	/**

@@ -81,6 +81,18 @@ class OrderSync {
 	const SWEEP_LIMIT = 200;
 
 	/**
+	 * Largest number of orders one force push may send.
+	 *
+	 * The force push runs in the request that asked for it, with no queue behind it,
+	 * so this is the one place in the plugin where an execution limit is a real risk
+	 * rather than a theoretical one: every BATCH_SIZE orders is a round trip that can
+	 * take up to Client::REQUEST_TIMEOUT. Bounded here so a shop with ten thousand
+	 * orders gets a press that finishes and reports, rather than a white screen and
+	 * no way of knowing how far it got.
+	 */
+	const FORCE_LIMIT = 100;
+
+	/**
 	 * Transient prefix holding the order IDs a run is working through.
 	 *
 	 * The list is fixed when the sweep starts rather than re-queried per batch:
@@ -190,6 +202,301 @@ class OrderSync {
 		}
 
 		$this->send( array( $order ) );
+	}
+
+	/**
+	 * Re-send orders with overwrite_all set, in the caller's own request.
+	 *
+	 * The ordinary push cannot update anything. Kontor deduplicates on orderNumber
+	 * and overwrite_all is left false, so an order edited after it reached the ERP
+	 * comes back "Dublette" and the edit never lands. This is the deliberate way out,
+	 * and everything about it is different from the sync jobs on purpose:
+	 *
+	 * - It runs synchronously, so the operator sees Kontor's answer on the screen
+	 *   they pressed the button on rather than in a log an hour later.
+	 * - It never touches Status. A run belongs to a scheduled job, and marking one
+	 *   here would collide with a sweep and leave the job "running" if this request
+	 *   were cut short.
+	 * - It reports every reply verbatim, because overwrite_all's exact behaviour was
+	 *   never established against the live API and the reply is the evidence.
+	 *
+	 * @param int[] $order_ids Orders to force through, already bounded by the caller.
+	 * @return array Result for display: counts, per-order rows and the raw replies.
+	 */
+	public function force_push( array $order_ids ) {
+		$result = array(
+			'attempted' => 0,
+			'sent'      => 0,
+			'duplicate' => 0,
+			'failed'    => 0,
+			'skipped'   => 0,
+			'rows'      => array(),
+			'responses' => array(),
+			'error'     => '',
+		);
+
+		$ready = Preflight::check( self::JOB, $this->settings );
+
+		if ( is_wp_error( $ready ) ) {
+			$result['error'] = $ready->get_error_message();
+			$this->log( 'error', 'Force push refused: ' . $ready->get_error_message() );
+
+			return $result;
+		}
+
+		/*
+		 * Chunked even though nothing is queued. The batch size is what the ordinary
+		 * sweep sends, so this exercises a request shape Kontor has already accepted
+		 * rather than a single body carrying two hundred orders.
+		 */
+		foreach ( array_chunk( $order_ids, self::BATCH_SIZE ) as $chunk ) {
+			$this->force_push_batch( $chunk, $result );
+		}
+
+		$this->log(
+			'notice',
+			sprintf(
+				'Force push finished: %d overwritten, %d reported as duplicates, %d rejected, %d skipped.',
+				$result['sent'],
+				$result['duplicate'],
+				$result['failed'],
+				$result['skipped']
+			)
+		);
+
+		return $result;
+	}
+
+	/**
+	 * Send one chunk of a force push and fold the reply into the running result.
+	 *
+	 * @param int[] $order_ids Orders in this chunk.
+	 * @param array $result    Result being accumulated, by reference.
+	 * @return void
+	 */
+	protected function force_push_batch( array $order_ids, array &$result ) {
+		$payload = array();
+		$by_key  = array();
+
+		foreach ( $order_ids as $order_id ) {
+			$order = wc_get_order( $order_id );
+
+			if ( ! $order ) {
+				++$result['skipped'];
+
+				continue;
+			}
+
+			try {
+				$mapped = $this->build_payload( $order );
+			} catch ( Exception $exception ) {
+				++$result['failed'];
+
+				$result['rows'][] = array(
+					'order'   => (int) $order_id,
+					'status'  => 'error',
+					'message' => $exception->getMessage(),
+				);
+
+				$this->log( 'error', sprintf( 'Order %d could not be mapped for a force push: %s', $order_id, $exception->getMessage() ) );
+
+				continue;
+			}
+
+			$payload[]                        = $mapped;
+			$by_key[ $mapped['orderNumber'] ] = $order;
+		}
+
+		if ( empty( $payload ) ) {
+			return;
+		}
+
+		$result['attempted'] += count( $payload );
+
+		$response = $this->client->push_orders(
+			$payload,
+			(string) $this->settings['shop_id'],
+			self::UPLOAD_USER_ID,
+			true
+		);
+
+		if ( is_wp_error( $response ) ) {
+			$result['failed']     += count( $payload );
+			$result['responses'][] = array(
+				'ok'      => false,
+				'message' => $response->get_error_message(),
+				'code'    => (string) Client::detail( $response, 'error_code', '' ),
+				'status'  => (int) Client::detail( $response, 'status', 0 ),
+				'raw'     => Client::detail( $response, 'raw', null ),
+			);
+
+			foreach ( $by_key as $number => $order ) {
+				$order->update_meta_data( self::META_PUSH_ERROR, $response->get_error_message() );
+				$order->save();
+
+				$result['rows'][] = array(
+					'order'   => (int) $order->get_id(),
+					'status'  => 'error',
+					'message' => $response->get_error_message(),
+				);
+			}
+
+			$this->log( 'error', 'Force push batch was not accepted: ' . $response->get_error_message() );
+
+			return;
+		}
+
+		$result['responses'][] = array(
+			'ok'      => true,
+			'message' => '',
+			'code'    => '',
+			'status'  => 200,
+			'raw'     => isset( $response['raw'] ) ? $response['raw'] : $response,
+		);
+
+		$this->interpret_force_rows( $response['data'], $by_key, $result );
+	}
+
+	/**
+	 * Apply the verdicts from a force push.
+	 *
+	 * Kept apart from interpret_rows() because that one reports into a job's Status
+	 * and this has no run to report into. The verdicts themselves read the same way,
+	 * with one difference: under overwrite_all a "Dublette" is no longer the happy
+	 * ending it is on an ordinary push. It means Kontor declined to overwrite, so it
+	 * is surfaced as its own outcome rather than folded into the successes.
+	 *
+	 * @param array      $rows   Result rows from the upsert reply.
+	 * @param WC_Order[] $by_key Orders keyed by the order number that was sent.
+	 * @param array      $result Result being accumulated, by reference.
+	 * @return void
+	 */
+	protected function interpret_force_rows( array $rows, array $by_key, array &$result ) {
+		$reported = array();
+
+		foreach ( $rows as $row ) {
+			$number = isset( $row['orderNumber'] ) ? (string) $row['orderNumber'] : '';
+			$order  = isset( $by_key[ $number ] ) ? $by_key[ $number ] : null;
+
+			if ( ! $order ) {
+				$this->log( 'warning', sprintf( 'Force push: Kontor reported on an order number we did not send: %s', '' === $number ? '(null)' : $number ) );
+
+				continue;
+			}
+
+			$reported[ $number ] = true;
+
+			$status  = isset( $row['status'] ) ? strtolower( (string) $row['status'] ) : '';
+			$message = isset( $row['message'] ) ? (string) $row['message'] : '';
+
+			if ( 'ok' === $status ) {
+				$auftrnr = isset( $row['auftrnr'] ) ? (string) $row['auftrnr'] : '';
+
+				$this->mark_pushed(
+					$order,
+					$auftrnr,
+					$number,
+					'' === $auftrnr
+						? __( 'Force-pushed to Kontor with overwrite enabled.', 'woo-kontor-sync-pro' )
+						: sprintf(
+							/* translators: %s: Kontor's internal order number. */
+							__( 'Force-pushed to Kontor with overwrite enabled, as %s.', 'woo-kontor-sync-pro' ),
+							$auftrnr
+						)
+				);
+
+				++$result['sent'];
+
+				$result['rows'][] = array(
+					'order'   => (int) $order->get_id(),
+					'status'  => 'ok',
+					'message' => $message,
+				);
+
+				continue;
+			}
+
+			if ( $this->is_duplicate( $message ) ) {
+				++$result['duplicate'];
+
+				$result['rows'][] = array(
+					'order'   => (int) $order->get_id(),
+					'status'  => 'duplicate',
+					'message' => $message,
+				);
+
+				$this->log(
+					'warning',
+					sprintf( 'Force push: Kontor still reported order %s as a duplicate, so the overwrite did not take.', $number )
+				);
+
+				continue;
+			}
+
+			$order->update_meta_data( self::META_PUSH_ERROR, $message );
+			$order->save();
+
+			++$result['failed'];
+
+			$result['rows'][] = array(
+				'order'   => (int) $order->get_id(),
+				'status'  => 'error',
+				'message' => $message,
+			);
+
+			$this->log( 'error', sprintf( 'Force push: Kontor rejected order %s: %s', $number, '' === $message ? '(no reason given)' : $message ) );
+		}
+
+		foreach ( $by_key as $number => $order ) {
+			if ( isset( $reported[ $number ] ) ) {
+				continue;
+			}
+
+			++$result['failed'];
+
+			$result['rows'][] = array(
+				'order'   => (int) $order->get_id(),
+				'status'  => 'error',
+				'message' => __( 'Kontor accepted the batch but said nothing about this order.', 'woo-kontor-sync-pro' ),
+			);
+
+			$this->log( 'error', sprintf( 'Force push: Kontor returned no verdict for order %s.', $number ) );
+		}
+	}
+
+	/**
+	 * Orders this plugin has already sent to Kontor.
+	 *
+	 * The set a force push is for: the ordinary sweep will never revisit them, so
+	 * nothing else can carry a later edit across. Anything never sent is left out —
+	 * it is already on its way through the normal path, and pushing it here would
+	 * overwrite nothing.
+	 *
+	 * @param int $limit Largest number of orders to return.
+	 * @return int[] Order IDs, oldest first.
+	 */
+	public function pushed_order_ids( $limit ) {
+		$orders = wc_get_orders(
+			array(
+				'limit'      => (int) $limit,
+				'status'     => self::pushable_statuses(),
+				'orderby'    => 'date',
+				'order'      => 'ASC',
+				'return'     => 'ids',
+
+				// As in pending_orders(), this is the order meta table under HPOS, and
+				// there is no other way to ask for "orders this plugin has sent".
+				// phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query -- See above.
+				'meta_query' => array(
+					array(
+						'key'     => self::META_PUSHED_AT,
+						'compare' => 'EXISTS',
+					),
+				),
+			)
+		);
+
+		return is_array( $orders ) ? array_map( 'absint', $orders ) : array();
 	}
 
 	/**
@@ -528,12 +835,13 @@ class OrderSync {
 	/**
 	 * Record that an order reached Kontor.
 	 *
-	 * @param WC_Order $order   Order that was accepted.
-	 * @param string   $auftrnr Kontor's internal order number, when it gave one.
-	 * @param string   $number  Order number that was sent as the deduplication key.
+	 * @param WC_Order    $order   Order that was accepted.
+	 * @param string      $auftrnr Kontor's internal order number, when it gave one.
+	 * @param string      $number  Order number that was sent as the deduplication key.
+	 * @param string|null $note    Order note to leave, or null for the ordinary wording.
 	 * @return void
 	 */
-	protected function mark_pushed( $order, $auftrnr, $number ) {
+	protected function mark_pushed( $order, $auftrnr, $number, $note = null ) {
 		$order->update_meta_data( self::META_PUSHED_AT, time() );
 		$order->update_meta_data( self::META_ORDER_NUMBER, $number );
 		$order->delete_meta_data( self::META_PUSH_ERROR );
@@ -542,15 +850,17 @@ class OrderSync {
 			$order->update_meta_data( self::META_KONTOR_ORDER, $auftrnr );
 		}
 
-		$order->add_order_note(
-			'' === $auftrnr
+		if ( null === $note ) {
+			$note = '' === $auftrnr
 				? __( 'Already present in Kontor; not sent again.', 'woo-kontor-sync-pro' )
 				: sprintf(
 					/* translators: %s: Kontor's internal order number. */
 					__( 'Sent to Kontor as %s.', 'woo-kontor-sync-pro' ),
 					$auftrnr
-				)
-		);
+				);
+		}
+
+		$order->add_order_note( $note );
 
 		$order->save();
 	}

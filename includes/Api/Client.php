@@ -84,6 +84,18 @@ class Client {
 	const SHAPE_DOCUMENT = 'document';
 
 	/**
+	 * Envelope shape that keeps the whole decoded reply alongside the rows.
+	 *
+	 * Rows are read exactly as SHAPE_ROWS reads them; what this adds is a "raw" key
+	 * carrying the envelope as it arrived, and the same body attached to the error
+	 * when the request fails. Only the force-push screen asks for it, because that
+	 * screen exists to show an operator what Kontor actually said rather than this
+	 * plugin's reading of it. The envelope carries no credential: the key travels in
+	 * a request header, and headers are never put in here.
+	 */
+	const SHAPE_ENVELOPE = 'envelope';
+
+	/**
 	 * HTTP status codes worth retrying. Client errors are bugs, not blips.
 	 *
 	 * @var int[]
@@ -268,18 +280,25 @@ class Client {
 	 * re-sending an order already there is answered with a per-row "Dublette" rather
 	 * than creating a second one. That is what makes a retry safe.
 	 *
-	 * @param array  $orders   Orders in the API's shape, already mapped.
-	 * @param string $shop_id  Kontor shop GUID.
-	 * @param string $user_id  Value for the required meta.userId.
-	 * @return array|WP_Error Array with "data" and "meta" keys, or WP_Error on failure.
+	 * Passing $overwrite_all true asks Kontor to replace what it already holds rather
+	 * than answering "Dublette", which is the only way an order edited after it
+	 * reached the ERP can be corrected from here. It is never set by the sync jobs:
+	 * an ordinary retry must stay a no-op, and the flag applies to the whole batch
+	 * rather than to one order, so it belongs to a deliberate act by an operator.
+	 *
+	 * @param array  $orders        Orders in the API's shape, already mapped.
+	 * @param string $shop_id       Kontor shop GUID.
+	 * @param string $user_id       Value for the required meta.userId.
+	 * @param bool   $overwrite_all Whether Kontor should overwrite orders it already holds.
+	 * @return array|WP_Error Array with "data", "meta" and "raw" keys, or WP_Error on failure.
 	 */
-	public function push_orders( array $orders, $shop_id, $user_id ) {
+	public function push_orders( array $orders, $shop_id, $user_id, $overwrite_all = false ) {
 		$body = array(
 			'name'   => 'orders',
 			'meta'   => array( 'userId' => (string) $user_id ),
 			'params' => array(
 				'shopid'        => (string) $shop_id,
-				'overwrite_all' => false,
+				'overwrite_all' => (bool) $overwrite_all,
 				'orders'        => array_values( $orders ),
 			),
 		);
@@ -295,7 +314,17 @@ class Client {
 			$numbers[] = isset( $order['orderNumber'] ) ? (string) $order['orderNumber'] : '';
 		}
 
-		return $this->request( 'POST', 'upsert', $body, md5( (string) $shop_id . '|' . implode( ',', $numbers ) ) );
+		/*
+		 * The overwrite flag is part of the key. Without it a force push would carry
+		 * the same key as the ordinary push of those orders that preceded it, and any
+		 * deduplication at the transport layer would answer it with the earlier reply
+		 * rather than performing the overwrite the operator asked for.
+		 */
+		$key = md5(
+			(string) $shop_id . '|' . implode( ',', $numbers ) . '|' . ( $overwrite_all ? 'overwrite' : 'insert' )
+		);
+
+		return $this->request( 'POST', 'upsert', $body, $key, self::SHAPE_ENVELOPE );
 	}
 
 	/**
@@ -470,10 +499,18 @@ class Client {
 				? ( isset( $decoded['data'] ) && is_string( $decoded['data'] ) ? $decoded['data'] : '' )
 				: ( isset( $decoded['data'] ) && is_array( $decoded['data'] ) ? $decoded['data'] : array() );
 
-			return array(
+			$result = array(
 				'data' => $data,
 				'meta' => isset( $decoded['meta'] ) && is_array( $decoded['meta'] ) ? $decoded['meta'] : array(),
 			);
+
+			// Only the envelope shape keeps the whole reply, so no other caller pays
+			// for carrying a copy of every response it already read.
+			if ( self::SHAPE_ENVELOPE === $shape ) {
+				$result['raw'] = $decoded;
+			}
+
+			return $result;
 		}
 
 		$disposition = in_array( $status, self::$retryable_statuses, true ) ? 'retry' : 'fail';
@@ -490,15 +527,19 @@ class Client {
 			sprintf( '%s %s failed on attempt %d: HTTP %d %s (%s).', $method, $label, $attempt, $status, $code, $disposition )
 		);
 
-		return new WP_Error(
-			'woo_kontor_sync_api_error',
-			$message,
-			array(
-				'disposition' => $disposition,
-				'status'      => $status,
-				'error_code'  => $code,
-			)
+		$detail = array(
+			'disposition' => $disposition,
+			'status'      => $status,
+			'error_code'  => $code,
 		);
+
+		// A failed force push is exactly the case where the operator needs the reply
+		// rather than our summary of it, and a refusal is where Kontor says most.
+		if ( self::SHAPE_ENVELOPE === $shape ) {
+			$detail['raw'] = $decoded;
+		}
+
+		return new WP_Error( 'woo_kontor_sync_api_error', $message, $detail );
 	}
 
 	/**

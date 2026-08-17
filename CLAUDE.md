@@ -564,11 +564,44 @@ of them wrong produces silently wrong data rather than an error:
 - **`orderPlatformid` is optional and deliberately not sent.** It identifies the platform to Kontor
   and no value has been agreed for this integration; inventing one would stamp a meaningless string
   on every order in the ERP.
-- **`overwrite_all` stays `false`, and that is the idempotency mechanism.** Kontor deduplicates on
-  `orderNumber`: re-sending an order already there comes back as `fehler` / *Dublette* rather than
-  creating a second one. `OrderSync` therefore treats a Dublette as **success** — the order is in the
-  ERP, which is the goal — instead of retrying it forever. Kontor does not return the existing
-  `Auftrnr` in that reply; the delivery sync backfills it.
+- **`overwrite_all` stays `false` on every automatic path, and that is the idempotency mechanism.**
+  Kontor deduplicates on `orderNumber`: re-sending an order already there comes back as `fehler` /
+  *Dublette* rather than creating a second one. `OrderSync` therefore treats a Dublette as
+  **success** — the order is in the ERP, which is the goal — instead of retrying it forever. Kontor
+  does not return the existing `Auftrnr` in that reply; the delivery sync backfills it.
+  - **The consequence is that nothing automatic can ever *update* an order in the ERP.** An order
+    edited after it was sent is answered with a Dublette and the edit never lands. WooCommerce locks
+    line items once an order leaves `pending`/`on-hold`, so the edits that realistically happen are
+    the address, the phone and the customer note — which is precisely the set a warehouse needs.
+  - **`Settings::FORCE_PUSH_CONFIRMATION` and `OrderSync::force_push()` are the deliberate way out**,
+    and the only place in the plugin that sends `overwrite_all: true`. Its behaviour was **never
+    established against the live account** — everything else known about this API here was found by
+    probing, and this was not — so the screen says so, the single-order path exists to be tried
+    first, and the reply is printed verbatim rather than summarised. If it turns out Kontor
+    overwrites more than the batch, that display is the only thing that would show it.
+  - **It runs in the request that asked for it**, with no Action Scheduler behind it, which is the
+    one place this plugin deliberately breaks its own rule. The rule exists so nobody waits on
+    Kontor; here the answer is the entire point, and a queued job would put it in a log instead of
+    in front of the person who pressed the button. `OrderSync::FORCE_LIMIT` (100) is what keeps that
+    honest — four round trips at `Client::REQUEST_TIMEOUT` — and the batch is chunked at
+    `BATCH_SIZE` so the request shape is one Kontor has already accepted.
+  - **It never touches `Status`.** A run belongs to a scheduled job; marking one here would collide
+    with a real sweep, and a request cut short would strand the job as `running` for the whole of
+    `Status::STALE_AFTER`. `test_force_push_leaves_the_job_status_alone` is the guard.
+  - **Under overwrite, a Dublette is a failure rather than a success**, and
+    `interpret_force_rows()` is separate from `interpret_rows()` for that reason as much as for the
+    Status one. On an ordinary push it means the order is in the ERP, which is the goal; here the
+    goal was to replace what the ERP holds, so the same row means the edit did not land.
+  - **The bulk scope is orders already sent, and requires typing `OVERWRITE`** — checked on the
+    server, because a JavaScript confirm is a courtesy to a browser in exactly the way a `min`
+    attribute is, and this request can be made without ever loading the page. The word is
+    **deliberately untranslated**: a confirmation is only a confirmation if what has to be typed is
+    exact. Orders never sent are left out — the ordinary sweep is already sending those, and
+    overwriting them would replace nothing.
+  - **`Client::SHAPE_ENVELOPE` is what keeps the reply.** `SHAPE_ROWS` returns `data` and `meta` and
+    discards the envelope, which is right for every other caller and useless here. It also attaches
+    the decoded body to the `WP_Error` on a refusal, which is where Kontor says most. Only response
+    bodies are ever shown — the key travels in a request header, and headers are never put in there.
 - **The `orders` entity honours only `filter.shopid`.** Order number, status and date filters are
   accepted and silently ignored, so there is no incremental fetch — every order for the shop comes
   back, capped around 1000 rows. A missing or unknown-but-well-formed shop ID returns an empty list,

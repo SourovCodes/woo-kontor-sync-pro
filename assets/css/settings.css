@@ -68,3 +68,16 @@
 	font-size: 12px;
 	white-space: nowrap;
 }
+
+/* Kontor's reply, printed verbatim. It is JSON with long lines and no way to
+   predict its width, so it scrolls inside its own box rather than stretching the
+   page: the tables above it are what a reader is comparing it against. */
+.wksync-force-response {
+	max-height: 320px;
+	overflow: auto;
+	padding: 10px;
+	background: #f6f7f7;
+	border: 1px solid #dcdcde;
+	font-size: 12px;
+	white-space: pre;
+}
