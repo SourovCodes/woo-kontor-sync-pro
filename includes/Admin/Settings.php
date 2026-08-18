@@ -2332,8 +2332,14 @@ class Settings {
 	 * The invoice directory carries the files that stop Apache and IIS serving it,
 	 * and unguessable names besides. Nginx reads neither guard file, and WordPress
 	 * offers a plugin no portable directory outside what the server publishes, so on
-	 * those hosts the download handler's permission check can simply be walked around
-	 * by anyone holding a URL.
+	 * those hosts a PDF can be fetched at its own address in the uploads folder and
+	 * Download::permitted() is never reached at all.
+	 *
+	 * The wording is careful to say that, because the obvious misreading is that the
+	 * download links are the problem. They are not: a link carries the order key and
+	 * is meant to work for whoever holds it, exactly as WooCommerce's own
+	 * order-received page does. What this is about is the second route to the same
+	 * file, the one nothing guards.
 	 *
 	 * Shown rather than assumed away because the failure is invisible: everything
 	 * keeps working, and the only symptom is an invoice that did not need to be asked
@@ -2359,14 +2365,14 @@ class Settings {
 		?>
 		<div class="notice notice-warning">
 			<p>
-				<strong><?php echo esc_html__( 'Downloaded invoices can be read without logging in.', 'woo-kontor-sync-pro' ); ?></strong>
+				<strong><?php echo esc_html__( 'Invoice PDFs can be opened directly, without the permission check.', 'woo-kontor-sync-pro' ); ?></strong>
 			</p>
 			<p>
-				<?php echo esc_html__( 'This site\'s web server is serving the folder the invoice PDFs are stored in, so anyone who obtains a file\'s address can open it — the permission check on the download link is bypassed. The folder already carries the rules that stop Apache and IIS; nginx ignores them and needs this in its configuration instead:', 'woo-kontor-sync-pro' ); ?>
+				<?php echo esc_html__( 'This site\'s web server is serving the folder the invoice PDFs are stored in, so a file can also be opened at its own address in the uploads folder — and asked for that way it is handed over without anything checking who is asking. This is not about the download links in the order emails, which are meant to work for whoever holds them. The folder already carries the rules that stop Apache and IIS; nginx ignores them and needs this in its configuration instead:', 'woo-kontor-sync-pro' ); ?>
 			</p>
 			<pre><code><?php echo esc_html( $rule ); ?></code></pre>
 			<p class="description">
-				<?php echo esc_html__( 'Until then the files are protected only by their unguessable names. This check is repeated once a day.', 'woo-kontor-sync-pro' ); ?>
+				<?php echo esc_html__( 'Until then the files are protected only by their unguessable names, so the realistic risk is an address escaping in a server log or a backup rather than somebody finding one. This check is repeated once a day.', 'woo-kontor-sync-pro' ); ?>
 			</p>
 		</div>
 		<?php

@@ -679,11 +679,18 @@ of them wrong produces silently wrong data rather than an error:
   random suffix, with `.htaccess`, `web.config` and `index.php` guards and a random component in
   every filename; `Invoices\Download` is the only way one comes back out.
   - **Nginx honours none of those guard files, and WordPress offers a plugin no portable directory
-    outside what the web server publishes.** On such a host only the random names protect the files
-    and `Download`'s permission check can be walked around. Assuming otherwise would fail
-    invisibly, so `Storage::is_exposed()` **asks the web server directly**, by fetching a probe file
-    over HTTP once a day, and the settings screen prints the `location` block to paste when the
-    answer is yes. The Local development site is one of these — the probe returns 200 there.
+    outside what the web server publishes.** On such a host a PDF can be fetched at its own address
+    in the uploads folder and `Download::permitted()` is never reached at all; only the random names
+    protect it. Assuming otherwise would fail invisibly, so `Storage::is_exposed()` **asks the web
+    server directly**, by fetching a probe file over HTTP once a day, and the settings screen prints
+    the `location` block to paste when the answer is yes. The Local development site is one of these
+    — the probe returns 200 there.
+    - **The notice is worded against one specific misreading**, because it was misread that way
+      once: that the *download links* are the hole. They are not. A link carries the order key and
+      is meant to work for whoever holds it, which is the whole point of it — a guest checkout has
+      nothing else. The notice is about the second route to the same file, the one nothing guards,
+      and it says so outright. Its old headline, "Downloaded invoices can be read without logging
+      in", described the intended behaviour just as well as the problem.
   - `Storage::resolve()` treats the stored path as untrusted and refuses anything that `realpath()`
     puts outside the invoice directory. It comes from order meta, and a `../` would otherwise read
     whatever the web server can.
@@ -881,6 +888,17 @@ calling it queues real work: it is not a way to test whether a job would be allo
     description line on the settings screen pointing there. It is also mechanical: `customer_email`
     being true is what gets the invoice PDF attached, because `WC_Email::get_attachments()` fires
     the filter `Frontend\Invoices::attach()` already answers.
+  - **Neither is keyed by its class name**, which core does and this cannot. WooCommerce links to an
+    email's settings page with `strtolower( $email_key )` and matches the submitted section with
+    `sanitize_title( $email_key )`, and the two agree only while the key holds nothing
+    `sanitize_title()` strips. A namespaced class name has backslashes, so the link pointed at
+    `wookontorsync\emails\customerinvoice` while the save path looked for
+    `wookontorsyncemailscustomerinvoice`, never matched, and `WC_Settings_Emails::save()` fell
+    through to saving the general email settings. The screen rendered perfectly and the Enable
+    checkbox would not stick — 0.20.0 shipped with both emails impossible to switch on.
+    `Emails::INVOICE_KEY` and `TRACKING_KEY` are plain strings for that reason, and
+    `test_the_email_keys_survive_woocommerces_section_matching` is the guard. The stored option name
+    comes from `$this->id` rather than the key, so it did not move.
   - **`woocommerce_email_actions` is not optional, and skipping it fails silently.** The classes are
     only ever constructed by `WC_Emails::init()`, which runs when something calls `WC()->mailer()` —
     and inside the Action Scheduler job that downloads an invoice, nothing has. A bare `do_action()`

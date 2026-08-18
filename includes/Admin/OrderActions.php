@@ -8,8 +8,6 @@
 namespace WooKontorSync\Admin;
 
 use WC_Order;
-use WooKontorSync\Emails\CustomerInvoice;
-use WooKontorSync\Emails\CustomerTracking;
 use WooKontorSync\Emails\Emails;
 use WooKontorSync\Emails\OrderEmail;
 use WooKontorSync\Sync\DeliverySync;
@@ -102,7 +100,7 @@ class OrderActions {
 	public function send_invoice( $order ) {
 		$this->resend(
 			$order,
-			CustomerInvoice::class,
+			Emails::INVOICE_KEY,
 			__( 'Kontor invoice email sent to the customer.', 'woo-kontor-sync-pro' ),
 			__( 'The Kontor invoice email could not be sent.', 'woo-kontor-sync-pro' )
 		);
@@ -117,7 +115,7 @@ class OrderActions {
 	public function send_tracking( $order ) {
 		$this->resend(
 			$order,
-			CustomerTracking::class,
+			Emails::TRACKING_KEY,
 			__( 'Kontor tracking email sent to the customer.', 'woo-kontor-sync-pro' ),
 			__( 'The Kontor tracking email could not be sent.', 'woo-kontor-sync-pro' )
 		);
@@ -131,17 +129,17 @@ class OrderActions {
 	 * person who pressed the entry that anything happened at all.
 	 *
 	 * @param mixed  $order      Order to send about.
-	 * @param string $class_name Email class to send.
+	 * @param string $key        Email to send, keyed as WooCommerce lists it.
 	 * @param string $sent       Note to leave when the mail went out.
 	 * @param string $failed     Note to leave when it did not.
 	 * @return void
 	 */
-	protected function resend( $order, $class_name, $sent, $failed ) {
+	protected function resend( $order, $key, $sent, $failed ) {
 		if ( ! $order instanceof WC_Order || ! current_user_can( 'edit_shop_order', $order->get_id() ) ) {
 			return;
 		}
 
-		$email = Emails::get( $class_name );
+		$email = Emails::get( $key );
 
 		if ( ! $email instanceof OrderEmail ) {
 			return;

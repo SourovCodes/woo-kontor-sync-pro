@@ -585,10 +585,34 @@ class OrderNotificationsTest extends WP_UnitTestCase {
 
 		$emails = apply_filters( 'woocommerce_email_classes', array() );
 
-		$this->assertArrayHasKey( CustomerInvoice::class, $emails );
-		$this->assertArrayHasKey( CustomerTracking::class, $emails );
+		$this->assertInstanceOf( CustomerInvoice::class, $emails[ Emails::INVOICE_KEY ] );
+		$this->assertInstanceOf( CustomerTracking::class, $emails[ Emails::TRACKING_KEY ] );
 
 		remove_all_filters( 'woocommerce_email_classes' );
+	}
+
+	/**
+	 * The keys survive both functions WooCommerce identifies a section with.
+	 *
+	 * This is the guard on a bug that made both emails impossible to switch on, while
+	 * the settings screen rendered perfectly. WooCommerce links to an email's own
+	 * settings page with strtolower( $key ) and then matches the submitted section with
+	 * sanitize_title( $key ). The two agree only while the key holds nothing
+	 * sanitize_title() strips — and these were keyed by class name, which under a
+	 * namespace carries backslashes. The link pointed one way, the save path looked the
+	 * other, no email matched, and WC_Settings_Emails::save() quietly saved the general
+	 * email settings instead. The Enable checkbox went nowhere.
+	 *
+	 * @return void
+	 */
+	public function test_the_email_keys_survive_woocommerces_section_matching() {
+		foreach ( array( Emails::INVOICE_KEY, Emails::TRACKING_KEY ) as $key ) {
+			$this->assertSame(
+				strtolower( $key ),
+				sanitize_title( $key ),
+				'WooCommerce would link to one section and save another for ' . $key
+			);
+		}
 	}
 
 	/**

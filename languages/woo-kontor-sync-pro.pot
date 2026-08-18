@@ -2,14 +2,14 @@
 # This file is distributed under the GPL-2.0-or-later.
 msgid ""
 msgstr ""
-"Project-Id-Version: Woo Kontor Sync Pro 0.20.0\n"
+"Project-Id-Version: Woo Kontor Sync Pro 0.20.1\n"
 "Report-Msgid-Bugs-To: https://wordpress.org/support/plugin/woo-kontor-sync-pro\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"POT-Creation-Date: 2026-08-18T14:02:46+00:00\n"
+"POT-Creation-Date: 2026-08-18T14:32:57+00:00\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "X-Generator: WP-CLI 2.12.0\n"
 "X-Domain: woo-kontor-sync-pro\n"
@@ -34,27 +34,27 @@ msgstr ""
 msgid "Sourov Biswas"
 msgstr ""
 
-#: includes/Admin/OrderActions.php:86
+#: includes/Admin/OrderActions.php:84
 msgid "Email the invoice to the customer again"
 msgstr ""
 
-#: includes/Admin/OrderActions.php:90
+#: includes/Admin/OrderActions.php:88
 msgid "Email the tracking details to the customer again"
 msgstr ""
 
-#: includes/Admin/OrderActions.php:106
+#: includes/Admin/OrderActions.php:104
 msgid "Kontor invoice email sent to the customer."
 msgstr ""
 
-#: includes/Admin/OrderActions.php:107
+#: includes/Admin/OrderActions.php:105
 msgid "The Kontor invoice email could not be sent."
 msgstr ""
 
-#: includes/Admin/OrderActions.php:121
+#: includes/Admin/OrderActions.php:119
 msgid "Kontor tracking email sent to the customer."
 msgstr ""
 
-#: includes/Admin/OrderActions.php:122
+#: includes/Admin/OrderActions.php:120
 msgid "The Kontor tracking email could not be sent."
 msgstr ""
 
@@ -841,24 +841,24 @@ msgstr[1] ""
 msgid "Not scheduled"
 msgstr ""
 
-#: includes/Admin/Settings.php:2362
-msgid "Downloaded invoices can be read without logging in."
+#: includes/Admin/Settings.php:2368
+msgid "Invoice PDFs can be opened directly, without the permission check."
 msgstr ""
 
-#: includes/Admin/Settings.php:2365
-msgid "This site's web server is serving the folder the invoice PDFs are stored in, so anyone who obtains a file's address can open it — the permission check on the download link is bypassed. The folder already carries the rules that stop Apache and IIS; nginx ignores them and needs this in its configuration instead:"
+#: includes/Admin/Settings.php:2371
+msgid "This site's web server is serving the folder the invoice PDFs are stored in, so a file can also be opened at its own address in the uploads folder — and asked for that way it is handed over without anything checking who is asking. This is not about the download links in the order emails, which are meant to work for whoever holds them. The folder already carries the rules that stop Apache and IIS; nginx ignores them and needs this in its configuration instead:"
 msgstr ""
 
-#: includes/Admin/Settings.php:2369
-msgid "Until then the files are protected only by their unguessable names. This check is repeated once a day."
+#: includes/Admin/Settings.php:2375
+msgid "Until then the files are protected only by their unguessable names, so the realistic risk is an address escaping in a server log or a backup rather than somebody finding one. This check is repeated once a day."
 msgstr ""
 
-#: includes/Admin/Settings.php:2400
+#: includes/Admin/Settings.php:2406
 msgid "The job could not be queued. It may already be running, or WooCommerce may be inactive."
 msgstr ""
 
 #. translators: %s: job name.
-#: includes/Admin/Settings.php:2412
+#: includes/Admin/Settings.php:2418
 #, php-format
 msgid "%s queued. It runs on the next queue pass, within a minute or so."
 msgstr ""

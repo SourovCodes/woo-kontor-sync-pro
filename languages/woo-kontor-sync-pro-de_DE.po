@@ -418,12 +418,12 @@ msgstr "Fehlgeschlagen am %1$s — %2$s"
 msgid "Succeeded at %1$s — %2$s"
 msgstr "Erfolgreich am %1$s — %2$s"
 
-#: includes/Admin/Settings.php:2400
+#: includes/Admin/Settings.php:2406
 msgid "The job could not be queued. It may already be running, or WooCommerce may be inactive."
 msgstr "Der Job konnte nicht eingereiht werden. Möglicherweise läuft er bereits oder WooCommerce ist nicht aktiv."
 
 #. translators: %s: job name.
-#: includes/Admin/Settings.php:2412
+#: includes/Admin/Settings.php:2418
 #, php-format
 msgid "%s queued. It runs on the next queue pass, within a minute or so."
 msgstr "%s eingereiht. Der Job läuft beim nächsten Warteschlangendurchlauf, also in etwa einer Minute."
@@ -715,18 +715,6 @@ msgstr "%1$d Rechnungen heruntergeladen, %2$d fehlgeschlagen, %3$d lokal nicht g
 #: includes/Sync/Scheduler.php:194
 msgid "Downloads invoice PDFs from Kontor and files them against their orders."
 msgstr "Lädt Rechnungs-PDFs von Kontor herunter und ordnet sie ihren Bestellungen zu."
-
-#: includes/Admin/Settings.php:2362
-msgid "Downloaded invoices can be read without logging in."
-msgstr "Heruntergeladene Rechnungen sind ohne Anmeldung lesbar."
-
-#: includes/Admin/Settings.php:2365
-msgid "This site's web server is serving the folder the invoice PDFs are stored in, so anyone who obtains a file's address can open it — the permission check on the download link is bypassed. The folder already carries the rules that stop Apache and IIS; nginx ignores them and needs this in its configuration instead:"
-msgstr "Der Webserver dieser Website liefert den Ordner aus, in dem die Rechnungs-PDFs gespeichert sind. Wer die Adresse einer Datei erhält, kann sie daher öffnen — die Berechtigungsprüfung des Download-Links wird umgangen. Der Ordner enthält bereits die Regeln, die Apache und IIS stoppen; nginx ignoriert sie und benötigt stattdessen dies in seiner Konfiguration:"
-
-#: includes/Admin/Settings.php:2369
-msgid "Until then the files are protected only by their unguessable names. This check is repeated once a day."
-msgstr "Bis dahin sind die Dateien nur durch ihre nicht erratbaren Namen geschützt. Diese Prüfung wird einmal täglich wiederholt."
 
 #. translators: %s: number of orders.
 #: includes/Orders/PartialStatus.php:81
@@ -1256,27 +1244,27 @@ msgstr "Mit aktiviertem Überschreiben erzwungen an Kontor gesendet."
 msgid "Force-pushed to Kontor with overwrite enabled, as %s."
 msgstr "Mit aktiviertem Überschreiben erzwungen an Kontor gesendet, als %s."
 
-#: includes/Admin/OrderActions.php:86
+#: includes/Admin/OrderActions.php:84
 msgid "Email the invoice to the customer again"
 msgstr "Rechnung erneut an den Kunden senden"
 
-#: includes/Admin/OrderActions.php:90
+#: includes/Admin/OrderActions.php:88
 msgid "Email the tracking details to the customer again"
 msgstr "Sendungsdaten erneut an den Kunden senden"
 
-#: includes/Admin/OrderActions.php:106
+#: includes/Admin/OrderActions.php:104
 msgid "Kontor invoice email sent to the customer."
 msgstr "Kontor-Rechnungs-E-Mail an den Kunden gesendet."
 
-#: includes/Admin/OrderActions.php:107
+#: includes/Admin/OrderActions.php:105
 msgid "The Kontor invoice email could not be sent."
 msgstr "Die Kontor-Rechnungs-E-Mail konnte nicht gesendet werden."
 
-#: includes/Admin/OrderActions.php:121
+#: includes/Admin/OrderActions.php:119
 msgid "Kontor tracking email sent to the customer."
 msgstr "Kontor-Sendungs-E-Mail an den Kunden gesendet."
 
-#: includes/Admin/OrderActions.php:122
+#: includes/Admin/OrderActions.php:120
 msgid "The Kontor tracking email could not be sent."
 msgstr "Die Kontor-Sendungs-E-Mail konnte nicht gesendet werden."
 
@@ -1395,3 +1383,15 @@ msgstr "Hallo %s,"
 #: includes/Emails/CustomerTracking.php:34
 msgid "Sent to the customer when the delivery sync learns a tracking number their order did not have — but not when the same run completes the order, because WooCommerce's own completed-order email already carries the tracking details. Switch this on only after the delivery sync has run once: Kontor returns every order for the shop on every run, so the first pass records tracking numbers going back months and would mail all of them."
 msgstr "Wird an den Kunden gesendet, sobald die Liefersynchronisation eine Sendungsnummer erfährt, die seine Bestellung noch nicht hatte — jedoch nicht, wenn derselbe Durchlauf die Bestellung abschließt, weil die Abschluss-E-Mail von WooCommerce die Sendungsdaten bereits enthält. Schalte dies erst ein, wenn die Liefersynchronisation einmal gelaufen ist: Kontor liefert bei jedem Durchlauf alle Bestellungen des Shops, der erste Durchlauf erfasst also Sendungsnummern von vor Monaten und würde zu allen eine E-Mail versenden."
+
+#: includes/Admin/Settings.php:2368
+msgid "Invoice PDFs can be opened directly, without the permission check."
+msgstr "Rechnungs-PDFs lassen sich direkt öffnen, ohne Berechtigungsprüfung."
+
+#: includes/Admin/Settings.php:2371
+msgid "This site's web server is serving the folder the invoice PDFs are stored in, so a file can also be opened at its own address in the uploads folder — and asked for that way it is handed over without anything checking who is asking. This is not about the download links in the order emails, which are meant to work for whoever holds them. The folder already carries the rules that stop Apache and IIS; nginx ignores them and needs this in its configuration instead:"
+msgstr "Der Webserver dieser Website liefert den Ordner aus, in dem die Rechnungs-PDFs liegen. Eine Datei lässt sich dadurch auch über ihre eigene Adresse im Uploads-Ordner öffnen — und so abgerufen wird sie herausgegeben, ohne dass irgendetwas prüft, wer sie anfordert. Es geht dabei nicht um die Download-Links in den Bestell-E-Mails; die sollen für jeden funktionieren, der sie hat. Der Ordner enthält bereits die Regeln, die Apache und IIS stoppen; nginx ignoriert sie und benötigt stattdessen dies in seiner Konfiguration:"
+
+#: includes/Admin/Settings.php:2375
+msgid "Until then the files are protected only by their unguessable names, so the realistic risk is an address escaping in a server log or a backup rather than somebody finding one. This check is repeated once a day."
+msgstr "Bis dahin schützen die Dateien nur ihre nicht erratbaren Namen; das realistische Risiko ist daher eine Adresse, die über ein Server-Log oder ein Backup nach außen gelangt, und nicht jemand, der eine findet. Diese Prüfung wird einmal täglich wiederholt."

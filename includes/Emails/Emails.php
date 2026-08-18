@@ -34,6 +34,16 @@ defined( 'ABSPATH' ) || exit;
 class Emails {
 
 	/**
+	 * The key the invoice email is listed under.
+	 */
+	const INVOICE_KEY = 'WKSYNC_Customer_Invoice';
+
+	/**
+	 * The key the tracking email is listed under.
+	 */
+	const TRACKING_KEY = 'WKSYNC_Customer_Tracking';
+
+	/**
 	 * Fired when the invoice sync files a document the order did not hold.
 	 */
 	const INVOICE_ARRIVED = 'woo_kontor_sync_invoice_downloaded';
@@ -61,6 +71,17 @@ class Emails {
 	 * is first referenced rather than when the file is imported. Constructing one any
 	 * earlier than this callback is a fatal error, not a load-order inconvenience.
 	 *
+	 * **The keys must not be class names**, which is the trap this walked into once.
+	 * WooCommerce builds the link to an email's settings page with
+	 * `strtolower( $email_key )` and then matches the saved section with
+	 * `sanitize_title( $email_key )` — and the two agree only while the key has nothing
+	 * in it that `sanitize_title()` strips. A namespaced class name has backslashes, so
+	 * the link pointed at `wookontorsync\emails\customerinvoice` while the save path
+	 * looked for `wookontorsyncemailscustomerinvoice`, never matched, and fell through
+	 * to saving the general email settings instead. The screen rendered perfectly and
+	 * the Enable checkbox simply would not stick. Core's own keys are class names only
+	 * because `WC_Email_Customer_Invoice` survives both functions unchanged.
+	 *
 	 * @param array $emails Emails WooCommerce has collected.
 	 * @return array Emails, with both of this plugin's added.
 	 */
@@ -69,8 +90,8 @@ class Emails {
 			$emails = array();
 		}
 
-		$emails[ CustomerInvoice::class ]  = new CustomerInvoice();
-		$emails[ CustomerTracking::class ] = new CustomerTracking();
+		$emails[ self::INVOICE_KEY ]  = new CustomerInvoice();
+		$emails[ self::TRACKING_KEY ] = new CustomerTracking();
 
 		return $emails;
 	}
@@ -99,18 +120,18 @@ class Emails {
 	 * shop's own settings for it — the subject and heading a shop manager may have
 	 * rewritten, and the email type they chose.
 	 *
-	 * @param string $class_name Email class to fetch.
+	 * @param string $key One of INVOICE_KEY or TRACKING_KEY.
 	 * @return OrderEmail|null The email, or null when WooCommerce does not hold it.
 	 */
-	public static function get( $class_name ) {
+	public static function get( $key ) {
 		if ( ! function_exists( 'WC' ) || ! WC()->mailer() ) {
 			return null;
 		}
 
 		$emails = WC()->mailer()->get_emails();
 
-		return isset( $emails[ $class_name ] ) && $emails[ $class_name ] instanceof OrderEmail
-			? $emails[ $class_name ]
+		return isset( $emails[ $key ] ) && $emails[ $key ] instanceof OrderEmail
+			? $emails[ $key ]
 			: null;
 	}
 }

@@ -9,7 +9,6 @@ namespace WooKontorSync\Tests;
 
 use WC_Order;
 use WooKontorSync\Admin\OrderActions;
-use WooKontorSync\Emails\CustomerInvoice;
 use WooKontorSync\Emails\Emails;
 use WooKontorSync\Invoices\Storage;
 use WooKontorSync\Sync\DeliverySync;
@@ -279,7 +278,7 @@ class OrderActionsTest extends WP_UnitTestCase {
 		$order = $this->make_order();
 		$this->store_invoice( $order );
 
-		$this->assertFalse( Emails::get( CustomerInvoice::class )->is_enabled() );
+		$this->assertFalse( Emails::get( Emails::INVOICE_KEY )->is_enabled() );
 
 		wp_set_current_user( $this->factory->user->create( array( 'role' => 'administrator' ) ) );
 
