@@ -126,7 +126,7 @@ class Download {
 			$this->refuse( __( 'You do not have permission to download this invoice.', 'woo-kontor-sync-pro' ), 403 );
 		}
 
-		$invoice = $this->find( $order, $wanted );
+		$invoice = InvoiceSync::find( $order, $wanted );
 
 		if ( null === $invoice ) {
 			$this->refuse( __( 'That invoice is not available for this order.', 'woo-kontor-sync-pro' ), 404 );
@@ -139,27 +139,6 @@ class Download {
 		}
 
 		$this->serve( $path, $invoice['number'] );
-	}
-
-	/**
-	 * Find the requested invoice among the ones an order holds.
-	 *
-	 * @param WC_Order $order  Order to search.
-	 * @param string   $wanted Document id from the request.
-	 * @return array|null The invoice entry, or null when it is not this order's.
-	 */
-	protected function find( $order, $wanted ) {
-		if ( '' === $wanted ) {
-			return null;
-		}
-
-		foreach ( InvoiceSync::for_order( $order ) as $invoice ) {
-			if ( (string) $invoice['id'] === $wanted ) {
-				return $invoice;
-			}
-		}
-
-		return null;
 	}
 
 	/**

@@ -73,6 +73,17 @@ composer build          # build dist/woo-kontor-sync-pro-<version>.zip
 `bin/install-wp-tests.sh` provisions the `woo_kontor_tests` database once, before the first
 `composer test`.
 
+**The suite refuses to start if the orders table is not empty.** Every test builds its orders inside
+the transaction `WP_UnitTestCase` rolls back, so a row surviving between runs means a run died
+before its rollback — and the damage lands somewhere else entirely, because anything asking
+`wc_get_orders()` about the whole shop counts the strays too. Three `JobProgressTest` assertions
+failed exactly that way, in a file with nothing wrong with it, for as long as six orphaned orders
+sat there. `wksync_refuse_leftover_orders()` in `tests/bootstrap.php` is a hard stop rather than a
+cleanup: a crashed run is worth knowing about, and silently deleting the rows would hide both the
+crash and the fact that the run before it was never trustworthy. The installer will not clear them —
+it creates the database only when it is absent — so the way out is to drop `woo_kontor_tests` and
+provision it again.
+
 ## Coding standards
 
 `phpcs.xml.dist` (ruleset `WooCommerce-Core`) is the authority — when this document and the sniffs
@@ -683,7 +694,13 @@ of them wrong produces silently wrong data rather than an error:
     day of it being sent.
   - Invoices are **attached to customer emails** and skipped on the admin copies, alongside links in
     the order view and the emails, because a mail client that hides attachments still has to leave
-    the invoice reachable. `woo_kontor_sync_attach_invoices` narrows which emails carry them.
+    the invoice reachable. `woo_kontor_sync_attach_invoices` narrows which emails carry them. That
+    only ever reached a customer if some later order email happened to be sent, which is what
+    `Emails\CustomerInvoice` exists to fix; the attachment filter is what puts the PDF on it.
+  - **A shop manager reaches one through `Admin\OrderPanel`**, on the order screen. Before that the
+    only rendering was the customer's own order page, so the shop had no way to open an invoice at
+    all. `InvoiceSync::label()` and `InvoiceSync::find()` are public statics rather than living
+    beside one of the three places that display an invoice, so one wording cannot become three.
   - **Uninstalling deletes neither the files nor the option naming their directory.** They are
     records the shop may be required to keep, and dropping the option would generate a new directory
     on reinstall and strand everything already there.
@@ -852,6 +869,107 @@ calling it queues real work: it is not a way to test whether a job would be allo
   background job the delivery sync runs in. Admin copies of the emails are skipped. Remember that
   `provider` and `trackinginfo` arrive as `null` rather than absent, so a synced but unshipped order
   has the meta present and empty; the tracking number is what decides there is anything to show.
+- **Two customer emails cover what nothing else says**, `Emails\CustomerInvoice` and
+  `Emails\CustomerTracking`, both real `WC_Email` types registered through
+  `woocommerce_email_classes`. Everything before this told a customer nothing about an invoice or
+  about a shipment that did not complete the order: the invoice arrives hours later in a job of its
+  own, long after the confirmation mail, and reached anybody only if some later order email happened
+  to be sent.
+  - **`WC_Email` rather than a setting of this plugin's**, so the switch, the subject, the heading,
+    the additional content and the HTML/plain choice all live in WooCommerce → Settings → Emails
+    where a shop manager already manages email. The cost is discoverability, paid for with one
+    description line on the settings screen pointing there. It is also mechanical: `customer_email`
+    being true is what gets the invoice PDF attached, because `WC_Email::get_attachments()` fires
+    the filter `Frontend\Invoices::attach()` already answers.
+  - **`woocommerce_email_actions` is not optional, and skipping it fails silently.** The classes are
+    only ever constructed by `WC_Emails::init()`, which runs when something calls `WC()->mailer()` —
+    and inside the Action Scheduler job that downloads an invoice, nothing has. A bare `do_action()`
+    would fire into a hook with no listeners and say nothing about it.
+    `WC_Emails::init_transactional_emails()` hooks every name on that list to
+    `send_transactional_email`, which instantiates the mailer before re-firing the hook with
+    `_notification` appended. **Scalars only** in the arguments — WooCommerce may defer a
+    transactional email and replay it from a queue, so an order object would cross that gap stale.
+  - **No `get_attachments()` override, and no `templates/` directory.** The base implementation is
+    what fires the attachment filter, so overriding and appending is how the same PDF arrives twice.
+    The bodies are composed from the actions every core email template fires
+    (`woocommerce_email_header`, `..._order_details`, `..._order_meta`, `..._customer_details`,
+    `..._footer`), which is what makes `Frontend\Tracking` and `Frontend\Invoices` render into them
+    for nothing: `email-order-details.php` ends by firing `woocommerce_email_after_order_table`, in
+    the plain-text variant too. Template files would mean a new top-level directory, and
+    `bin/build-zip.sh` whitelists only `includes/`, `assets/` and `languages/` — a release whose
+    emails rendered as nothing at all, with the suite green because it runs against the checkout.
+  - **Both are disabled by default, and that is the mechanism as much as the default.** Neither
+    listing has an incremental filter, so the first run after this version lands records the shop's
+    whole invoice history and every order the delivery sync has not yet touched. Enabled, an update
+    would mail the entire back catalogue in one chain. Disabled, by the time anyone switches them on
+    that run has been and gone and there is nothing left to announce — and each email's
+    `description` says so, which is the only thing covering a shop that switches them on first.
+  - **No plugin filter for "should this send".** WooCommerce already fires
+    `woocommerce_email_enabled_{$id}` with the order, which is the hook a WooCommerce developer
+    looks for and one fewer published API to keep working.
+  - **Orders that already carry their tracking or their invoice are never announced**, and there is
+    deliberately **no bulk backfill**. That falls straight out of the stored meta being the record —
+    the first run after the upgrade matches on every order the syncs have already touched — and it
+    is the same mechanism as the back-catalogue protection, not a separate rule. A parcel that
+    arrived last month is not news, and a mail saying it is on its way is worse than silence. The
+    resend entry on the order screen is the route to one specific customer, which is the scale at
+    which telling somebody late is a decision rather than an accident.
+    `test_an_order_that_already_had_its_tracking_announces_nothing` and its invoice twin pin it.
+- **The tracking mail is suppressed on the path that already mails.** `DeliverySync::apply()` reads
+  the stored tracking number *before* `apply_row()` writes over it and then calls
+  `announce_tracking()`, which fires `woo_kontor_sync_tracking_received` only when there is a
+  tracking number, it differs from the one held, and this run is not completing the order.
+  - **`apply_row()`'s own answer cannot be used.** It reports that something changed for any of four
+    fields, so a status that moved or an `Auftrnr` backfilled is indistinguishable there from a
+    parcel being sent.
+  - **The stored meta is the whole idempotency record**, for both mails — `META_TRACKING` for the
+    one and the `_wksync_invoices` entry for the other, which is why
+    `woo_kontor_sync_invoice_downloaded` fires *after* `$order->save()`. There is deliberately no
+    separate "announced" marker: a second record could disagree with the first, and then neither is
+    trustworthy.
+  - **The completed path is excluded because WooCommerce's own completion mail already carries the
+    tracking block** — `apply_row()` wrote the meta before the status moved, so `Frontend\Tracking`
+    renders into it. **The partial-completion path is deliberately not excluded**, because that
+    status carries no email by design, which is exactly the gap being filled. A shop that has
+    disabled the completion email gets nothing on the completed path; that is treated as the shop
+    having decided customers are not mailed on completion, not as a case to detect.
+- **Everything Kontor knows about an order is on the order screen**, in `Admin\OrderPanel` — a side
+  meta box on `wc_get_page_screen_id( 'shop-order' )` carrying what was pushed, what came back and
+  the invoices, with the download links the customer's own order page builds. Every `_wksync_` key
+  is protected, so until this there was no way in wp-admin to read the Kontor order number, find out
+  why one order never reached the ERP, or reach an invoice at all.
+  - **A meta box rather than `woocommerce_admin_order_data_after_order_details`.** That hook fires
+    inside the Order data box's address column, sized for a billing address and the one part of the
+    screen somebody is editing — a read-only block wedged in there invites the assumption that it is
+    editable. A meta box is also the user's to collapse, move or hide in Screen Options.
+  - **The callback is handed a `WC_Order`, not a `WP_Post`**: HPOS calls
+    `do_meta_boxes( $screen_id, 'side', $this->order )`. The `instanceof` check is a type guard, not
+    a compatibility path.
+  - **Read-only, and not a form at all**, for `ProductFields`' reason and more strongly: every value
+    is rewritten by a background job nobody can see running, so a tracking number typed in by hand
+    would survive until the next delivery sync and silently revert.
+  - **Kontor's status prints raw** — `completed`, `partially_completed`, `in_progress`, `canceled` —
+    rather than mapped onto a WooCommerce label, which would make it look like it agrees with the
+    order status beside it when it may not. **Every group renders even when empty**, because
+    "nothing has come back yet" and "this plugin has nothing to say" are different statements. A
+    **push error renders as a notice** rather than a row: it is the one thing on the panel that
+    wants doing something about.
+  - **No new download endpoint**, because `Download::permitted()` already grants a
+    `manage_woocommerce` user an invoice outright. That is why the whole panel is small.
+- **`Admin\OrderActions` adds two entries to the order actions dropdown**, and nothing else: resend
+  the invoice mail, resend the tracking mail. Each appears only when it can act — an invoice whose
+  file is still on disk, a tracking number that is not empty — because an entry that silently
+  achieves nothing is worse than an absent one. Each sends through `OrderEmail::resend()`, which
+  goes to `send()` directly rather than `send_notification()`, so a press works with the email type
+  switched off; core does the same on its own invoice email. Each leaves an order note, which is the
+  only feedback there is — WooCommerce answers an order save with "Order updated" whatever was
+  asked. `woocommerce_order_action_*` fires from a save WooCommerce has already nonce-checked, and
+  `edit_shop_order` is checked again anyway because a nonce is not authorisation.
+  - **There is deliberately no per-order Kontor fetch.** The `invoices` and `orders` entities honour
+    only `filter.shopid`, so no such request exists: the entry would start the whole shop-wide
+    import behind a label naming one order, and the delivery equivalent completes orders and mails
+    customers. Run now on the settings screen is the honest version, on a screen that shows progress
+    and refuses with a reason. `OrderActionsTest` pins the absence.
 - **SKU is the only key**, for both product and stock sync. It holds Kontor's article number
   (`Artnr`), Kontor is the source of truth for it, and nothing else is ever matched on: not the EAN
   (which repeats across articles, so it *cannot* be a key), not `Artzentralnr`, not the product

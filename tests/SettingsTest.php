@@ -595,4 +595,24 @@ class SettingsTest extends WP_UnitTestCase {
 		$this->assertSame( array(), Settings::shops_from_response( array( 'data' => array() ) ) );
 		$this->assertSame( array(), Settings::shops_from_response( array( 'data' => 'nonsense' ) ) );
 	}
+
+	/**
+	 * The screen says where the two customer emails are switched on.
+	 *
+	 * They are WooCommerce email types rather than settings of this plugin's, which is
+	 * deliberate — but it means somebody looking here for them would otherwise find
+	 * nothing at all.
+	 *
+	 * @return void
+	 */
+	public function test_the_settings_screen_points_at_the_woocommerce_email_settings() {
+		wp_set_current_user( self::factory()->user->create( array( 'role' => 'administrator' ) ) );
+
+		ob_start();
+		( new Settings() )->render_page();
+		$markup = (string) ob_get_clean();
+
+		$this->assertStringContainsString( 'page=wc-settings&#038;tab=email', $markup );
+		$this->assertStringContainsString( 'Both are switched off until you turn them on', $markup );
+	}
 }

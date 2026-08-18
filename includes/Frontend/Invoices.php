@@ -65,7 +65,7 @@ class Invoices {
 				<tbody>
 					<?php foreach ( $invoices as $invoice ) : ?>
 						<tr>
-							<th scope="row"><?php echo esc_html( self::label( $invoice ) ); ?></th>
+							<th scope="row"><?php echo esc_html( InvoiceSync::label( $invoice ) ); ?></th>
 							<td>
 								<a href="<?php echo esc_url( Download::url( $order, $invoice ) ); ?>" rel="nofollow">
 									<?php echo esc_html__( 'Download PDF', 'woo-kontor-sync-pro' ); ?>
@@ -113,7 +113,7 @@ class Invoices {
 			<p>
 				<?php foreach ( $invoices as $invoice ) : ?>
 					<a href="<?php echo esc_url( Download::url( $order, $invoice ) ); ?>" rel="nofollow">
-						<?php echo esc_html( self::label( $invoice ) ); ?>
+						<?php echo esc_html( InvoiceSync::label( $invoice ) ); ?>
 					</a><br/>
 				<?php endforeach; ?>
 			</p>
@@ -135,7 +135,7 @@ class Invoices {
 			$lines[] = sprintf(
 				/* translators: 1: invoice label with its number and date, 2: download URL. */
 				__( '%1$s: %2$s', 'woo-kontor-sync-pro' ),
-				self::label( $invoice ),
+				InvoiceSync::label( $invoice ),
 				esc_url_raw( Download::url( $order, $invoice ) )
 			);
 		}
@@ -199,39 +199,5 @@ class Invoices {
 		}
 
 		return $attachments;
-	}
-
-	/**
-	 * Describe one invoice in a line.
-	 *
-	 * @param array $invoice Invoice entry from InvoiceSync::for_order().
-	 * @return string Human-readable label.
-	 */
-	protected static function label( array $invoice ) {
-		$number = isset( $invoice['number'] ) ? (string) $invoice['number'] : '';
-		$date   = isset( $invoice['date'] ) ? (string) $invoice['date'] : '';
-
-		if ( '' === $number ) {
-			return __( 'Invoice', 'woo-kontor-sync-pro' );
-		}
-
-		if ( '' === $date ) {
-			/* translators: %s: invoice number. */
-			return sprintf( __( 'Invoice %s', 'woo-kontor-sync-pro' ), $number );
-		}
-
-		/*
-		 * mysql2date() rather than wp_date(): the date arrives without a time, and
-		 * converting a bare midnight into the site timezone would move it to the day
-		 * before wherever the offset is negative.
-		 */
-		$issued = mysql2date( get_option( 'date_format' ), $date . ' 00:00:00' );
-
-		return sprintf(
-			/* translators: 1: invoice number, 2: date the invoice was issued. */
-			__( 'Invoice %1$s of %2$s', 'woo-kontor-sync-pro' ),
-			$number,
-			$issued
-		);
 	}
 }

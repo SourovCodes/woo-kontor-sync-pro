@@ -19,6 +19,15 @@ delete_option( 'woo_kontor_sync_settings' );
 delete_option( 'woo_kontor_sync_version' );
 delete_option( 'woo_kontor_sync_job_status' );
 
+/*
+ * The two customer emails' own settings, which WooCommerce stores per email id.
+ * Unlike the invoices and the Kontor identifiers below, these are this plugin's own
+ * preferences about a feature that is going away, and nothing in the ERP or on disk
+ * depends on them surviving.
+ */
+delete_option( 'woocommerce_wksync_customer_invoice_settings' );
+delete_option( 'woocommerce_wksync_customer_tracking_settings' );
+
 // Drop any cached stock payload left behind by an interrupted run.
 delete_expired_transients();
 

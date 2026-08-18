@@ -7,8 +7,11 @@
 
 namespace WooKontorSync;
 
+use WooKontorSync\Admin\OrderActions;
+use WooKontorSync\Admin\OrderPanel;
 use WooKontorSync\Admin\ProductFields;
 use WooKontorSync\Admin\Settings;
+use WooKontorSync\Emails\Emails;
 use WooKontorSync\Frontend\Invoices;
 use WooKontorSync\Frontend\ProductMeta;
 use WooKontorSync\Frontend\Quantities;
@@ -106,6 +109,11 @@ final class Plugin {
 		( new Tracking() )->register();
 		( new Invoices() )->register();
 
+		// The two mails that tell a customer something arrived from Kontor. Outside the
+		// admin check twice over: the syncs that fire them run in Action Scheduler, and
+		// the classes have to exist in the admin or the Emails screen cannot list them.
+		( new Emails() )->register();
+
 		// Holds the cart to the quantities Kontor sells each article in. Registered
 		// everywhere: a Store API cart request is neither an admin screen nor a
 		// template render, and it is the path the cart and checkout blocks take.
@@ -134,6 +142,16 @@ final class Plugin {
 			// Kontor's sales quantities on the product's Inventory tab. The meta keys
 			// are protected, so without this there is nowhere to see them at all.
 			( new ProductFields() )->register();
+
+			// Everything Kontor knows about an order, on the order screen. Same
+			// reasoning: the meta keys are protected, so without this there is nowhere
+			// in wp-admin to read any of it — and no way to reach an invoice at all.
+			( new OrderPanel() )->register();
+
+			// The two Kontor entries in the order actions dropdown. Their own class
+			// rather than OrderPanel's, because these change something and that one
+			// deliberately cannot.
+			( new OrderActions() )->register();
 		}
 
 		/**

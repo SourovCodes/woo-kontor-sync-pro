@@ -254,6 +254,13 @@ class DeliverySync {
 				continue;
 			}
 
+			/*
+			 * Read before apply_row() writes over it. Its own answer cannot be used: it
+			 * reports whether any of four fields moved, so a status that changed or an
+			 * Auftrnr backfilled is indistinguishable there from a parcel being sent.
+			 */
+			$before = trim( (string) $order->get_meta( self::META_TRACKING ) );
+
 			$changed = $this->apply_row( $order, $row );
 
 			if ( ! $changed ) {
@@ -265,10 +272,6 @@ class DeliverySync {
 			++$counts['updated'];
 
 			$target = $this->target_status( $order, $row );
-
-			if ( '' === $target ) {
-				continue;
-			}
 
 			if ( 'completed' === $target ) {
 				/*
@@ -283,24 +286,77 @@ class DeliverySync {
 				);
 
 				++$counts['completed'];
+			} elseif ( '' !== $target ) {
+				/*
+				 * Part of the order has shipped and part has not. No email is attached to
+				 * this status, which is the point: the customer has not been told the order
+				 * is on its way, because most of it is not.
+				 */
+				$order->update_status(
+					$target,
+					__( 'Kontor reports this order as partially completed.', 'woo-kontor-sync-pro' )
+				);
 
-				continue;
+				++$counts['partial'];
 			}
 
-			/*
-			 * Part of the order has shipped and part has not. No email is attached to
-			 * this status, which is the point: the customer has not been told the order
-			 * is on its way, because most of it is not.
-			 */
-			$order->update_status(
-				$target,
-				__( 'Kontor reports this order as partially completed.', 'woo-kontor-sync-pro' )
-			);
-
-			++$counts['partial'];
+			// After the transition, so anything listening describes the order as it now
+			// stands rather than as it stood a line ago.
+			$this->announce_tracking( $order, $before, $row, $target );
 		}
 
 		return $counts;
+	}
+
+	/**
+	 * Say that a parcel is on its way, unless the shop is already saying it.
+	 *
+	 * Three conditions, and each one is load-bearing:
+	 *
+	 * - There is a tracking number at all. Kontor sends provider and trackinginfo as
+	 *   null rather than omitting them, so a synced but unshipped order carries the
+	 *   meta present and empty on every run.
+	 * - It is not the number the order already had. The stored meta is the whole
+	 *   idempotency mechanism: apply_row() writes it before this runs, so a repeat run
+	 *   — or Action Scheduler retrying a chunk that died after the save — reads the
+	 *   same value and says nothing. There is deliberately no separate "announced"
+	 *   marker: a second record could disagree with the first, and then neither is
+	 *   trustworthy.
+	 * - The order is not being completed by this run. That transition fires
+	 *   WooCommerce's own completion mail, which already carries these details —
+	 *   apply_row() wrote the meta before the status moved, so Frontend\Tracking
+	 *   renders into it. Announcing here as well would tell the customer twice,
+	 *   seconds apart.
+	 *
+	 * The partial-completion path is deliberately not excluded. That status carries no
+	 * email by design, which is exactly the gap this fills: part of the order has
+	 * shipped and nothing else would ever say so.
+	 *
+	 * @param WC_Order $order  Order the row was applied to.
+	 * @param string   $before Tracking number the order carried before this run.
+	 * @param array    $row    Normalised delivery row.
+	 * @param string   $target Status this run moved the order to, if any.
+	 * @return void
+	 */
+	protected function announce_tracking( $order, $before, array $row, $target ) {
+		if ( '' === $row['tracking'] || $before === $row['tracking'] || 'completed' === $target ) {
+			return;
+		}
+
+		/**
+		 * Fires when Kontor reports a tracking number the order did not have.
+		 *
+		 * Registered as a WooCommerce transactional email action, so the mailer is
+		 * instantiated before anything listens for it. Scalars only: WooCommerce is
+		 * free to defer a transactional email and replay it from a queue, and an order
+		 * object carried across that gap would be a stale copy.
+		 *
+		 * @since 0.20.0
+		 *
+		 * @param int    $order_id Order the shipment belongs to.
+		 * @param string $tracking Tracking number Kontor reported.
+		 */
+		do_action( 'woo_kontor_sync_tracking_received', (int) $order->get_id(), (string) $row['tracking'] );
 	}
 
 	/**

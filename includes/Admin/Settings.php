@@ -1691,6 +1691,28 @@ class Settings {
 					</tr>
 				</table>
 
+				<?php
+				/*
+				 * The two mails these jobs can send are WooCommerce email types rather
+				 * than settings of this plugin's, so their switches, subjects and
+				 * headings all live where a shop manager already manages email. This
+				 * line is what stops that being the same as hiding them.
+				 */
+				?>
+				<p class="description">
+					<?php
+					printf(
+						/* translators: %s: link to the WooCommerce email settings screen. */
+						esc_html__( 'The delivery and invoice syncs can also email the customer when tracking details or an invoice arrive. Both are switched off until you turn them on under %s.', 'woo-kontor-sync-pro' ),
+						sprintf(
+							'<a href="%1$s">%2$s</a>',
+							esc_url( admin_url( 'admin.php?page=wc-settings&tab=email' ) ),
+							esc_html__( 'WooCommerce → Settings → Emails', 'woo-kontor-sync-pro' )
+						)
+					);
+					?>
+				</p>
+
 				<?php submit_button(); ?>
 			</form>
 

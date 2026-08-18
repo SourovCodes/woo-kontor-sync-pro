@@ -125,6 +125,70 @@ class InvoiceSync {
 	}
 
 	/**
+	 * Find one of an order's invoices by its Kontor document id.
+	 *
+	 * Reads through for_order(), so an invoice whose file has gone missing is not
+	 * found rather than found and then failing to open.
+	 *
+	 * @param mixed  $order  Value that may be an order.
+	 * @param string $wanted Kontor document id.
+	 * @return array|null The invoice entry, or null when the order does not hold it.
+	 */
+	public static function find( $order, $wanted ) {
+		$wanted = (string) $wanted;
+
+		if ( '' === $wanted ) {
+			return null;
+		}
+
+		foreach ( self::for_order( $order ) as $invoice ) {
+			if ( (string) $invoice['id'] === $wanted ) {
+				return $invoice;
+			}
+		}
+
+		return null;
+	}
+
+	/**
+	 * Describe one invoice in a line.
+	 *
+	 * Lives here rather than beside one of the places that displays an invoice,
+	 * because there are now three of them — the order page, the order emails and the
+	 * admin order screen — and one wording copied twice is two that drift.
+	 *
+	 * @param array $invoice Invoice entry from for_order().
+	 * @return string Human-readable label.
+	 */
+	public static function label( array $invoice ) {
+		$number = isset( $invoice['number'] ) ? (string) $invoice['number'] : '';
+		$date   = isset( $invoice['date'] ) ? (string) $invoice['date'] : '';
+
+		if ( '' === $number ) {
+			return __( 'Invoice', 'woo-kontor-sync-pro' );
+		}
+
+		if ( '' === $date ) {
+			/* translators: %s: invoice number. */
+			return sprintf( __( 'Invoice %s', 'woo-kontor-sync-pro' ), $number );
+		}
+
+		/*
+		 * mysql2date() rather than wp_date(): the date arrives without a time, and
+		 * converting a bare midnight into the site timezone would move it to the day
+		 * before wherever the offset is negative.
+		 */
+		$issued = mysql2date( get_option( 'date_format' ), $date . ' 00:00:00' );
+
+		return sprintf(
+			/* translators: 1: invoice number, 2: date the invoice was issued. */
+			__( 'Invoice %1$s of %2$s', 'woo-kontor-sync-pro' ),
+			$number,
+			$issued
+		);
+	}
+
+	/**
 	 * Fetch the invoice listing and queue it for downloading.
 	 *
 	 * @return void
@@ -340,6 +404,26 @@ class InvoiceSync {
 		);
 
 		$order->save();
+
+		/**
+		 * Fires when an invoice the order did not hold has been downloaded and filed.
+		 *
+		 * After the save, deliberately. The stored entry is what makes this fire once:
+		 * apply() checks the document id before it downloads anything, so a listener
+		 * that throws before the invoice is recorded would have it downloaded and
+		 * announced all over again on the next run.
+		 *
+		 * Registered as a WooCommerce transactional email action, so the mailer is
+		 * instantiated before anything listens for it. Scalars only: WooCommerce is
+		 * free to defer a transactional email and replay it from a queue, and an order
+		 * object carried across that gap would be a stale copy.
+		 *
+		 * @since 0.20.0
+		 *
+		 * @param int    $order_id    Order the invoice belongs to.
+		 * @param string $document_id Kontor document id.
+		 */
+		do_action( 'woo_kontor_sync_invoice_downloaded', (int) $order->get_id(), (string) $row['id'] );
 	}
 
 	/**

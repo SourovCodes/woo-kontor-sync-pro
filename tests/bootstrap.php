@@ -109,7 +109,56 @@ function wksync_install_woocommerce() {
 	// WC_Install adds roles, so the global has to be rebuilt for them to be visible.
 	$GLOBALS['wp_roles'] = null;
 	wp_roles();
+
+	wksync_refuse_leftover_orders();
 }
 tests_add_filter( 'setup_theme', 'wksync_install_woocommerce' );
+
+/**
+ * Refuse to run against a database that still holds orders.
+ *
+ * Every test builds its own orders inside the transaction WP_UnitTestCase rolls back,
+ * so the orders table is empty between runs — unless a run died before its rollback,
+ * which commits whatever it had reached. Those rows then survive for ever, and the
+ * damage is done somewhere else entirely: anything asking wc_get_orders() a question
+ * about the whole shop counts them too, so a sweep that queued one order reports
+ * seven. Three tests in JobProgressTest failed exactly that way, in a file with
+ * nothing wrong with it, for as long as the rows sat there.
+ *
+ * So this is a hard stop rather than a cleanup. A crashed run is worth knowing about,
+ * and a bootstrap that silently deleted rows would hide both the crash and the fact
+ * that the previous run's results were never trustworthy.
+ *
+ * @return void
+ */
+function wksync_refuse_leftover_orders() {
+	global $wpdb;
+
+	$table = $wpdb->prefix . 'wc_orders';
+
+	// phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Table name from $wpdb->prefix; there is no CRUD API for this question at bootstrap.
+	$count = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$table}" );
+
+	if ( 0 === $count ) {
+		return;
+	}
+
+	// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Written to the terminal before WordPress can escape anything.
+	printf(
+		"\nThe test database still holds %d order(s) in %s.\n\n"
+			. "Every test creates its orders inside a transaction that is rolled back, so this\n"
+			. "means an earlier run died before its rollback. Left in place the rows are counted\n"
+			. "by anything that asks wc_get_orders() about the whole shop, which fails tests in\n"
+			. "files that have nothing to do with them.\n\n"
+			. "Drop the test database and provision it again — the installer creates the\n"
+			. "database only when it is absent, so it will not clear these on its own:\n\n"
+			. "  DROP DATABASE %s; then bin/install-wp-tests.sh\n\n",
+		$count,
+		$table,
+		DB_NAME
+	);
+
+	exit( 1 );
+}
 
 require $wksync_tests_dir . '/includes/bootstrap.php';
