@@ -5,8 +5,6 @@
  * @package WooKontorSync
  */
 
-namespace WooKontorSync\Emails;
-
 defined( 'ABSPATH' ) || exit;
 
 /**
@@ -23,7 +21,7 @@ defined( 'ABSPATH' ) || exit;
  * order that stays in processing. In each of those the shop knows where the parcel is
  * and the customer does not.
  */
-class CustomerTracking extends OrderEmail {
+class WKSYNC_Customer_Tracking extends WKSYNC_Order_Email {
 
 	/**
 	 * Constructor.

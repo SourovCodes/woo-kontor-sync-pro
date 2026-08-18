@@ -32,10 +32,18 @@ defined( 'ABSPATH' ) || exit;
  *
  * Nginx reads none of those guard files, and WordPress gives a plugin no portable
  * place to write that a web server will not serve. On such a host only the random
- * names are protecting the invoices, and Download can be bypassed by anyone who ever
- * obtains a URL. That is a real weakening rather than a theoretical one, so rather
- * than assume the guards worked, is_exposed() asks the web server directly and the
- * settings screen says so when they did not.
+ * names are protecting the invoices: a PDF fetched at its own address under uploads
+ * is handed over without Download ever being reached. A shop that wants the directory
+ * closed adds a deny rule for it in the server configuration; nothing here can do
+ * that on its behalf.
+ *
+ * The plugin used to probe for exactly that once a day and warn on the settings
+ * screen. It no longer does. The check cost a loopback request the site made to
+ * itself and a permanent probe file sitting among the invoices, to report a condition
+ * whose realistic exposure is an address escaping through a server log or a backup —
+ * and its notice was read as saying the download links were insecure, which they are
+ * not: a link carries the order key and is meant to work for whoever holds it.
+ * Stating the limit here, once, is worth more than restating it daily on a screen.
  */
 class Storage {
 
@@ -61,32 +69,6 @@ class Storage {
 	 * worth writing to disk if it is actually a PDF.
 	 */
 	const PDF_MAGIC = '%PDF-';
-
-	/**
-	 * File used to find out whether the web server is serving this directory.
-	 *
-	 * Named like a real invoice so that a rule keyed on the path or the extension
-	 * treats it the same way, and holding nothing worth reading.
-	 */
-	const PROBE_FILE = 'protection-probe.pdf';
-
-	/**
-	 * Token the probe file contains, so a themed 404 page cannot read as a success.
-	 */
-	const PROBE_TOKEN = 'wksync-protection-probe';
-
-	/**
-	 * Transient caching the answer to "is this directory reachable over the web?".
-	 */
-	const EXPOSURE_CACHE = 'wksync_invoice_dir_exposed';
-
-	/**
-	 * How long that answer is trusted for.
-	 *
-	 * Long, because it only changes when someone edits the server configuration, and
-	 * finding out costs a request the site makes to itself.
-	 */
-	const EXPOSURE_TTL = DAY_IN_SECONDS;
 
 	/**
 	 * Store one invoice PDF.
@@ -250,10 +232,9 @@ class Storage {
 
 		$guards = array(
 			// Apache 2.4 and 2.2 respectively; an unknown directive is ignored.
-			'.htaccess'      => "Require all denied\n<IfModule !mod_authz_core.c>\n\tDeny from all\n</IfModule>\n",
-			'web.config'     => "<configuration>\n\t<system.webServer>\n\t\t<authorization>\n\t\t\t<deny users=\"*\"/>\n\t\t</authorization>\n\t</system.webServer>\n</configuration>\n",
-			'index.php'      => "<?php\n// Silence is golden.\n",
-			self::PROBE_FILE => self::PROBE_TOKEN . "\n",
+			'.htaccess'  => "Require all denied\n<IfModule !mod_authz_core.c>\n\tDeny from all\n</IfModule>\n",
+			'web.config' => "<configuration>\n\t<system.webServer>\n\t\t<authorization>\n\t\t\t<deny users=\"*\"/>\n\t\t</authorization>\n\t</system.webServer>\n</configuration>\n",
+			'index.php'  => "<?php\n// Silence is golden.\n",
 		);
 
 		foreach ( $guards as $file => $contents ) {
@@ -261,69 +242,17 @@ class Storage {
 				$filesystem->put_contents( $path . $file, $contents, FS_CHMOD_FILE );
 			}
 		}
-	}
 
-	/**
-	 * Whether the web server is serving the invoice directory.
-	 *
-	 * Asked of the server rather than assumed, because the answer depends on which
-	 * server is running and how it is configured, and the wrong assumption is one
-	 * nobody would ever notice: the files keep working, the download handler keeps
-	 * checking, and every invoice is also readable by anyone holding a URL.
-	 *
-	 * Only a definite answer is cached. A request that could not be made at all —
-	 * loopback requests are blocked on plenty of hosts — is reported as "not exposed"
-	 * so a failed check never turns into a permanent scary notice, but it is not
-	 * remembered either, so the next look tries again.
-	 *
-	 * @return bool True when the probe file could be fetched over HTTP.
-	 */
-	public static function is_exposed() {
-		$cached = get_transient( self::EXPOSURE_CACHE );
+		/*
+		 * The probe the exposure check used to fetch. Nothing writes it any more, but
+		 * protect() only ever added files, so on a site that ran an earlier version it
+		 * would sit among the invoices for good. It is ours, and it is litter.
+		 */
+		$probe = $path . 'protection-probe.pdf';
 
-		if ( false !== $cached ) {
-			return 'yes' === $cached;
+		if ( $filesystem->exists( $probe ) ) {
+			$filesystem->delete( $probe );
 		}
-
-		$directory = self::directory( false );
-
-		if ( is_wp_error( $directory ) ) {
-			return false;
-		}
-
-		$uploads = wp_upload_dir( null, false );
-
-		if ( empty( $uploads['baseurl'] ) ) {
-			return false;
-		}
-
-		$response = wp_remote_get(
-			trailingslashit( $uploads['baseurl'] ) . $directory['name'] . '/' . self::PROBE_FILE,
-			array(
-				'timeout'   => 10,
-				'sslverify' => false,
-			)
-		);
-
-		if ( is_wp_error( $response ) ) {
-			return false;
-		}
-
-		$exposed = 200 === (int) wp_remote_retrieve_response_code( $response )
-			&& str_contains( (string) wp_remote_retrieve_body( $response ), self::PROBE_TOKEN );
-
-		set_transient( self::EXPOSURE_CACHE, $exposed ? 'yes' : 'no', self::EXPOSURE_TTL );
-
-		return $exposed;
-	}
-
-	/**
-	 * Forget the cached exposure answer.
-	 *
-	 * @return void
-	 */
-	public static function forget_exposure() {
-		delete_transient( self::EXPOSURE_CACHE );
 	}
 
 	/**

@@ -5,11 +5,6 @@
  * @package WooKontorSync
  */
 
-namespace WooKontorSync\Emails;
-
-use WC_Email;
-use WC_Order;
-
 defined( 'ABSPATH' ) || exit;
 
 /**
@@ -32,6 +27,16 @@ defined( 'ABSPATH' ) || exit;
  * customer email — so overriding it here is not merely unnecessary, it is how the PDF
  * would end up attached twice.
  *
+ *
+ * **In the global namespace, and named the way core names its own emails.** That is
+ * not a style choice. WooCommerce puts the class name straight into the email
+ * preview URL — `?preview_woocommerce_mail=true&type=<class>` — and identifies the
+ * email by an exact `get_class()` match with no filter anywhere in the path. A
+ * namespaced name puts backslashes in that query string, which nginx refuses with a
+ * 403 before WordPress is reached at all. The same character broke the settings
+ * section, where `strtolower()` and `sanitize_title()` disagreed about it. The class
+ * name is a public identifier here, so it has to survive being put in a URL.
+ *
  * Both are disabled by default. What they change is what the shop sends to customers,
  * which is the strongest form of the rule that governs every other setting here — and
  * neither Kontor listing has an incremental filter, so the first run after this
@@ -40,7 +45,7 @@ defined( 'ABSPATH' ) || exit;
  * catalogue in one chain. Disabled, by the time anybody switches them on that first
  * run has recorded everything and there is nothing left to announce.
  */
-abstract class OrderEmail extends WC_Email {
+abstract class WKSYNC_Order_Email extends WC_Email {
 
 	/**
 	 * Constructor.

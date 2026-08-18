@@ -61,7 +61,6 @@ class InvoiceSyncTest extends WP_UnitTestCase {
 
 		remove_all_filters( 'pre_http_request' );
 		remove_all_filters( 'woo_kontor_sync_attach_invoices' );
-		Storage::forget_exposure();
 		delete_option( Storage::OPTION_DIR );
 		delete_option( Settings::OPTION_KEY );
 		delete_option( Status::OPTION_KEY );
@@ -407,74 +406,31 @@ class InvoiceSyncTest extends WP_UnitTestCase {
 		$this->assertGreaterThan( strlen( Storage::DIR_PREFIX ), strlen( $directory['name'] ) );
 		$this->assertFileExists( $directory['path'] . '.htaccess' );
 		$this->assertFileExists( $directory['path'] . 'index.php' );
+		$this->assertFileDoesNotExist( $directory['path'] . 'protection-probe.pdf' );
+	}
+
+	/**
+	 * The probe an earlier version left behind is cleared out.
+	 *
+	 * Guards were only ever added, never removed, so without this the file the deleted
+	 * exposure check used to fetch would sit among the invoices for good on any site
+	 * that ran a version before 0.20.2.
+	 *
+	 * @return void
+	 */
+	public function test_a_probe_left_by_an_earlier_version_is_removed() {
+		$directory = Storage::directory();
+		$probe     = $directory['path'] . 'protection-probe.pdf';
+
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- Recreating what an earlier version wrote.
+		file_put_contents( $probe, "wksync-protection-probe\n" );
+		$this->assertFileExists( $probe );
+
+		Storage::directory();
+
+		$this->assertFileDoesNotExist( $probe );
 		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Reading a local file the storage layer just wrote.
 		$this->assertStringContainsString( 'denied', file_get_contents( $directory['path'] . '.htaccess' ) );
-	}
-
-	/**
-	 * A web server that serves the invoice directory is reported, not assumed away.
-	 *
-	 * The guard files only bind Apache and IIS. On nginx the download handler's
-	 * permission check can be walked around by anyone holding a URL, and nothing
-	 * about the site would look wrong, so the answer is fetched rather than assumed.
-	 *
-	 * @return void
-	 */
-	public function test_a_servable_invoice_directory_is_detected() {
-		Storage::directory();
-
-		$this->answer_probe( 200, Storage::PROBE_TOKEN );
-		$this->assertTrue( Storage::is_exposed() );
-
-		Storage::forget_exposure();
-		remove_all_filters( 'pre_http_request' );
-
-		$this->answer_probe( 403, 'Forbidden' );
-		$this->assertFalse( Storage::is_exposed() );
-	}
-
-	/**
-	 * A themed 404 page answering with HTTP 200 does not read as an exposure.
-	 *
-	 * @return void
-	 */
-	public function test_a_soft_404_is_not_mistaken_for_an_exposure() {
-		Storage::directory();
-
-		$this->answer_probe( 200, '<html><body>Nothing here</body></html>' );
-
-		$this->assertFalse( Storage::is_exposed() );
-	}
-
-	/**
-	 * Reply to the probe request with a given status and body.
-	 *
-	 * @param int    $status HTTP status to return.
-	 * @param string $body   Response body.
-	 * @return void
-	 */
-	private function answer_probe( $status, $body ) {
-		add_filter(
-			'pre_http_request',
-			static function ( $pre, $args, $url ) use ( $status, $body ) {
-				if ( ! str_contains( $url, Storage::PROBE_FILE ) ) {
-					return $pre;
-				}
-
-				return array(
-					'headers'  => array(),
-					'body'     => $body,
-					'response' => array(
-						'code'    => $status,
-						'message' => '',
-					),
-					'cookies'  => array(),
-					'filename' => null,
-				);
-			},
-			10,
-			3
-		);
 	}
 
 	/**

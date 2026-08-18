@@ -5,8 +5,6 @@
  * @package WooKontorSync
  */
 
-namespace WooKontorSync\Emails;
-
 defined( 'ABSPATH' ) || exit;
 
 /**
@@ -22,7 +20,7 @@ defined( 'ABSPATH' ) || exit;
  * The PDF is attached without a line of code here: Frontend\Invoices answers
  * woocommerce_email_attachments for every customer email, and this is one.
  */
-class CustomerInvoice extends OrderEmail {
+class WKSYNC_Customer_Invoice extends WKSYNC_Order_Email {
 
 	/**
 	 * Constructor.

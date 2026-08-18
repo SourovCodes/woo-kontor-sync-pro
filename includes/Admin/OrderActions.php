@@ -9,7 +9,6 @@ namespace WooKontorSync\Admin;
 
 use WC_Order;
 use WooKontorSync\Emails\Emails;
-use WooKontorSync\Emails\OrderEmail;
 use WooKontorSync\Sync\DeliverySync;
 use WooKontorSync\Sync\InvoiceSync;
 
@@ -141,7 +140,7 @@ class OrderActions {
 
 		$email = Emails::get( $key );
 
-		if ( ! $email instanceof OrderEmail ) {
+		if ( ! $email instanceof \WKSYNC_Order_Email ) {
 			return;
 		}
 

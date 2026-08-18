@@ -8,6 +8,7 @@
 namespace WooKontorSync\Tests;
 
 use WC_Order;
+use WKSYNC_Customer_Invoice;
 use WooKontorSync\Admin\OrderActions;
 use WooKontorSync\Emails\Emails;
 use WooKontorSync\Invoices\Storage;

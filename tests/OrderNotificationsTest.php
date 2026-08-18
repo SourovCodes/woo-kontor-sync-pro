@@ -8,9 +8,9 @@
 namespace WooKontorSync\Tests;
 
 use WC_Order;
+use WKSYNC_Customer_Invoice;
+use WKSYNC_Customer_Tracking;
 use WooKontorSync\Admin\Settings;
-use WooKontorSync\Emails\CustomerInvoice;
-use WooKontorSync\Emails\CustomerTracking;
 use WooKontorSync\Emails\Emails;
 use WooKontorSync\Invoices\Storage;
 use WooKontorSync\Orders\PartialStatus;
@@ -585,8 +585,8 @@ class OrderNotificationsTest extends WP_UnitTestCase {
 
 		$emails = apply_filters( 'woocommerce_email_classes', array() );
 
-		$this->assertInstanceOf( CustomerInvoice::class, $emails[ Emails::INVOICE_KEY ] );
-		$this->assertInstanceOf( CustomerTracking::class, $emails[ Emails::TRACKING_KEY ] );
+		$this->assertInstanceOf( WKSYNC_Customer_Invoice::class, $emails[ Emails::INVOICE_KEY ] );
+		$this->assertInstanceOf( WKSYNC_Customer_Tracking::class, $emails[ Emails::TRACKING_KEY ] );
 
 		remove_all_filters( 'woocommerce_email_classes' );
 	}
@@ -612,6 +612,11 @@ class OrderNotificationsTest extends WP_UnitTestCase {
 				sanitize_title( $key ),
 				'WooCommerce would link to one section and save another for ' . $key
 			);
+
+			// The preview URL carries the class name itself, and nginx answers 403 to a
+			// backslash in a query string before WordPress is reached at all.
+			$this->assertStringNotContainsString( '\\', $key );
+			$this->assertSame( rawurlencode( $key ), $key );
 		}
 	}
 
@@ -644,8 +649,8 @@ class OrderNotificationsTest extends WP_UnitTestCase {
 	 * @return void
 	 */
 	public function test_both_emails_are_disabled_by_default() {
-		$this->assertFalse( ( new CustomerInvoice() )->is_enabled() );
-		$this->assertFalse( ( new CustomerTracking() )->is_enabled() );
+		$this->assertFalse( ( new WKSYNC_Customer_Invoice() )->is_enabled() );
+		$this->assertFalse( ( new WKSYNC_Customer_Tracking() )->is_enabled() );
 	}
 
 	/**
@@ -654,8 +659,8 @@ class OrderNotificationsTest extends WP_UnitTestCase {
 	 * @return void
 	 */
 	public function test_both_emails_are_customer_emails() {
-		$this->assertTrue( ( new CustomerInvoice() )->is_customer_email() );
-		$this->assertTrue( ( new CustomerTracking() )->is_customer_email() );
+		$this->assertTrue( ( new WKSYNC_Customer_Invoice() )->is_customer_email() );
+		$this->assertTrue( ( new WKSYNC_Customer_Tracking() )->is_customer_email() );
 	}
 
 	/**
@@ -674,7 +679,7 @@ class OrderNotificationsTest extends WP_UnitTestCase {
 		$order->update_meta_data( DeliverySync::META_TRACKING, '913368990400000188001' );
 		$order->save();
 
-		$email = new CustomerInvoice();
+		$email = new WKSYNC_Customer_Invoice();
 		$email->resend( $order );
 
 		$markup = $email->get_content_html();
@@ -693,7 +698,7 @@ class OrderNotificationsTest extends WP_UnitTestCase {
 		$order->update_meta_data( DeliverySync::META_TRACKING, '913368990400000188001' );
 		$order->save();
 
-		$email = new CustomerTracking();
+		$email = new WKSYNC_Customer_Tracking();
 		$email->resend( $order );
 
 		$text = $email->get_content_plain();
@@ -717,7 +722,7 @@ class OrderNotificationsTest extends WP_UnitTestCase {
 
 		$this->store_invoice( $order );
 
-		$email = new CustomerInvoice();
+		$email = new WKSYNC_Customer_Invoice();
 		$email->resend( $order );
 
 		$this->assertCount( 1, $email->get_attachments() );
@@ -729,7 +734,7 @@ class OrderNotificationsTest extends WP_UnitTestCase {
 	 * @return void
 	 */
 	public function test_an_email_with_no_order_renders_nothing() {
-		$email = new CustomerTracking();
+		$email = new WKSYNC_Customer_Tracking();
 
 		$this->assertSame( '', $email->get_content_html() );
 		$this->assertSame( '', $email->get_content_plain() );

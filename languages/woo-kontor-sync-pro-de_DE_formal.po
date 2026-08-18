@@ -34,396 +34,396 @@ msgstr "Synchronisiert WooCommerce-Produkte, -Bestellungen und -Kunden mit dem K
 msgid "Sourov Biswas"
 msgstr ""
 
-#: includes/Admin/Settings.php:208
+#: includes/Admin/Settings.php:207
 msgid "B2B — wholesale"
 msgstr "B2B — Großhandel"
 
-#: includes/Admin/Settings.php:209
+#: includes/Admin/Settings.php:208
 msgid "B2C — retail"
 msgstr "B2C — Einzelhandel"
 
-#: includes/Admin/Settings.php:210
+#: includes/Admin/Settings.php:209
 msgid "EDU — education"
 msgstr "EDU — Bildung"
 
-#: includes/Admin/Settings.php:221
-#: includes/Admin/Settings.php:236
-#: includes/Admin/Settings.php:257
-#: includes/Admin/Settings.php:273
-#: includes/Admin/Settings.php:295
+#: includes/Admin/Settings.php:220
+#: includes/Admin/Settings.php:235
+#: includes/Admin/Settings.php:256
+#: includes/Admin/Settings.php:272
+#: includes/Admin/Settings.php:294
 msgid "Never — only when run manually"
 msgstr "Nie — nur bei manueller Ausführung"
 
-#: includes/Admin/Settings.php:222
+#: includes/Admin/Settings.php:221
 msgid "Every 7 days"
 msgstr "Alle 7 Tage"
 
-#: includes/Admin/Settings.php:223
+#: includes/Admin/Settings.php:222
 msgid "Every 14 days"
 msgstr "Alle 14 Tage"
 
-#: includes/Admin/Settings.php:224
+#: includes/Admin/Settings.php:223
 msgid "Every 21 days"
 msgstr "Alle 21 Tage"
 
-#: includes/Admin/Settings.php:225
+#: includes/Admin/Settings.php:224
 msgid "Every 30 days"
 msgstr "Alle 30 Tage"
 
-#: includes/Admin/Settings.php:237
-#: includes/Admin/Settings.php:258
+#: includes/Admin/Settings.php:236
+#: includes/Admin/Settings.php:257
 msgid "Every 15 minutes"
 msgstr "Alle 15 Minuten"
+
+#: includes/Admin/Settings.php:237
+#: includes/Admin/Settings.php:258
+#: includes/Admin/Settings.php:273
+msgid "Every 30 minutes"
+msgstr "Alle 30 Minuten"
 
 #: includes/Admin/Settings.php:238
 #: includes/Admin/Settings.php:259
 #: includes/Admin/Settings.php:274
-msgid "Every 30 minutes"
-msgstr "Alle 30 Minuten"
-
-#: includes/Admin/Settings.php:239
-#: includes/Admin/Settings.php:260
-#: includes/Admin/Settings.php:275
-#: includes/Admin/Settings.php:296
+#: includes/Admin/Settings.php:295
 msgid "Every hour"
 msgstr "Stündlich"
 
-#: includes/Admin/Settings.php:240
-#: includes/Admin/Settings.php:276
-#: includes/Admin/Settings.php:297
+#: includes/Admin/Settings.php:239
+#: includes/Admin/Settings.php:275
+#: includes/Admin/Settings.php:296
 msgid "Every 3 hours"
 msgstr "Alle 3 Stunden"
 
-#: includes/Admin/Settings.php:241
-#: includes/Admin/Settings.php:261
-#: includes/Admin/Settings.php:277
-#: includes/Admin/Settings.php:298
+#: includes/Admin/Settings.php:240
+#: includes/Admin/Settings.php:260
+#: includes/Admin/Settings.php:276
+#: includes/Admin/Settings.php:297
 msgid "Every 6 hours"
 msgstr "Alle 6 Stunden"
 
-#: includes/Admin/Settings.php:242
-#: includes/Admin/Settings.php:278
-#: includes/Admin/Settings.php:299
+#: includes/Admin/Settings.php:241
+#: includes/Admin/Settings.php:277
+#: includes/Admin/Settings.php:298
 msgid "Every 12 hours"
 msgstr "Alle 12 Stunden"
 
-#: includes/Admin/Settings.php:243
-#: includes/Admin/Settings.php:262
-#: includes/Admin/Settings.php:279
-#: includes/Admin/Settings.php:300
+#: includes/Admin/Settings.php:242
+#: includes/Admin/Settings.php:261
+#: includes/Admin/Settings.php:278
+#: includes/Admin/Settings.php:299
 msgid "Once a day"
 msgstr "Einmal täglich"
 
+#: includes/Admin/Settings.php:346
 #: includes/Admin/Settings.php:347
-#: includes/Admin/Settings.php:348
-#: includes/Admin/Settings.php:1220
+#: includes/Admin/Settings.php:1219
 msgid "Kontor Sync"
 msgstr "Kontor-Sync"
 
-#: includes/Admin/Settings.php:387
+#: includes/Admin/Settings.php:386
 msgid "Testing connection…"
 msgstr "Verbindung wird getestet…"
 
-#: includes/Admin/Settings.php:388
+#: includes/Admin/Settings.php:387
 msgid "The connection test could not be completed."
 msgstr "Der Verbindungstest konnte nicht abgeschlossen werden."
 
-#: includes/Admin/Settings.php:390
+#: includes/Admin/Settings.php:389
 msgid "Fetching shops…"
 msgstr "Shops werden abgerufen…"
 
-#: includes/Admin/Settings.php:391
+#: includes/Admin/Settings.php:390
 msgid "The shop list could not be fetched."
 msgstr "Die Shop-Liste konnte nicht abgerufen werden."
 
-#: includes/Admin/Settings.php:392
-#: includes/Admin/Settings.php:1292
+#: includes/Admin/Settings.php:391
+#: includes/Admin/Settings.php:1290
 msgid "— No shop selected —"
 msgstr "— Kein Shop ausgewählt —"
 
-#: includes/Admin/Settings.php:393
+#: includes/Admin/Settings.php:392
 msgid "Shops loaded. Choose one, then save the settings."
 msgstr "Shops geladen. Wählen Sie einen aus und speichern Sie die Einstellungen."
 
-#: includes/Admin/Settings.php:395
+#: includes/Admin/Settings.php:394
 msgid "Fetching manufacturers…"
 msgstr "Hersteller werden abgerufen…"
 
-#: includes/Admin/Settings.php:396
+#: includes/Admin/Settings.php:395
 msgid "The manufacturer list could not be fetched."
 msgstr "Die Herstellerliste konnte nicht abgerufen werden."
 
-#: includes/Admin/Settings.php:397
+#: includes/Admin/Settings.php:396
 msgid "Manufacturers loaded. Tick the ones to import, then save the settings."
 msgstr "Hersteller geladen. Haken Sie die zu importierenden an und speichern Sie die Einstellungen."
 
-#: includes/Admin/Settings.php:737
-#: includes/Admin/Settings.php:783
-#: includes/Admin/Settings.php:832
-#: includes/Admin/Settings.php:987
-#: includes/Admin/Settings.php:1025
-#: includes/Admin/Settings.php:1129
-#: includes/Admin/Settings.php:1172
+#: includes/Admin/Settings.php:736
+#: includes/Admin/Settings.php:782
+#: includes/Admin/Settings.php:831
+#: includes/Admin/Settings.php:986
+#: includes/Admin/Settings.php:1024
+#: includes/Admin/Settings.php:1128
+#: includes/Admin/Settings.php:1171
 #: includes/Rest/Jobs.php:172
 msgid "You do not have permission to do that."
 msgstr "Sie haben keine Berechtigung für diese Aktion."
 
 #. translators: 1: number of articles, 2: shop type such as B2B.
-#: includes/Admin/Settings.php:762
+#: includes/Admin/Settings.php:761
 #, php-format
 msgid "Connected. Kontor reports %1$s articles for %2$s."
 msgstr "Verbunden. Kontor meldet %1$s Artikel für %2$s."
 
-#: includes/Admin/Settings.php:804
+#: includes/Admin/Settings.php:803
 msgid "Kontor returned no shops for this key."
 msgstr "Kontor hat für diesen Schlüssel keine Shops zurückgegeben."
 
 #. translators: %s: number of shops found.
-#: includes/Admin/Settings.php:812
+#: includes/Admin/Settings.php:811
 #, php-format
 msgid "Found %s shop."
 msgid_plural "Found %s shops."
 msgstr[0] "%s Shop gefunden."
 msgstr[1] "%s Shops gefunden."
 
-#: includes/Admin/Settings.php:853
+#: includes/Admin/Settings.php:852
 msgid "Kontor returned no manufacturers for this key."
 msgstr "Kontor hat für diesen Schlüssel keine Hersteller zurückgegeben."
 
 #. translators: %s: number of manufacturers found.
-#: includes/Admin/Settings.php:861
+#: includes/Admin/Settings.php:860
 #, php-format
 msgid "Found %s manufacturer."
 msgid_plural "Found %s manufacturers."
 msgstr[0] "%s Hersteller gefunden."
 msgstr[1] "%s Hersteller gefunden."
 
-#: includes/Admin/Settings.php:1200
+#: includes/Admin/Settings.php:1199
 #: includes/Sync/Scheduler.php:378
 msgid "The job could not be queued. Check that WooCommerce is active."
 msgstr "Der Job konnte nicht eingereiht werden. Prüfen Sie, ob WooCommerce aktiv ist."
 
-#: includes/Admin/Settings.php:1201
+#: includes/Admin/Settings.php:1200
 #: includes/Sync/Scheduler.php:385
 msgid "That job is already running."
 msgstr "Dieser Job läuft bereits."
 
-#: includes/Admin/Settings.php:1202
+#: includes/Admin/Settings.php:1201
 msgid "Set the API base URL and API key before running a sync."
 msgstr "Legen Sie die API-Basis-URL und den API-Schlüssel fest, bevor Sie eine Synchronisation starten."
 
-#: includes/Admin/Settings.php:1203
+#: includes/Admin/Settings.php:1202
 msgid "Choose a Kontor shop before syncing orders."
 msgstr "Wählen Sie einen Kontor-Shop aus, bevor Sie Bestellungen synchronisieren."
 
-#: includes/Admin/Settings.php:1214
+#: includes/Admin/Settings.php:1213
 msgid "You do not have permission to manage these settings."
 msgstr "Sie haben keine Berechtigung, diese Einstellungen zu verwalten."
 
-#: includes/Admin/Settings.php:1229
+#: includes/Admin/Settings.php:1227
 msgid "Connection"
 msgstr "Verbindung"
 
-#: includes/Admin/Settings.php:1233
+#: includes/Admin/Settings.php:1231
 msgid "API base URL"
 msgstr "API-Basis-URL"
 
-#: includes/Admin/Settings.php:1243
+#: includes/Admin/Settings.php:1241
 msgid "The search endpoint is appended to this, so omit the trailing \"/search\"."
 msgstr "Der Such-Endpunkt wird angehängt, lassen Sie das abschließende „/search“ also weg."
 
-#: includes/Admin/Settings.php:1248
+#: includes/Admin/Settings.php:1246
 msgid "API key"
 msgstr "API-Schlüssel"
 
-#: includes/Admin/Settings.php:1263
+#: includes/Admin/Settings.php:1261
 msgid "No key stored yet. Sent as the x-api-key header."
 msgstr "Noch kein Schlüssel gespeichert. Wird als x-api-key-Header gesendet."
 
-#: includes/Admin/Settings.php:1264
+#: includes/Admin/Settings.php:1262
 msgid "A key is stored. Leave this field blank to keep it."
 msgstr "Ein Schlüssel ist gespeichert. Lassen Sie dieses Feld leer, um ihn zu behalten."
 
-#: includes/Admin/Settings.php:1272
+#: includes/Admin/Settings.php:1270
 msgid "Shop type"
 msgstr "Shop-Typ"
 
-#: includes/Admin/Settings.php:1282
+#: includes/Admin/Settings.php:1280
 msgid "Selects which price list is imported. The article list is the same for every shop type; only the selling price differs."
 msgstr "Bestimmt, welche Preisliste importiert wird. Die Artikelliste ist für jeden Shop-Typ identisch, nur der Verkaufspreis unterscheidet sich."
 
-#: includes/Admin/Settings.php:1288
+#: includes/Admin/Settings.php:1286
 msgid "Shop"
 msgstr "Shop"
 
-#: includes/Admin/Settings.php:1300
+#: includes/Admin/Settings.php:1298
 msgid "Fetch shops"
 msgstr "Shops abrufen"
 
-#: includes/Admin/Settings.php:1309
+#: includes/Admin/Settings.php:1307
 msgid "Identifies this store in Kontor when orders are sent and delivery information is fetched back. Neither job runs without it. Product and stock sync do not use it."
 msgstr "Identifiziert diesen Shop in Kontor, wenn Bestellungen gesendet und Lieferinformationen zurückgeholt werden. Ohne ihn läuft keiner der beiden Jobs. Produkt- und Bestandssynchronisation nutzen ihn nicht."
 
-#: includes/Admin/Settings.php:1316
+#: includes/Admin/Settings.php:1314
 msgid "Upload user ID"
 msgstr "Upload-Benutzer-ID"
 
-#: includes/Admin/Settings.php:1334
+#: includes/Admin/Settings.php:1332
 msgid "Sent with every order upload as meta.userId. Fixed by agreement with Kontor and not editable here."
 msgstr "Wird bei jedem Bestell-Upload als meta.userId gesendet. In Absprache mit Kontor festgelegt und hier nicht änderbar."
 
-#: includes/Admin/Settings.php:1338
+#: includes/Admin/Settings.php:1336
 msgid "Connection test"
 msgstr "Verbindungstest"
 
-#: includes/Admin/Settings.php:1341
+#: includes/Admin/Settings.php:1339
 msgid "Test connection"
 msgstr "Verbindung testen"
 
-#: includes/Admin/Settings.php:1348
+#: includes/Admin/Settings.php:1346
 msgid "Products"
 msgstr "Produkte"
 
-#: includes/Admin/Settings.php:1351
+#: includes/Admin/Settings.php:1349
 msgid "Manufacturers"
 msgstr "Hersteller"
 
-#: includes/Admin/Settings.php:1378
+#: includes/Admin/Settings.php:1376
 msgid "Manufacturers to import"
 msgstr "Zu importierende Hersteller"
 
-#: includes/Admin/Settings.php:1379
+#: includes/Admin/Settings.php:1377
 msgid "Every manufacturer is imported."
 msgstr "Alle Hersteller werden importiert."
 
-#: includes/Admin/Settings.php:1389
+#: includes/Admin/Settings.php:1387
 msgid "Fetch manufacturers"
 msgstr "Hersteller abrufen"
 
-#: includes/Admin/Settings.php:1392
+#: includes/Admin/Settings.php:1390
 msgid "Import everything"
 msgstr "Alles importieren"
 
-#: includes/Admin/Settings.php:1413
+#: includes/Admin/Settings.php:1411
 msgid "Tick the manufacturers to import. Fetch the list to add more; leave every box clear to import the whole catalogue."
 msgstr "Haken Sie die zu importierenden Hersteller an. Rufen Sie die Liste ab, um weitere hinzuzufügen, und lassen Sie alle Kästchen leer, um den gesamten Katalog zu importieren."
 
-#: includes/Admin/Settings.php:1416
+#: includes/Admin/Settings.php:1414
 msgid "Narrowing this drafts products."
 msgstr "Eine Einschränkung setzt Produkte auf Entwurf."
 
-#: includes/Admin/Settings.php:1417
+#: includes/Admin/Settings.php:1415
 msgid "Articles the filter excludes are no longer in the feed, so the next product sync drafts the ones it previously imported. Widening the filter again republishes them."
 msgstr "Vom Filter ausgeschlossene Artikel sind nicht mehr im Feed, daher setzt die nächste Produktsynchronisation die zuvor importierten auf Entwurf. Wird der Filter wieder erweitert, werden sie erneut veröffentlicht."
 
-#: includes/Admin/Settings.php:1424
+#: includes/Admin/Settings.php:1422
 msgid "Image base URL"
 msgstr "Bild-Basis-URL"
 
-#: includes/Admin/Settings.php:1434
+#: includes/Admin/Settings.php:1432
 msgid "Kontor returns image filenames rather than URLs. Set the folder they live in to import product images; leave blank to skip images."
 msgstr "Kontor liefert Bilddateinamen statt URLs. Geben Sie den Ordner an, in dem sie liegen, um Produktbilder zu importieren, oder lassen Sie das Feld leer, um Bilder zu überspringen."
 
-#: includes/Admin/Settings.php:1612
+#: includes/Admin/Settings.php:1610
 msgid "Schedules"
 msgstr "Zeitpläne"
 
-#: includes/Admin/Settings.php:1616
+#: includes/Admin/Settings.php:1614
 #: includes/Sync/Scheduler.php:159
 msgid "Product sync"
 msgstr "Produktsynchronisation"
 
-#: includes/Admin/Settings.php:1631
+#: includes/Admin/Settings.php:1629
 #: includes/Sync/Scheduler.php:167
 msgid "Stock sync"
 msgstr "Bestandssynchronisation"
 
-#: includes/Admin/Settings.php:1646
+#: includes/Admin/Settings.php:1644
 #: includes/Sync/Scheduler.php:175
 msgid "Order sync"
 msgstr "Bestellsynchronisation"
 
-#: includes/Admin/Settings.php:1657
+#: includes/Admin/Settings.php:1655
 msgid "Orders are sent to Kontor as they are paid. This sweep only catches ones that were missed, and needs a shop selected."
 msgstr "Bestellungen werden an Kontor gesendet, sobald sie bezahlt sind. Dieser Durchlauf erfasst nur übersehene Bestellungen und benötigt einen ausgewählten Shop."
 
-#: includes/Admin/Settings.php:1662
+#: includes/Admin/Settings.php:1660
 #: includes/Sync/Scheduler.php:184
 msgid "Delivery sync"
 msgstr "Liefersynchronisation"
 
-#: includes/Admin/Settings.php:1673
+#: includes/Admin/Settings.php:1671
 msgid "Pulls tracking details back from Kontor and needs a shop selected. An order Kontor reports as completed is completed here too, which emails the customer."
 msgstr "Holt Sendungsdaten aus Kontor zurück und benötigt einen ausgewählten Shop. Eine Bestellung, die Kontor als abgeschlossen meldet, wird auch hier abgeschlossen, wodurch der Kunde eine E-Mail erhält."
 
-#: includes/Admin/Settings.php:1719
+#: includes/Admin/Settings.php:1717
 msgid "Scheduled jobs"
 msgstr "Geplante Jobs"
 
-#: includes/Admin/Settings.php:2118
+#: includes/Admin/Settings.php:2116
 msgid "No manufacturers selected, so the whole catalogue is imported."
 msgstr "Keine Hersteller ausgewählt, daher wird der gesamte Katalog importiert."
 
 #. translators: %s: number of manufacturers selected.
-#: includes/Admin/Settings.php:2123
+#: includes/Admin/Settings.php:2121
 #, php-format
 msgid "%s manufacturer selected. Everything else is left out of the import."
 msgid_plural "%s manufacturers selected. Everything else is left out of the import."
 msgstr[0] "%s Hersteller ausgewählt. Alles andere bleibt vom Import ausgeschlossen."
 msgstr[1] "%s Hersteller ausgewählt. Alles andere bleibt vom Import ausgeschlossen."
 
-#: includes/Admin/Settings.php:2165
+#: includes/Admin/Settings.php:2163
 msgid "Job"
 msgstr "Job"
 
-#: includes/Admin/Settings.php:2166
+#: includes/Admin/Settings.php:2164
 msgid "Next run"
 msgstr "Nächster Lauf"
 
-#: includes/Admin/Settings.php:2167
+#: includes/Admin/Settings.php:2165
 msgid "Last result"
 msgstr "Letztes Ergebnis"
 
-#: includes/Admin/Settings.php:2168
+#: includes/Admin/Settings.php:2166
 msgid "Actions"
 msgstr "Aktionen"
 
-#: includes/Admin/Settings.php:2326
+#: includes/Admin/Settings.php:2324
 msgid "Not scheduled"
 msgstr "Nicht geplant"
 
-#: includes/Admin/Settings.php:2217
+#: includes/Admin/Settings.php:2215
 msgid "Run now"
 msgstr "Jetzt ausführen"
 
-#: includes/Admin/Settings.php:2235
+#: includes/Admin/Settings.php:2233
 msgid "Never run"
 msgstr "Nie ausgeführt"
 
 #. translators: %s: how long ago the run started.
-#: includes/Admin/Settings.php:2240
+#: includes/Admin/Settings.php:2238
 #, php-format
 msgid "Running, started %s ago"
 msgstr "Läuft, vor %s gestartet"
 
 #. translators: 1: timestamp, 2: failure reason.
-#: includes/Admin/Settings.php:2247
+#: includes/Admin/Settings.php:2245
 #, php-format
 msgid "Failed at %1$s — %2$s"
 msgstr "Fehlgeschlagen am %1$s — %2$s"
 
 #. translators: 1: timestamp, 2: run summary.
-#: includes/Admin/Settings.php:2251
+#: includes/Admin/Settings.php:2249
 #, php-format
 msgid "Succeeded at %1$s — %2$s"
 msgstr "Erfolgreich am %1$s — %2$s"
 
-#: includes/Admin/Settings.php:2406
+#: includes/Admin/Settings.php:2352
 msgid "The job could not be queued. It may already be running, or WooCommerce may be inactive."
 msgstr "Der Job konnte nicht eingereiht werden. Möglicherweise läuft er bereits oder WooCommerce ist nicht aktiv."
 
 #. translators: %s: job name.
-#: includes/Admin/Settings.php:2418
+#: includes/Admin/Settings.php:2364
 #, php-format
 msgid "%s queued. It runs on the next queue pass, within a minute or so."
 msgstr "%s eingereiht. Der Job läuft beim nächsten Warteschlangendurchlauf, also in etwa einer Minute."
@@ -593,12 +593,12 @@ msgstr "Woo Kontor Sync Pro benötigt High-Performance Order Storage (HPOS). Die
 msgid "Enable High-Performance Order Storage"
 msgstr "High-Performance Order Storage aktivieren"
 
-#: includes/Admin/Settings.php:1678
+#: includes/Admin/Settings.php:1676
 #: includes/Sync/Scheduler.php:193
 msgid "Invoice sync"
 msgstr "Rechnungssynchronisation"
 
-#: includes/Admin/Settings.php:1689
+#: includes/Admin/Settings.php:1687
 msgid "Downloads invoice PDFs from Kontor and needs a shop selected. Each invoice is stored privately, shown to the customer on their order, and attached to the order emails sent after it arrives."
 msgstr "Lädt Rechnungs-PDFs von Kontor herunter und benötigt einen ausgewählten Shop. Jede Rechnung wird geschützt gespeichert, der Kundschaft bei ihrer Bestellung angezeigt und den Bestell-E-Mails angehängt, die danach versendet werden."
 
@@ -652,39 +652,39 @@ msgstr "Diese Rechnung ist für diese Bestellung nicht verfügbar."
 msgid "Invoice unavailable"
 msgstr "Rechnung nicht verfügbar"
 
-#: includes/Invoices/Storage.php:102
+#: includes/Invoices/Storage.php:84
 msgid "Kontor returned a document that is not a PDF."
 msgstr "Kontor hat ein Dokument zurückgegeben, das kein PDF ist."
 
-#: includes/Invoices/Storage.php:117
+#: includes/Invoices/Storage.php:99
 msgid "The invoice could not be written: WordPress has no direct filesystem access."
 msgstr "Die Rechnung konnte nicht gespeichert werden: WordPress hat keinen direkten Dateisystemzugriff."
 
-#: includes/Invoices/Storage.php:126
+#: includes/Invoices/Storage.php:108
 msgid "The invoice could not be written to the uploads directory."
 msgstr "Die Rechnung konnte nicht in das Uploads-Verzeichnis geschrieben werden."
 
-#: includes/Invoices/Storage.php:148
+#: includes/Invoices/Storage.php:130
 msgid "No invoice file is recorded."
 msgstr "Es ist keine Rechnungsdatei hinterlegt."
 
-#: includes/Invoices/Storage.php:161
+#: includes/Invoices/Storage.php:143
 msgid "The invoice file is no longer on disk."
 msgstr "Die Rechnungsdatei liegt nicht mehr auf dem Datenträger."
 
-#: includes/Invoices/Storage.php:165
+#: includes/Invoices/Storage.php:147
 msgid "The recorded invoice path is not inside the invoice directory."
 msgstr "Der hinterlegte Rechnungspfad liegt nicht im Rechnungsverzeichnis."
 
-#: includes/Invoices/Storage.php:193
+#: includes/Invoices/Storage.php:175
 msgid "The uploads directory is not writable, so invoices cannot be stored."
 msgstr "Das Uploads-Verzeichnis ist nicht beschreibbar, daher können keine Rechnungen gespeichert werden."
 
-#: includes/Invoices/Storage.php:213
+#: includes/Invoices/Storage.php:195
 msgid "The invoice directory does not exist."
 msgstr "Das Rechnungsverzeichnis existiert nicht."
 
-#: includes/Invoices/Storage.php:219
+#: includes/Invoices/Storage.php:201
 msgid "The invoice directory could not be created inside the uploads folder."
 msgstr "Das Rechnungsverzeichnis konnte im Uploads-Ordner nicht angelegt werden."
 
@@ -792,61 +792,61 @@ msgstr "Der Durchlauf wurde abgebrochen, weil eine Hintergrundaufgabe unerwartet
 msgid "Passed over %1$d with no article number and %2$d matching more than one product; see the log."
 msgstr "%1$d ohne Artikelnummer und %2$d mit mehr als einem passenden Produkt übersprungen; siehe Log."
 
-#: includes/Admin/Settings.php:1970
+#: includes/Admin/Settings.php:1968
 msgid "Updates"
 msgstr "Aktualisierungen"
 
-#: includes/Admin/Settings.php:1974
+#: includes/Admin/Settings.php:1972
 msgid "Installed version"
 msgstr "Installierte Version"
 
-#: includes/Admin/Settings.php:1978
+#: includes/Admin/Settings.php:1976
 msgid "Latest release"
 msgstr "Neueste Veröffentlichung"
 
-#: includes/Admin/Settings.php:1984
+#: includes/Admin/Settings.php:1982
 msgid "install it from the plugins screen"
 msgstr "auf der Plugin-Seite installieren"
 
-#: includes/Admin/Settings.php:1987
-#: includes/Admin/Settings.php:2040
+#: includes/Admin/Settings.php:1985
+#: includes/Admin/Settings.php:2038
 msgid "This is the newest release."
 msgstr "Dies ist die neueste Veröffentlichung."
 
-#: includes/Admin/Settings.php:1989
+#: includes/Admin/Settings.php:1987
 msgid "Not known. Nothing has checked yet, or the last check could not reach GitHub."
 msgstr "Unbekannt. Es wurde noch nicht gesucht, oder die letzte Suche hat GitHub nicht erreicht."
 
-#: includes/Admin/Settings.php:1999
+#: includes/Admin/Settings.php:1997
 msgid "Check for updates"
 msgstr "Nach Aktualisierungen suchen"
 
-#: includes/Admin/Settings.php:2002
+#: includes/Admin/Settings.php:2000
 msgid "WordPress looks for plugin updates about twice a day and reuses that answer in between, so a release published since the last look does not appear on its own. This discards what was cached and asks again."
 msgstr "WordPress sucht etwa zweimal täglich nach Plugin-Aktualisierungen und verwendet die Antwort bis dahin weiter, sodass eine seither veröffentlichte Version nicht von selbst erscheint. Dies verwirft den Zwischenspeicher und fragt erneut nach."
 
 #. translators: %s: version number of the release that was found.
-#: includes/Admin/Settings.php:2028
+#: includes/Admin/Settings.php:2026
 #, php-format
 msgid "Version %s is available. Install it from the plugins screen."
 msgstr "Version %s ist verfügbar. Sie kann auf der Plugin-Seite installiert werden."
 
-#: includes/Admin/Settings.php:2054
+#: includes/Admin/Settings.php:2052
 msgid "The release could not be checked. GitHub or WordPress.org could not be reached; try again in a moment."
 msgstr "Die Veröffentlichung konnte nicht geprüft werden. GitHub oder WordPress.org war nicht erreichbar; bitte in einem Moment erneut versuchen."
 
-#: includes/Admin/Settings.php:2273
+#: includes/Admin/Settings.php:2271
 msgid "Working…"
 msgstr "Wird ausgeführt…"
 
 #. translators: 1: records handled so far, 2: records in total.
-#: includes/Admin/Settings.php:2280
+#: includes/Admin/Settings.php:2278
 #, php-format
 msgid "%1$s of %2$s"
 msgstr "%1$s von %2$s"
 
 #. translators: %s: number of products whose images are still queued.
-#: includes/Admin/Settings.php:2307
+#: includes/Admin/Settings.php:2305
 #, php-format
 msgid "Images for %s product still to download."
 msgid_plural "Images for %s products still to download."
@@ -857,27 +857,27 @@ msgstr[1] "Bilder für %s Produkte müssen noch heruntergeladen werden."
 msgid "The list of orders to send expired before they could be sent."
 msgstr "Die Liste der zu sendenden Bestellungen ist abgelaufen, bevor sie gesendet werden konnten."
 
-#: includes/Admin/Settings.php:1438
+#: includes/Admin/Settings.php:1436
 msgid "Articles without images"
 msgstr "Artikel ohne Bilder"
 
-#: includes/Admin/Settings.php:1457
+#: includes/Admin/Settings.php:1455
 msgid "Only import articles that Kontor lists an image for"
 msgstr "Nur Artikel importieren, zu denen Kontor ein Bild führt"
 
-#: includes/Admin/Settings.php:1460
+#: includes/Admin/Settings.php:1458
 msgid "An article with no image is passed over rather than created. The check is on what Kontor sends, not on the shop, so a product whose pictures are still downloading is never caught by it."
 msgstr "Ein Artikel ohne Bild wird übergangen statt angelegt. Geprüft wird, was Kontor liefert, nicht der Shop – ein Produkt, dessen Bilder noch heruntergeladen werden, ist davon also nie betroffen."
 
-#: includes/Admin/Settings.php:1463
+#: includes/Admin/Settings.php:1461
 msgid "This drafts products already imported."
 msgstr "Das setzt bereits importierte Produkte auf Entwurf."
 
-#: includes/Admin/Settings.php:1464
+#: includes/Admin/Settings.php:1462
 msgid "A product this plugin imported whose article now arrives without an image is drafted, exactly as one Kontor stopped listing is. It is republished by itself as soon as the article has an image again, or when this setting is turned off."
 msgstr "Ein von diesem Plugin importiertes Produkt, dessen Artikel jetzt ohne Bild ankommt, wird auf Entwurf gesetzt – genau wie eines, das Kontor nicht mehr führt. Es wird von selbst wieder veröffentlicht, sobald der Artikel wieder ein Bild hat oder diese Einstellung ausgeschaltet wird."
 
-#: includes/Admin/Settings.php:1283
+#: includes/Admin/Settings.php:1281
 msgid "B2B also imports the retail price as a recommended retail price, stored on each product as _wksync_msrp. It is the figure a business can resell at, and it is left off any article Kontor lists no retail price for."
 msgstr "Der Shoptyp B2B importiert zusätzlich den Endkundenpreis als unverbindliche Preisempfehlung und speichert ihn an jedem Produkt als _wksync_msrp. Es ist der Preis, zu dem ein Unternehmen die Ware weiterverkaufen kann; bei Artikeln, für die Kontor keinen Endkundenpreis führt, entfällt er."
 
@@ -885,19 +885,19 @@ msgstr "Der Shoptyp B2B importiert zusätzlich den Endkundenpreis als unverbindl
 msgid "Recommended retail price, as supplied by Kontor. Null when there is none."
 msgstr "Unverbindliche Preisempfehlung, wie von Kontor geliefert. Null, wenn keine vorhanden ist."
 
-#: includes/Admin/Settings.php:1469
+#: includes/Admin/Settings.php:1467
 msgid "Sales quantities"
 msgstr "Verkaufsmengen"
 
-#: includes/Admin/Settings.php:1487
+#: includes/Admin/Settings.php:1485
 msgid "Hold customers to the quantities Kontor sells each article in"
 msgstr "Kunden an die Mengen binden, in denen Kontor den jeweiligen Artikel verkauft"
 
-#: includes/Admin/Settings.php:1490
+#: includes/Admin/Settings.php:1488
 msgid "Kontor states a smallest quantity and a step for every article, imported as _wksync_min_qty and _wksync_qty_step. An article sold in sixes with a step of two can then only be bought as 6, 8, 10 and so on — in the quantity box, in the cart and at checkout alike."
 msgstr "Kontor gibt für jeden Artikel eine kleinste Menge und eine Staffelung an, importiert als _wksync_min_qty und _wksync_qty_step. Ein Artikel mit einer Mindestmenge von sechs und einer Staffelung von zwei kann dann nur als 6, 8, 10 und so weiter gekauft werden – im Mengenfeld, im Warenkorb und an der Kasse gleichermaßen."
 
-#: includes/Admin/Settings.php:1493
+#: includes/Admin/Settings.php:1491
 msgid "Leave it clear to ignore them. The figures are still imported, so turning this on takes effect immediately rather than after the next product sync. Order screens and refunds are never restricted by it."
 msgstr "Lassen Sie das Kästchen leer, um sie zu ignorieren. Die Werte werden trotzdem importiert, das Einschalten wirkt also sofort und nicht erst nach der nächsten Produktsynchronisation. Bestellansichten und Rückerstattungen werden dadurch nie eingeschränkt."
 
@@ -937,7 +937,7 @@ msgstr "Von Kontor geliefert und bei jeder Produktsynchronisation neu geschriebe
 msgid "None"
 msgstr "Keine"
 
-#: includes/Admin/Settings.php:1496
+#: includes/Admin/Settings.php:1494
 msgid "Both figures are shown on each product's Inventory tab, where they are read-only: Kontor supplies them and every sync rewrites them, so they are changed in the ERP."
 msgstr "Beide Werte werden im Reiter „Lagerbestand“ jedes Produkts angezeigt, dort aber nur lesend: Kontor liefert sie und jede Synchronisation schreibt sie neu, geändert werden sie also im ERP."
 
@@ -947,27 +947,27 @@ msgstr "Beide Werte werden im Reiter „Lagerbestand“ jedes Produkts angezeigt
 msgid "%1$d products updated, %2$d article numbers had no matching SKU, %3$d skipped as not stock-managed."
 msgstr "%1$d Produkte aktualisiert, %2$d Artikelnummern ohne passende SKU, %3$d übersprungen, da ohne Bestandsverwaltung."
 
-#: includes/Admin/Settings.php:1501
+#: includes/Admin/Settings.php:1499
 msgid "Articles without stock records"
 msgstr "Artikel ohne Bestandsdaten"
 
-#: includes/Admin/Settings.php:1519
+#: includes/Admin/Settings.php:1517
 msgid "Draft imported products the stock feed does not carry"
 msgstr "Importierte Produkte auf Entwurf setzen, die der Bestandsfeed nicht enthält"
 
-#: includes/Admin/Settings.php:1522
+#: includes/Admin/Settings.php:1520
 msgid "Kontor's stock list is narrower than its catalogue: it holds no record at all for some articles the catalogue lists. Left clear, those products keep the level they last had and stay published, and whether Kontor still sells an article is left to the product sync to answer."
 msgstr "Die Bestandsliste von Kontor ist schmaler als der Katalog: Zu manchen Artikeln, die der Katalog führt, gibt es überhaupt keinen Bestandssatz. Bleibt das Kästchen leer, behalten diese Produkte ihren zuletzt bekannten Bestand und bleiben veröffentlicht; ob Kontor einen Artikel noch verkauft, beantwortet dann allein die Produktsynchronisation."
 
-#: includes/Admin/Settings.php:1525
+#: includes/Admin/Settings.php:1523
 msgid "Ticking this hides a large part of the catalogue."
 msgstr "Ein Haken hier blendet einen großen Teil des Katalogs aus."
 
-#: includes/Admin/Settings.php:1526
+#: includes/Admin/Settings.php:1524
 msgid "On the account this was built against the catalogue lists 4386 articles and the stock feed carries 2945, so the first run after ticking it drafts some 1400 products. Each one comes back by itself as soon as a stock level for it arrives again."
 msgstr "Im Konto, gegen das dies entwickelt wurde, führt der Katalog 4386 Artikel und der Bestandsfeed 2945 – der erste Lauf nach dem Setzen des Hakens setzt also rund 1400 Produkte auf Entwurf. Jedes davon kommt von selbst zurück, sobald wieder ein Bestand dafür gemeldet wird."
 
-#: includes/Admin/Settings.php:1529
+#: includes/Admin/Settings.php:1527
 msgid "Clearing it again republishes what it drafted, on the next stock sync — unless the product sync is holding the product back for its own reason."
 msgstr "Wird der Haken wieder entfernt, veröffentlicht die nächste Bestandssynchronisation die auf Entwurf gesetzten Produkte erneut – sofern die Produktsynchronisation das Produkt nicht aus eigenem Grund zurückhält."
 
@@ -1073,44 +1073,44 @@ msgstr "Die Zusammenfassung des Durchlaufs oder der Grund für den Fehlschlag."
 msgid "When the schedule next runs this job, in UTC. Null when nothing is scheduled."
 msgstr "Wann der Zeitplan diesen Job als Nächstes ausführt, in UTC. Null, wenn nichts geplant ist."
 
-#: includes/Admin/Settings.php:1535
+#: includes/Admin/Settings.php:1533
 msgid "Product page"
 msgstr "Produktseite"
 
-#: includes/Admin/Settings.php:1537
+#: includes/Admin/Settings.php:1535
 msgid "Both rows are added to the product meta block, beside the article number and the categories, and each is shown only on a product that has the figure."
 msgstr "Beide Zeilen werden dem Produkt-Metablock hinzugefügt, neben der Artikelnummer und den Kategorien, und jede wird nur bei einem Produkt angezeigt, das den Wert auch hat."
 
-#: includes/Admin/Settings.php:1541
+#: includes/Admin/Settings.php:1539
 msgid "Recommended retail price"
 msgstr "Unverbindliche Preisempfehlung"
 
-#: includes/Admin/Settings.php:1559
+#: includes/Admin/Settings.php:1557
 msgid "Show the recommended retail price on the product page"
 msgstr "Die unverbindliche Preisempfehlung auf der Produktseite anzeigen"
 
-#: includes/Admin/Settings.php:1562
-#: includes/Admin/Settings.php:1595
+#: includes/Admin/Settings.php:1560
+#: includes/Admin/Settings.php:1593
 msgid "Label"
 msgstr "Bezeichnung"
 
-#: includes/Admin/Settings.php:1573
+#: includes/Admin/Settings.php:1571
 msgid "Kontor supplies this figure on a wholesale shop only, where it sells at Ek and the UVP beside it is the price a business buying here can resell at. It is imported as _wksync_msrp and, until now, nothing rendered it."
 msgstr "Kontor liefert diesen Wert nur bei einem Großhandels-Shop, der zum Ek verkauft und bei dem der UVP daneben der Preis ist, zu dem ein hier einkaufendes Unternehmen weiterverkaufen kann. Er wird als _wksync_msrp importiert, und bislang hat ihn nichts ausgegeben."
 
-#: includes/Admin/Settings.php:1576
+#: includes/Admin/Settings.php:1574
 msgid "The label is shown in front of the amount. Leave it empty for the default wording in the shop's language, and remember that it is what the customer reads: the figure is stated raw, not as a saving, and Kontor lists a retail price no higher than the shop's own for a small number of articles."
 msgstr "Die Bezeichnung steht vor dem Betrag. Lassen Sie sie leer für die Standardformulierung in der Sprache des Shops, und denken Sie daran, dass der Kunde sie liest: Der Wert wird unverändert angegeben, nicht als Ersparnis, und bei einigen wenigen Artikeln führt Kontor einen Verkaufspreis, der nicht über dem des Shops liegt."
 
-#: includes/Admin/Settings.php:1581
+#: includes/Admin/Settings.php:1579
 msgid "EAN"
 msgstr "EAN"
 
-#: includes/Admin/Settings.php:1592
+#: includes/Admin/Settings.php:1590
 msgid "Show the EAN on the product page"
 msgstr "Die EAN auf der Produktseite anzeigen"
 
-#: includes/Admin/Settings.php:1606
+#: includes/Admin/Settings.php:1604
 msgid "The EAN Kontor sends as Artean, held in WooCommerce's own GTIN field. EANs repeat across articles in the feed and WooCommerce refuses a duplicate, so a product whose EAN another already holds has none and shows no row."
 msgstr "Die EAN, die Kontor als Artean sendet, gespeichert im GTIN-Feld von WooCommerce. EANs wiederholen sich im Feed über mehrere Artikel hinweg und WooCommerce lehnt Dubletten ab, daher hat ein Produkt, dessen EAN bereits ein anderes hält, keine und zeigt auch keine Zeile."
 
@@ -1123,114 +1123,114 @@ msgid "EAN:"
 msgstr "EAN:"
 
 #. translators: %s: the word that must be typed to confirm.
-#: includes/Admin/Settings.php:1047
+#: includes/Admin/Settings.php:1046
 #, php-format
 msgid "Nothing was sent. Type %s to confirm overwriting every order already in Kontor."
 msgstr "Es wurde nichts gesendet. Geben Sie %s ein, um das Überschreiben aller bereits in Kontor vorhandenen Bestellungen zu bestätigen."
 
-#: includes/Admin/Settings.php:1054
+#: includes/Admin/Settings.php:1053
 msgid "No orders have been sent to Kontor yet, so there is nothing to overwrite."
 msgstr "Es wurden noch keine Bestellungen an Kontor gesendet, es gibt also nichts zu überschreiben."
 
-#: includes/Admin/Settings.php:1062
+#: includes/Admin/Settings.php:1061
 msgid "No order with that number could be found."
 msgstr "Es wurde keine Bestellung mit dieser Nummer gefunden."
 
-#: includes/Admin/Settings.php:1740
+#: includes/Admin/Settings.php:1738
 msgid "Force push to Kontor"
 msgstr "Erzwungene Übertragung an Kontor"
 
-#: includes/Admin/Settings.php:1744
+#: includes/Admin/Settings.php:1742
 msgid "An ordinary push cannot change an order Kontor already holds. Kontor deduplicates on the order number and the sync leaves overwrite off, so a re-send is answered with \"Dublette\" and an order edited after it was sent never reaches the ERP. This sends it again with overwrite enabled."
 msgstr "Eine gewöhnliche Übertragung kann eine Bestellung, die Kontor bereits hält, nicht ändern. Kontor entdoppelt anhand der Bestellnummer, und die Synchronisation lässt das Überschreiben aus, sodass ein erneutes Senden mit \"Dublette\" beantwortet wird und eine nach dem Senden bearbeitete Bestellung das ERP nie erreicht. Dies sendet sie erneut, mit aktiviertem Überschreiben."
 
-#: includes/Admin/Settings.php:1747
+#: includes/Admin/Settings.php:1745
 msgid "Kontor's exact behaviour under overwrite has not been established against a live account."
 msgstr "Das genaue Verhalten von Kontor beim Überschreiben wurde nie an einem Live-Konto überprüft."
 
-#: includes/Admin/Settings.php:1748
+#: includes/Admin/Settings.php:1746
 msgid "Try one order first and read the reply below before using this on the whole shop. It runs in this request rather than in the background, so leave the page open until it answers."
 msgstr "Probieren Sie zuerst eine einzelne Bestellung aus und lesen Sie die Antwort unten, bevor Sie dies auf den ganzen Shop anwenden. Es läuft in dieser Anfrage statt im Hintergrund, lassen Sie die Seite also offen, bis es antwortet."
 
-#: includes/Admin/Settings.php:1762
+#: includes/Admin/Settings.php:1760
 msgid "Order number"
 msgstr "Bestellnummer"
 
-#: includes/Admin/Settings.php:1766
+#: includes/Admin/Settings.php:1764
 msgid "Force push this order"
 msgstr "Diese Bestellung erzwungen senden"
 
-#: includes/Admin/Settings.php:1768
+#: includes/Admin/Settings.php:1766
 msgid "The order ID, which is what this plugin sends as the order number. It is shown in the order screen's URL, and is not always the number the shop displays."
 msgstr "Die Bestell-ID, die dieses Plugin als Bestellnummer sendet. Sie steht in der URL der Bestellseite und ist nicht immer die Nummer, die der Shop anzeigt."
 
-#: includes/Admin/Settings.php:1783
+#: includes/Admin/Settings.php:1781
 msgid "Force push every sent order"
 msgstr "Alle gesendeten Bestellungen erzwungen senden"
 
-#: includes/Admin/Settings.php:1787
+#: includes/Admin/Settings.php:1785
 msgid "Force push all"
 msgstr "Alle erzwungen senden"
 
 #. translators: 1: the word that must be typed to confirm, 2: largest number of orders one press sends.
-#: includes/Admin/Settings.php:1792
+#: includes/Admin/Settings.php:1790
 #, php-format
 msgid "Type %1$s to confirm. This overwrites what Kontor holds for every order this plugin has already sent, oldest first, up to %2$d of them in one press. Orders never sent are left alone — the ordinary sweep is already sending those."
 msgstr "Geben Sie %1$s ein, um zu bestätigen. Dies überschreibt, was Kontor zu jeder von diesem Plugin bereits gesendeten Bestellung hält, älteste zuerst, bis zu %2$d davon pro Klick. Nie gesendete Bestellungen bleiben unberührt – der gewöhnliche Durchlauf sendet diese bereits."
 
 #. translators: 1: orders overwritten, 2: orders Kontor still called duplicates, 3: orders rejected, 4: orders skipped.
-#: includes/Admin/Settings.php:1848
+#: includes/Admin/Settings.php:1846
 #, php-format
 msgid "%1$d overwritten, %2$d still reported as duplicates, %3$d rejected, %4$d skipped."
 msgstr "%1$d überschrieben, %2$d weiterhin als Dubletten gemeldet, %3$d abgelehnt, %4$d übersprungen."
 
-#: includes/Admin/Settings.php:1858
+#: includes/Admin/Settings.php:1856
 msgid "An order still reported as a duplicate means Kontor declined to overwrite it. The edit has not reached the ERP and has to be made there."
 msgstr "Eine weiterhin als Dublette gemeldete Bestellung bedeutet, dass Kontor das Überschreiben abgelehnt hat. Die Änderung hat das ERP nicht erreicht und muss dort vorgenommen werden."
 
-#: includes/Admin/Settings.php:1867
+#: includes/Admin/Settings.php:1865
 msgid "Order"
 msgstr "Bestellung"
 
-#: includes/Admin/Settings.php:1868
+#: includes/Admin/Settings.php:1866
 msgid "Result"
 msgstr "Ergebnis"
 
-#: includes/Admin/Settings.php:1869
+#: includes/Admin/Settings.php:1867
 msgid "What Kontor said"
 msgstr "Was Kontor gesagt hat"
 
-#: includes/Admin/Settings.php:1889
+#: includes/Admin/Settings.php:1887
 msgid "What Kontor returned"
 msgstr "Was Kontor zurückgegeben hat"
 
 #. translators: %d: request number within this force push.
-#: includes/Admin/Settings.php:1896
+#: includes/Admin/Settings.php:1894
 #, php-format
 msgid "Request %d"
 msgstr "Anfrage %d"
 
-#: includes/Admin/Settings.php:1911
+#: includes/Admin/Settings.php:1909
 msgid "The same replies are in WooCommerce → Status → Logs, under woo-kontor-sync."
 msgstr "Dieselben Antworten stehen in WooCommerce → Status → Protokolle, unter woo-kontor-sync."
 
-#: includes/Admin/Settings.php:1926
+#: includes/Admin/Settings.php:1924
 msgid "Overwritten"
 msgstr "Überschrieben"
 
-#: includes/Admin/Settings.php:1928
+#: includes/Admin/Settings.php:1926
 msgid "Refused as a duplicate"
 msgstr "Als Dublette abgelehnt"
 
-#: includes/Admin/Settings.php:1930
+#: includes/Admin/Settings.php:1928
 msgid "Rejected"
 msgstr "Abgelehnt"
 
-#: includes/Admin/Settings.php:1942
+#: includes/Admin/Settings.php:1940
 msgid "Kontor returned no body that could be decoded."
 msgstr "Kontor hat keinen Inhalt zurückgegeben, der dekodiert werden konnte."
 
-#: includes/Admin/Settings.php:1947
+#: includes/Admin/Settings.php:1945
 msgid "The reply could not be rendered."
 msgstr "Die Antwort konnte nicht dargestellt werden."
 
@@ -1244,27 +1244,27 @@ msgstr "Mit aktiviertem Überschreiben erzwungen an Kontor gesendet."
 msgid "Force-pushed to Kontor with overwrite enabled, as %s."
 msgstr "Mit aktiviertem Überschreiben erzwungen an Kontor gesendet, als %s."
 
-#: includes/Admin/OrderActions.php:84
+#: includes/Admin/OrderActions.php:83
 msgid "Email the invoice to the customer again"
 msgstr "Rechnung erneut an den Kunden senden"
 
-#: includes/Admin/OrderActions.php:88
+#: includes/Admin/OrderActions.php:87
 msgid "Email the tracking details to the customer again"
 msgstr "Sendungsdaten erneut an den Kunden senden"
 
-#: includes/Admin/OrderActions.php:104
+#: includes/Admin/OrderActions.php:103
 msgid "Kontor invoice email sent to the customer."
 msgstr "Kontor-Rechnungs-E-Mail an den Kunden gesendet."
 
-#: includes/Admin/OrderActions.php:105
+#: includes/Admin/OrderActions.php:104
 msgid "The Kontor invoice email could not be sent."
 msgstr "Die Kontor-Rechnungs-E-Mail konnte nicht gesendet werden."
 
-#: includes/Admin/OrderActions.php:119
+#: includes/Admin/OrderActions.php:118
 msgid "Kontor tracking email sent to the customer."
 msgstr "Kontor-Sendungs-E-Mail an den Kunden gesendet."
 
-#: includes/Admin/OrderActions.php:120
+#: includes/Admin/OrderActions.php:119
 msgid "The Kontor tracking email could not be sent."
 msgstr "Die Kontor-Sendungs-E-Mail konnte nicht gesendet werden."
 
@@ -1325,73 +1325,61 @@ msgid "Run the invoice sync"
 msgstr "Rechnungssynchronisation ausführen"
 
 #. translators: %s: link to the WooCommerce email settings screen.
-#: includes/Admin/Settings.php:1706
+#: includes/Admin/Settings.php:1704
 #, php-format
 msgid "The delivery and invoice syncs can also email the customer when tracking details or an invoice arrive. Both are switched off until you turn them on under %s."
 msgstr "Die Liefer- und die Rechnungssynchronisation können den Kunden auch per E-Mail benachrichtigen, wenn Sendungsdaten oder eine Rechnung eintreffen. Beide sind ausgeschaltet, bis Sie sie unter %s einschalten."
 
-#: includes/Admin/Settings.php:1710
+#: includes/Admin/Settings.php:1708
 msgid "WooCommerce → Settings → Emails"
 msgstr "WooCommerce → Einstellungen → E-Mails"
 
-#: includes/Emails/CustomerInvoice.php:32
+#: includes/Emails/WKSYNC_Customer_Invoice.php:30
 msgid "Kontor invoice"
 msgstr "Kontor-Rechnung"
 
-#: includes/Emails/CustomerInvoice.php:33
+#: includes/Emails/WKSYNC_Customer_Invoice.php:31
 msgid "Sent to the customer when the invoice sync downloads an invoice Kontor has issued for their order. Switch this on only after the first invoice import has finished: Kontor lists the shop's whole invoice history on every run, so the first pass downloads all of it and would mail every customer in it."
 msgstr "Wird an den Kunden gesendet, sobald die Rechnungssynchronisation eine von Kontor zu seiner Bestellung ausgestellte Rechnung herunterlädt. Schalten Sie dies erst ein, wenn der erste Rechnungsimport abgeschlossen ist: Kontor listet bei jedem Durchlauf die gesamte Rechnungshistorie des Shops, der erste Durchlauf lädt sie also vollständig herunter und würde jeden darin enthaltenen Kunden anschreiben."
 
-#: includes/Emails/CustomerInvoice.php:53
+#: includes/Emails/WKSYNC_Customer_Invoice.php:51
 msgid "Your invoice for order {order_number}"
 msgstr "Ihre Rechnung zur Bestellung {order_number}"
 
-#: includes/Emails/CustomerInvoice.php:62
+#: includes/Emails/WKSYNC_Customer_Invoice.php:60
 msgid "Your invoice is ready"
 msgstr "Ihre Rechnung ist da"
 
-#: includes/Emails/CustomerInvoice.php:71
+#: includes/Emails/WKSYNC_Customer_Invoice.php:69
 msgid "Your invoice is attached to this email, and you can download it again from the links below."
 msgstr "Ihre Rechnung ist dieser E-Mail angehängt, und über die Links unten können Sie sie erneut herunterladen."
 
-#: includes/Emails/CustomerTracking.php:33
+#: includes/Emails/WKSYNC_Customer_Tracking.php:31
 msgid "Kontor shipment tracking"
 msgstr "Kontor-Sendungsverfolgung"
 
-#: includes/Emails/CustomerTracking.php:54
+#: includes/Emails/WKSYNC_Customer_Tracking.php:52
 msgid "Your order {order_number} is on its way"
 msgstr "Ihre Bestellung {order_number} ist unterwegs"
 
-#: includes/Emails/CustomerTracking.php:63
+#: includes/Emails/WKSYNC_Customer_Tracking.php:61
 msgid "Your parcel is on its way"
 msgstr "Ihr Paket ist unterwegs"
 
-#: includes/Emails/CustomerTracking.php:72
+#: includes/Emails/WKSYNC_Customer_Tracking.php:70
 msgid "Your order has been handed to the carrier. The tracking details are below."
 msgstr "Ihre Bestellung wurde dem Versanddienstleister übergeben. Die Sendungsdaten finden Sie unten."
 
-#: includes/Emails/OrderEmail.php:241
+#: includes/Emails/WKSYNC_Order_Email.php:246
 msgid "Hi,"
 msgstr "Hallo,"
 
 #. translators: %s: customer's first name.
-#: includes/Emails/OrderEmail.php:245
+#: includes/Emails/WKSYNC_Order_Email.php:250
 #, php-format
 msgid "Hi %s,"
 msgstr "Hallo %s,"
 
-#: includes/Emails/CustomerTracking.php:34
+#: includes/Emails/WKSYNC_Customer_Tracking.php:32
 msgid "Sent to the customer when the delivery sync learns a tracking number their order did not have — but not when the same run completes the order, because WooCommerce's own completed-order email already carries the tracking details. Switch this on only after the delivery sync has run once: Kontor returns every order for the shop on every run, so the first pass records tracking numbers going back months and would mail all of them."
 msgstr "Wird an den Kunden gesendet, sobald die Liefersynchronisation eine Sendungsnummer erfährt, die seine Bestellung noch nicht hatte — jedoch nicht, wenn derselbe Durchlauf die Bestellung abschließt, weil die Abschluss-E-Mail von WooCommerce die Sendungsdaten bereits enthält. Schalten Sie dies erst ein, wenn die Liefersynchronisation einmal gelaufen ist: Kontor liefert bei jedem Durchlauf alle Bestellungen des Shops, der erste Durchlauf erfasst also Sendungsnummern von vor Monaten und würde zu allen eine E-Mail versenden."
-
-#: includes/Admin/Settings.php:2368
-msgid "Invoice PDFs can be opened directly, without the permission check."
-msgstr "Rechnungs-PDFs lassen sich direkt öffnen, ohne Berechtigungsprüfung."
-
-#: includes/Admin/Settings.php:2371
-msgid "This site's web server is serving the folder the invoice PDFs are stored in, so a file can also be opened at its own address in the uploads folder — and asked for that way it is handed over without anything checking who is asking. This is not about the download links in the order emails, which are meant to work for whoever holds them. The folder already carries the rules that stop Apache and IIS; nginx ignores them and needs this in its configuration instead:"
-msgstr "Der Webserver dieser Website liefert den Ordner aus, in dem die Rechnungs-PDFs liegen. Eine Datei lässt sich dadurch auch über ihre eigene Adresse im Uploads-Ordner öffnen — und so abgerufen wird sie herausgegeben, ohne dass irgendetwas prüft, wer sie anfordert. Es geht dabei nicht um die Download-Links in den Bestell-E-Mails; die sollen für jeden funktionieren, der sie hat. Der Ordner enthält bereits die Regeln, die Apache und IIS stoppen; nginx ignoriert sie und benötigt stattdessen dies in seiner Konfiguration:"
-
-#: includes/Admin/Settings.php:2375
-msgid "Until then the files are protected only by their unguessable names, so the realistic risk is an address escaping in a server log or a backup rather than somebody finding one. This check is repeated once a day."
-msgstr "Bis dahin schützen die Dateien nur ihre nicht erratbaren Namen; das realistische Risiko ist daher eine Adresse, die über ein Server-Log oder ein Backup nach außen gelangt, und nicht jemand, der eine findet. Diese Prüfung wird einmal täglich wiederholt."

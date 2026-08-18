@@ -9,7 +9,6 @@ namespace WooKontorSync\Admin;
 
 use WooKontorSync\Api\Client;
 use WooKontorSync\Frontend\ProductMeta;
-use WooKontorSync\Invoices\Storage;
 use WooKontorSync\Sync\OrderSync;
 use WooKontorSync\Sync\ProductSync;
 use WooKontorSync\Sync\Scheduler;
@@ -1221,7 +1220,6 @@ class Settings {
 
 			<?php $this->render_queued_notice(); ?>
 			<?php $this->render_update_notice(); ?>
-			<?php $this->render_exposure_notice(); ?>
 
 			<form action="options.php" method="post">
 				<?php settings_fields( self::OPTION_GROUP ); ?>
@@ -2324,58 +2322,6 @@ class Settings {
 		return (int) $next_run > 0
 			? wp_date( 'Y-m-d H:i', (int) $next_run )
 			: __( 'Not scheduled', 'woo-kontor-sync-pro' );
-	}
-
-	/**
-	 * Warn when the stored invoices are readable straight off the web server.
-	 *
-	 * The invoice directory carries the files that stop Apache and IIS serving it,
-	 * and unguessable names besides. Nginx reads neither guard file, and WordPress
-	 * offers a plugin no portable directory outside what the server publishes, so on
-	 * those hosts a PDF can be fetched at its own address in the uploads folder and
-	 * Download::permitted() is never reached at all.
-	 *
-	 * The wording is careful to say that, because the obvious misreading is that the
-	 * download links are the problem. They are not: a link carries the order key and
-	 * is meant to work for whoever holds it, exactly as WooCommerce's own
-	 * order-received page does. What this is about is the second route to the same
-	 * file, the one nothing guards.
-	 *
-	 * Shown rather than assumed away because the failure is invisible: everything
-	 * keeps working, and the only symptom is an invoice that did not need to be asked
-	 * for. The rule to paste is included, since knowing it is the whole fix.
-	 *
-	 * @return void
-	 */
-	protected function render_exposure_notice() {
-		if ( ! Storage::is_exposed() ) {
-			return;
-		}
-
-		$directory = Storage::directory( false );
-
-		if ( is_wp_error( $directory ) ) {
-			return;
-		}
-
-		$uploads = wp_upload_dir( null, false );
-		$path    = empty( $uploads['baseurl'] ) ? '/wp-content/uploads' : (string) wp_parse_url( $uploads['baseurl'], PHP_URL_PATH );
-		$rule    = sprintf( "location ^~ %s/%s/ {\n\tdeny all;\n}", untrailingslashit( $path ), $directory['name'] );
-
-		?>
-		<div class="notice notice-warning">
-			<p>
-				<strong><?php echo esc_html__( 'Invoice PDFs can be opened directly, without the permission check.', 'woo-kontor-sync-pro' ); ?></strong>
-			</p>
-			<p>
-				<?php echo esc_html__( 'This site\'s web server is serving the folder the invoice PDFs are stored in, so a file can also be opened at its own address in the uploads folder — and asked for that way it is handed over without anything checking who is asking. This is not about the download links in the order emails, which are meant to work for whoever holds them. The folder already carries the rules that stop Apache and IIS; nginx ignores them and needs this in its configuration instead:', 'woo-kontor-sync-pro' ); ?>
-			</p>
-			<pre><code><?php echo esc_html( $rule ); ?></code></pre>
-			<p class="description">
-				<?php echo esc_html__( 'Until then the files are protected only by their unguessable names, so the realistic risk is an address escaping in a server log or a backup rather than somebody finding one. This check is repeated once a day.', 'woo-kontor-sync-pro' ); ?>
-			</p>
-		</div>
-		<?php
 	}
 
 	/**

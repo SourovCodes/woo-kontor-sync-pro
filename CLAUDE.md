@@ -681,16 +681,18 @@ of them wrong produces silently wrong data rather than an error:
   - **Nginx honours none of those guard files, and WordPress offers a plugin no portable directory
     outside what the web server publishes.** On such a host a PDF can be fetched at its own address
     in the uploads folder and `Download::permitted()` is never reached at all; only the random names
-    protect it. Assuming otherwise would fail invisibly, so `Storage::is_exposed()` **asks the web
-    server directly**, by fetching a probe file over HTTP once a day, and the settings screen prints
-    the `location` block to paste when the answer is yes. The Local development site is one of these
-    — the probe returns 200 there.
-    - **The notice is worded against one specific misreading**, because it was misread that way
-      once: that the *download links* are the hole. They are not. A link carries the order key and
-      is meant to work for whoever holds it, which is the whole point of it — a guest checkout has
-      nothing else. The notice is about the second route to the same file, the one nothing guards,
-      and it says so outright. Its old headline, "Downloaded invoices can be read without logging
-      in", described the intended behaviour just as well as the problem.
+    protect it. A shop that wants the directory closed adds a `deny` rule for it in the server
+    configuration — nothing here can do that on its behalf.
+    - **The plugin used to probe for that and warn, and as of 0.20.2 it does not.**
+      `Storage::is_exposed()` fetched a probe file over HTTP once a day and the settings screen
+      printed the `location` block to paste. It cost a loopback request the site made to itself and
+      a permanent `protection-probe.pdf` sitting among the invoices, to report a condition whose
+      realistic exposure is an address escaping through a server log or a backup rather than
+      somebody finding one. And its notice was read as saying the *download links* were insecure,
+      which they are not: a link carries the order key and is meant to work for whoever holds it,
+      since a guest checkout has nothing else. Saying it once here beats saying it daily on a
+      screen. `Storage::protect()` deletes the stale probe, because it only ever added files and
+      would otherwise leave ours behind for good.
   - `Storage::resolve()` treats the stored path as untrusted and refuses anything that `realpath()`
     puts outside the invoice directory. It comes from order meta, and a `../` would otherwise read
     whatever the web server can.
@@ -888,17 +890,32 @@ calling it queues real work: it is not a way to test whether a job would be allo
     description line on the settings screen pointing there. It is also mechanical: `customer_email`
     being true is what gets the invoice PDF attached, because `WC_Email::get_attachments()` fires
     the filter `Frontend\Invoices::attach()` already answers.
-  - **Neither is keyed by its class name**, which core does and this cannot. WooCommerce links to an
-    email's settings page with `strtolower( $email_key )` and matches the submitted section with
-    `sanitize_title( $email_key )`, and the two agree only while the key holds nothing
-    `sanitize_title()` strips. A namespaced class name has backslashes, so the link pointed at
-    `wookontorsync\emails\customerinvoice` while the save path looked for
-    `wookontorsyncemailscustomerinvoice`, never matched, and `WC_Settings_Emails::save()` fell
-    through to saving the general email settings. The screen rendered perfectly and the Enable
-    checkbox would not stick — 0.20.0 shipped with both emails impossible to switch on.
-    `Emails::INVOICE_KEY` and `TRACKING_KEY` are plain strings for that reason, and
-    `test_the_email_keys_survive_woocommerces_section_matching` is the guard. The stored option name
-    comes from `$this->id` rather than the key, so it did not move.
+  - **Both classes are in the global namespace**, named `WKSYNC_Customer_Invoice`,
+    `WKSYNC_Customer_Tracking` and `WKSYNC_Order_Email` after core's own convention, and autoloaded
+    by a Composer `classmap` rather than PSR-4. That is the one place this plugin breaks its own
+    file-layout rule, and a backslash is why: **WooCommerce publishes the class name in URLs**, so
+    it has to survive being put in one.
+    - **The settings section** is derived twice, and the two must agree — the link is built with
+      `strtolower( $email_key )`, the submitted section is matched with `sanitize_title( $email_key )`.
+      Namespaced, the link pointed at `wookontorsync\emails\customerinvoice` while the save path
+      looked for `wookontorsyncemailscustomerinvoice`, nothing matched, and
+      `WC_Settings_Emails::save()` fell through to saving the general email settings. The screen
+      rendered perfectly and the Enable checkbox would not stick: **0.20.0 shipped with both emails
+      impossible to switch on.**
+    - **The email preview** puts it in a query string —
+      `?preview_woocommerce_mail=true&type=<class>` — and `EmailPreview::set_email_type()` matches
+      on an exact `get_class()`, with no filter anywhere in the path. **nginx answers 403 to a
+      backslash there** before WordPress is reached at all, so the preview and the test-email button
+      were dead on any nginx host. Found in production on shop.3ag.ch.
+    - `Emails::INVOICE_KEY` and `TRACKING_KEY` are the class names, and
+      `test_the_email_keys_survive_woocommerces_section_matching` asserts both properties: the two
+      section functions agree, and the name is unchanged by `rawurlencode()`. The stored option name
+      comes from `$this->id` rather than the class, so none of this moved it.
+    - **`Emails.php` imports them explicitly**, and must. It is namespaced, so a bare
+      `WKSYNC_Customer_Invoice` there resolves to `WooKontorSync\Emails\WKSYNC_Customer_Invoice`,
+      which PSR-4 maps back to the same file — the class declares itself twice and PHP fatals on the
+      redeclaration rather than on anything that names the real mistake. The test files need the
+      same imports for the same reason.
   - **`woocommerce_email_actions` is not optional, and skipping it fails silently.** The classes are
     only ever constructed by `WC_Emails::init()`, which runs when something calls `WC()->mailer()` —
     and inside the Action Scheduler job that downloads an invoice, nothing has. A bare `do_action()`

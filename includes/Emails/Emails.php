@@ -7,6 +7,16 @@
 
 namespace WooKontorSync\Emails;
 
+/*
+ * Imported explicitly because they are global classes and this file is not. A bare
+ * WKSYNC_Customer_Invoice here would resolve to WooKontorSync\Emails\WKSYNC_Customer_Invoice,
+ * which PSR-4 maps straight back to the same file — the class then declares itself a
+ * second time and PHP fatals on the redeclaration rather than on the missing class.
+ */
+use WKSYNC_Customer_Invoice;
+use WKSYNC_Customer_Tracking;
+use WKSYNC_Order_Email;
+
 defined( 'ABSPATH' ) || exit;
 
 /**
@@ -36,12 +46,12 @@ class Emails {
 	/**
 	 * The key the invoice email is listed under.
 	 */
-	const INVOICE_KEY = 'WKSYNC_Customer_Invoice';
+	const INVOICE_KEY = WKSYNC_Customer_Invoice::class;
 
 	/**
 	 * The key the tracking email is listed under.
 	 */
-	const TRACKING_KEY = 'WKSYNC_Customer_Tracking';
+	const TRACKING_KEY = WKSYNC_Customer_Tracking::class;
 
 	/**
 	 * Fired when the invoice sync files a document the order did not hold.
@@ -90,8 +100,8 @@ class Emails {
 			$emails = array();
 		}
 
-		$emails[ self::INVOICE_KEY ]  = new CustomerInvoice();
-		$emails[ self::TRACKING_KEY ] = new CustomerTracking();
+		$emails[ self::INVOICE_KEY ]  = new WKSYNC_Customer_Invoice();
+		$emails[ self::TRACKING_KEY ] = new WKSYNC_Customer_Tracking();
 
 		return $emails;
 	}
@@ -121,7 +131,7 @@ class Emails {
 	 * rewritten, and the email type they chose.
 	 *
 	 * @param string $key One of INVOICE_KEY or TRACKING_KEY.
-	 * @return OrderEmail|null The email, or null when WooCommerce does not hold it.
+	 * @return WKSYNC_Order_Email|null The email, or null when WooCommerce does not hold it.
 	 */
 	public static function get( $key ) {
 		if ( ! function_exists( 'WC' ) || ! WC()->mailer() ) {
@@ -130,7 +140,7 @@ class Emails {
 
 		$emails = WC()->mailer()->get_emails();
 
-		return isset( $emails[ $key ] ) && $emails[ $key ] instanceof OrderEmail
+		return isset( $emails[ $key ] ) && $emails[ $key ] instanceof WKSYNC_Order_Email
 			? $emails[ $key ]
 			: null;
 	}
