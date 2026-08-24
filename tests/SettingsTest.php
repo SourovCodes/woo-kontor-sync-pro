@@ -7,7 +7,10 @@
 
 namespace WooKontorSync\Tests;
 
+use WC_Product_Simple;
+use WooKontorSync\Admin\HeldProducts;
 use WooKontorSync\Admin\Settings;
+use WooKontorSync\Sync\ProductSync;
 use WP_UnitTestCase;
 
 /**
@@ -614,5 +617,45 @@ class SettingsTest extends WP_UnitTestCase {
 
 		$this->assertStringContainsString( 'page=wc-settings&#038;tab=email', $markup );
 		$this->assertStringContainsString( 'Both are switched off until you turn them on', $markup );
+	}
+
+	/**
+	 * The screen counts the products the syncs are holding back and links to them.
+	 *
+	 * The run summary above it already says how many were held back and why; this is
+	 * the only thing on the screen that says which.
+	 *
+	 * @return void
+	 */
+	public function test_the_settings_screen_points_at_the_products_being_held_back() {
+		wp_set_current_user( self::factory()->user->create( array( 'role' => 'administrator' ) ) );
+
+		$product = new WC_Product_Simple();
+		$product->set_name( 'Held back' );
+		$product->set_status( 'draft' );
+		$product->update_meta_data( ProductSync::META_INACTIVE_DRAFTED, 1 );
+		$product->save();
+
+		ob_start();
+		( new Settings() )->render_page();
+		$markup = (string) ob_get_clean();
+
+		$this->assertStringContainsString( '1 product is currently held back as a draft.', $markup );
+		$this->assertStringContainsString( 'wksync_held=' . HeldProducts::ANY, $markup );
+	}
+
+	/**
+	 * A shop holding nothing back is told nothing.
+	 *
+	 * @return void
+	 */
+	public function test_the_settings_screen_says_nothing_when_nothing_is_held_back() {
+		wp_set_current_user( self::factory()->user->create( array( 'role' => 'administrator' ) ) );
+
+		ob_start();
+		( new Settings() )->render_page();
+		$markup = (string) ob_get_clean();
+
+		$this->assertStringNotContainsString( 'wksync_held=', $markup );
 	}
 }

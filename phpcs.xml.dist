@@ -86,16 +86,19 @@
 	</rule>
 
 	<!--
-		WooCommerce's own order capabilities. The sniff knows WordPress core's list and
+		WooCommerce's own capabilities. The sniff knows WordPress core's list and
 		nobody else's, so a real capability reads as a typo without this. edit_shop_order
 		is the meta capability WooCommerce maps per order, which is what an action on one
 		order should be checked against rather than the blanket manage_woocommerce.
+		edit_products is what gates a link into the products screen, which manage_woocommerce
+		does not imply.
 	-->
 	<rule ref="WordPress.WP.Capabilities">
 		<properties>
 			<property name="custom_capabilities" type="array">
 				<element value="edit_shop_order"/>
 				<element value="edit_shop_orders"/>
+				<element value="edit_products"/>
 			</property>
 		</properties>
 	</rule>

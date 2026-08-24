@@ -7,6 +7,7 @@
 
 namespace WooKontorSync;
 
+use WooKontorSync\Admin\HeldProducts;
 use WooKontorSync\Admin\OrderActions;
 use WooKontorSync\Admin\OrderPanel;
 use WooKontorSync\Admin\ProductFields;
@@ -142,6 +143,11 @@ final class Plugin {
 			// Kontor's sales quantities on the product's Inventory tab. The meta keys
 			// are protected, so without this there is nowhere to see them at all.
 			( new ProductFields() )->register();
+
+			// The products the syncs have taken out of the shop, on the products list.
+			// The markers are protected meta, so without this a shop manager reading
+			// "Held 827 back as drafts" has no way to find out which 827.
+			( new HeldProducts() )->register();
 
 			// Everything Kontor knows about an order, on the order screen. Same
 			// reasoning: the meta keys are protected, so without this there is nowhere
