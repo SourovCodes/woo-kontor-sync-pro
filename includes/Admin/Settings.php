@@ -2220,6 +2220,50 @@ class Settings {
 			</tbody>
 		</table>
 		<?php
+		$this->render_held_products();
+	}
+
+	/**
+	 * Point at the products the syncs are holding back, when there are any.
+	 *
+	 * The run summary above already says how many were held back and why; this is the
+	 * only thing on the screen that says which. Rendered under the table rather than in
+	 * the product sync's row because more than one job can hold a product back, and a
+	 * sentence sitting in one job's row would be claiming all of them for it.
+	 *
+	 * Gated on edit_products rather than this screen's own capability: a role able to
+	 * run every sync here is not necessarily one able to open a product.
+	 *
+	 * @return void
+	 */
+	protected function render_held_products() {
+		if ( ! current_user_can( 'edit_products' ) ) {
+			return;
+		}
+
+		$held = HeldProducts::total();
+
+		if ( $held < 1 ) {
+			return;
+		}
+
+		printf(
+			'<p class="description">%1$s <a href="%2$s">%3$s</a></p>',
+			esc_html(
+				sprintf(
+					/* translators: %s: number of products. */
+					_n(
+						'%s product is currently held back as a draft.',
+						'%s products are currently held back as drafts.',
+						$held,
+						'woo-kontor-sync-pro'
+					),
+					number_format_i18n( $held )
+				)
+			),
+			esc_url( HeldProducts::url() ),
+			esc_html__( 'Show them, with the reason for each.', 'woo-kontor-sync-pro' )
+		);
 	}
 
 	/**

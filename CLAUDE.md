@@ -359,6 +359,44 @@ of them wrong produces silently wrong data rather than an error:
   - **Each reason is counted and named in the run summary**, never folded into `created` or
     `updated`. "3 created … Held 827 back as drafts, switched off for the webshop in Kontor" is the
     sentence that tells a shop manager where a fifth of the catalogue went.
+  - **`Admin\HeldProducts` is where the run summary's number becomes a list of products.** Every
+    marker is `_wksync_`-prefixed and therefore protected, so before this a shop manager reading
+    "Held 827 back as drafts" had no way anywhere in wp-admin to find out which 827, or why any one
+    product was a draft. It adds a view per reason to the products list
+    (`views_edit-product` → `edit.php?post_type=product&wksync_held=inactive`) and names the reason
+    beside the product with `display_post_states`. Read-only, like `ProductFields` and `OrderPanel`:
+    the markers are rewritten by background jobs, so the way back into the shop is the ERP.
+    - **A view only appears for a reason currently holding something**, so a shop where nothing is
+      held back sees no new links rather than a row of zeroes. The `any` value gathers all of them,
+      which is what the settings screen links to.
+    - **`none` is the inverse — the drafts no reason of ours accounts for**, which are the ones a
+      person made. Core's Drafts view stops being useful the moment eight hundred of the ERP's are
+      sitting in it, and this is the whole of what a **custom post status** would have bought.
+      Registering one was considered and rejected: `get_post_statuses()` is hardcoded with no
+      filter, so the status could never appear in `/wc/v3/products`' `status` enum, and the Publish
+      box's dropdown is hardcoded the same way — a product in a custom status renders that select
+      with nothing selected, so the first save posts `pending`, which `hold_back()` then refuses to
+      touch, stranding the product for good. WooCommerce registers custom statuses for orders,
+      where it owns the whole screen, and none for products.
+    - **The inverse is offered only where something is actually held back**, and counted only then,
+      so a shop with nothing held back neither sees a link that duplicates core's Drafts view nor
+      pays for the query behind it. It carries `post_status=draft` in the URL rather than forcing a
+      status onto the query, so core's own status handling stays in charge.
+    - **`clauses()` is shared by the filter and the counts**, so a view cannot promise a number the
+      list it opens then disagrees with. A single reason is a flat clause rather than a group of
+      one, which is every case but `any` and `none`.
+    - **Counted on the marker alone, never joined to the post status.** A product somebody published
+      by hand still carries its marker and the next sync will draft it again; leaving it out of the
+      count would hide the one case worth seeing.
+    - **The meta query is appended, not assigned.** WooCommerce's own stock filter puts one on the
+      same query, and replacing it would silently widen whatever the shop manager had narrowed.
+    - **Core marks "All" current by the absence of its own filters, and ours is not one of them**, so
+      the class takes that marking off the other views when a reason is being looked at. Otherwise
+      two views are highlighted at once.
+    - The slugs in the URL are `withheld_reason()`'s own vocabulary — `inactive`, `no_image` — rather
+      than the meta keys, which are this plugin's storage and not a published name. All five markers
+      are listed, including `META_LEGACY_STOCK_DRAFTED`: a product still carrying it is hidden right
+      now, whatever the marker's future is.
 - **`Ws_aktiv` is Kontor saying whether an article belongs in the webshop at all**, and it is
   obeyed unconditionally — there is no setting, because it is not this shop's decision to make. A
   false article is **imported as a draft** and marked `ProductSync::META_INACTIVE_DRAFTED`

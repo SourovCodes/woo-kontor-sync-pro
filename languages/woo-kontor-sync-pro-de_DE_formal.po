@@ -388,7 +388,7 @@ msgstr "Letztes Ergebnis"
 msgid "Actions"
 msgstr "Aktionen"
 
-#: includes/Admin/Settings.php:2324
+#: includes/Admin/Settings.php:2368
 msgid "Not scheduled"
 msgstr "Nicht geplant"
 
@@ -396,34 +396,34 @@ msgstr "Nicht geplant"
 msgid "Run now"
 msgstr "Jetzt ausführen"
 
-#: includes/Admin/Settings.php:2233
+#: includes/Admin/Settings.php:2277
 msgid "Never run"
 msgstr "Nie ausgeführt"
 
 #. translators: %s: how long ago the run started.
-#: includes/Admin/Settings.php:2238
+#: includes/Admin/Settings.php:2282
 #, php-format
 msgid "Running, started %s ago"
 msgstr "Läuft, vor %s gestartet"
 
 #. translators: 1: timestamp, 2: failure reason.
-#: includes/Admin/Settings.php:2245
+#: includes/Admin/Settings.php:2289
 #, php-format
 msgid "Failed at %1$s — %2$s"
 msgstr "Fehlgeschlagen am %1$s — %2$s"
 
 #. translators: 1: timestamp, 2: run summary.
-#: includes/Admin/Settings.php:2249
+#: includes/Admin/Settings.php:2293
 #, php-format
 msgid "Succeeded at %1$s — %2$s"
 msgstr "Erfolgreich am %1$s — %2$s"
 
-#: includes/Admin/Settings.php:2352
+#: includes/Admin/Settings.php:2396
 msgid "The job could not be queued. It may already be running, or WooCommerce may be inactive."
 msgstr "Der Job konnte nicht eingereiht werden. Möglicherweise läuft er bereits oder WooCommerce ist nicht aktiv."
 
 #. translators: %s: job name.
-#: includes/Admin/Settings.php:2364
+#: includes/Admin/Settings.php:2408
 #, php-format
 msgid "%s queued. It runs on the next queue pass, within a minute or so."
 msgstr "%s eingereiht. Der Job läuft beim nächsten Warteschlangendurchlauf, also in etwa einer Minute."
@@ -835,18 +835,18 @@ msgstr "Version %s ist verfügbar. Sie kann auf der Plugin-Seite installiert wer
 msgid "The release could not be checked. GitHub or WordPress.org could not be reached; try again in a moment."
 msgstr "Die Veröffentlichung konnte nicht geprüft werden. GitHub oder WordPress.org war nicht erreichbar; bitte in einem Moment erneut versuchen."
 
-#: includes/Admin/Settings.php:2271
+#: includes/Admin/Settings.php:2315
 msgid "Working…"
 msgstr "Wird ausgeführt…"
 
 #. translators: 1: records handled so far, 2: records in total.
-#: includes/Admin/Settings.php:2278
+#: includes/Admin/Settings.php:2322
 #, php-format
 msgid "%1$s of %2$s"
 msgstr "%1$s von %2$s"
 
 #. translators: %s: number of products whose images are still queued.
-#: includes/Admin/Settings.php:2305
+#: includes/Admin/Settings.php:2349
 #, php-format
 msgid "Images for %s product still to download."
 msgid_plural "Images for %s products still to download."
@@ -1383,3 +1383,39 @@ msgstr "Hallo %s,"
 #: includes/Emails/WKSYNC_Customer_Tracking.php:32
 msgid "Sent to the customer when the delivery sync learns a tracking number their order did not have — but not when the same run completes the order, because WooCommerce's own completed-order email already carries the tracking details. Switch this on only after the delivery sync has run once: Kontor returns every order for the shop on every run, so the first pass records tracking numbers going back months and would mail all of them."
 msgstr "Wird an den Kunden gesendet, sobald die Liefersynchronisation eine Sendungsnummer erfährt, die seine Bestellung noch nicht hatte — jedoch nicht, wenn derselbe Durchlauf die Bestellung abschließt, weil die Abschluss-E-Mail von WooCommerce die Sendungsdaten bereits enthält. Schalten Sie dies erst ein, wenn die Liefersynchronisation einmal gelaufen ist: Kontor liefert bei jedem Durchlauf alle Bestellungen des Shops, der erste Durchlauf erfasst also Sendungsnummern von vor Monaten und würde zu allen eine E-Mail versenden."
+
+#: includes/Admin/HeldProducts.php:108
+msgid "Switched off in Kontor"
+msgstr "In Kontor deaktiviert"
+
+#: includes/Admin/HeldProducts.php:109
+msgid "No image in Kontor"
+msgstr "Kein Bild in Kontor"
+
+#: includes/Admin/HeldProducts.php:110
+msgid "No longer in Kontor’s catalogue"
+msgstr "Nicht mehr in Kontors Katalog"
+
+#: includes/Admin/HeldProducts.php:111
+msgid "No stock record in Kontor"
+msgstr "Kein Bestandssatz in Kontor"
+
+#: includes/Admin/HeldProducts.php:112
+msgid "Held back by an earlier stock sync"
+msgstr "Von einer früheren Bestandssynchronisation zurückgehalten"
+
+#. translators: %s: number of products.
+#: includes/Admin/Settings.php:2255
+#, php-format
+msgid "%s product is currently held back as a draft."
+msgid_plural "%s products are currently held back as drafts."
+msgstr[0] "%s Produkt wird derzeit als Entwurf zurückgehalten."
+msgstr[1] "%s Produkte werden derzeit als Entwürfe zurückgehalten."
+
+#: includes/Admin/Settings.php:2265
+msgid "Show them, with the reason for each."
+msgstr "Anzeigen, mit dem jeweiligen Grund."
+
+#: includes/Admin/HeldProducts.php:113
+msgid "Drafts the sync did not make"
+msgstr "Entwürfe, die nicht von der Synchronisation stammen"
