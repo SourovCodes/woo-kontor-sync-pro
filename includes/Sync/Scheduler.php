@@ -74,6 +74,18 @@ class Scheduler {
 	const ACTION_SYNC_PRODUCTS_FINALISE = 'woo_kontor_sync_products_finalise';
 
 	/**
+	 * Action: move products Kontor does not list to the trash.
+	 *
+	 * Chained after the finalising pass, and only when the shop has asked for it. Its
+	 * own hook rather than a branch inside the finalise action: that one drafts and
+	 * this one removes, and an action queued by a version that did the first must
+	 * never be answered by code that does the second.
+	 *
+	 * @var string
+	 */
+	const ACTION_SYNC_PRODUCTS_TRASH = 'woo_kontor_sync_products_trash';
+
+	/**
 	 * Entry point for a stock sync.
 	 */
 	const ACTION_SYNC_STOCK = 'woo_kontor_sync_stock';
@@ -219,6 +231,7 @@ class Scheduler {
 			self::ACTION_SYNC_PRODUCTS          => 'products',
 			self::ACTION_SYNC_PRODUCTS_PAGE     => 'products',
 			self::ACTION_SYNC_PRODUCTS_FINALISE => 'products',
+			self::ACTION_SYNC_PRODUCTS_TRASH    => 'products',
 			self::ACTION_SYNC_STOCK             => 'stock',
 			self::ACTION_SYNC_STOCK_CHUNK       => 'stock',
 			self::ACTION_LEGACY_STOCK_FINALISE  => 'stock',
@@ -244,6 +257,7 @@ class Scheduler {
 		add_action( self::ACTION_SYNC_PRODUCTS_PAGE, array( $this, 'handle_products_page' ), 10, 2 );
 		add_action( self::ACTION_SYNC_PRODUCT_IMAGES, array( $this, 'handle_product_images' ), 10, 3 );
 		add_action( self::ACTION_SYNC_PRODUCTS_FINALISE, array( $this, 'handle_products_finalise' ), 10, 1 );
+		add_action( self::ACTION_SYNC_PRODUCTS_TRASH, array( $this, 'handle_products_trash' ), 10, 1 );
 
 		add_action( self::ACTION_SYNC_STOCK, array( $this, 'handle_stock' ) );
 		add_action( self::ACTION_SYNC_STOCK_CHUNK, array( $this, 'handle_stock_chunk' ), 10, 2 );
@@ -478,6 +492,16 @@ class Scheduler {
 	 */
 	public function handle_products_finalise( $run = 0 ) {
 		( new ProductSync() )->finalise( absint( $run ) );
+	}
+
+	/**
+	 * Move products Kontor does not list to the trash.
+	 *
+	 * @param int $run Run identifier.
+	 * @return void
+	 */
+	public function handle_products_trash( $run = 0 ) {
+		( new ProductSync() )->trash_unmanaged( absint( $run ) );
 	}
 
 	/**

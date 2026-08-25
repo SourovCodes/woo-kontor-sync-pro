@@ -50,6 +50,25 @@ class ProductSync {
 	const META_SYNCED_AT = '_wksync_synced_at';
 
 	/**
+	 * Meta holding the run in which the catalogue named this product's article.
+	 *
+	 * Written only to a product the run declined to adopt — one held back for an
+	 * article this plugin never imported, one of several sharing an article number,
+	 * one whose save failed. Every other product answering to an article in the feed
+	 * carries META_SYNCED_AT instead, which says the same thing and more.
+	 *
+	 * It exists for trash_unmanaged(), which needs to tell "no product of ours" from
+	 * "not in Kontor at all" and cannot ask the feed, running as it does in a later
+	 * action with the rows long gone. Without it that pass would trash exactly the
+	 * products import_article() goes out of its way not to touch.
+	 *
+	 * Deliberately not META_SYNCED_AT: that key means "this plugin imported this
+	 * product" and writing it here would adopt a product the sync just decided was
+	 * none of its business, handing finalise() the right to draft it next run.
+	 */
+	const META_SEEN_AT = '_wksync_seen_at';
+
+	/**
 	 * Shop type whose price list Kontor returns as the purchase price.
 	 *
 	 * See price_field() for why this one is singled out.
@@ -434,6 +453,167 @@ class ProductSync {
 			return;
 		}
 
+		/*
+		 * The drafting is done, so the run either sweeps up what Kontor does not list
+		 * or it is finished. Handed to an action of its own rather than run here: it is
+		 * unbounded in exactly the way this pass is, and it is the one thing the plugin
+		 * does that takes a product out of the shop altogether.
+		 */
+		if ( $this->trashes_unmanaged() ) {
+			Scheduler::chain( Scheduler::ACTION_SYNC_PRODUCTS_TRASH, array( 'run' => $run ) );
+
+			return;
+		}
+
+		$this->complete();
+	}
+
+	/**
+	 * Whether this shop has asked for products Kontor does not list to be trashed.
+	 *
+	 * Read from the current settings rather than from anything the action carried, so
+	 * clearing the box stops the sweeping at the next pass rather than at the next run.
+	 *
+	 * @return bool True when the sweep is switched on.
+	 */
+	protected function trashes_unmanaged() {
+		return ! empty( $this->settings[ Settings::TRASH_UNMANAGED ] );
+	}
+
+	/**
+	 * Move one batch of the products Kontor does not list to the trash.
+	 *
+	 * Two things have to be true of a product before it is touched, and the second is
+	 * what makes this safe. It carries no META_SYNCED_AT, so this plugin never
+	 * imported it — the same test finalise() and StockSync::apply() make before
+	 * touching anything. And its article number was not in this run's catalogue, which
+	 * is what META_SEEN_AT records for the products import_article() deliberately
+	 * declines to adopt: one held back for an article we do not own, one of several
+	 * sharing an article number, one whose save failed. Asking only the first question
+	 * would sweep away precisely those.
+	 *
+	 * A product is trashed, never deleted, and its images are left in the media
+	 * library. Trashing is the whole of the safety here: a run that swept too widely —
+	 * a catalogue that came back short, a manufacturer filter narrowed by mistake — is
+	 * undone from Products → Trash, and an attachment deleted alongside could not be.
+	 *
+	 * Asked of the database directly, for StockSync::draft_batch()'s reason: the query
+	 * needs an OR ("no marker at all, or one from an earlier run") and WP_Meta_Query
+	 * drops meta_key from every ON clause the moment an OR appears, leaving joins that
+	 * match every meta row a product has. Both joins below name their key, so each
+	 * matches at most one row per product.
+	 *
+	 * Products already in the trash are excluded, and that is what makes the chain
+	 * terminate: trashing a product removes it from the next batch.
+	 *
+	 * @param int $run Run identifier.
+	 * @return void
+	 */
+	public function trash_unmanaged( $run ) {
+		if ( ! Status::is_current_run( self::JOB, $run ) ) {
+			$this->log( 'info', sprintf( 'Discarding trash pass: run %d has been superseded.', $run ) );
+
+			return;
+		}
+
+		/*
+		 * Read again rather than trusted from the action that queued this. The box can
+		 * be cleared while a run is walking the catalogue, and the answer that matters
+		 * is the one on the screen now.
+		 */
+		if ( ! $this->trashes_unmanaged() ) {
+			$this->complete();
+
+			return;
+		}
+
+		global $wpdb;
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Explained above; a cached answer would also mean trashing against a stale view of the run's markers.
+		$strays = $wpdb->get_col(
+			$wpdb->prepare(
+				"SELECT DISTINCT posts.ID
+				FROM {$wpdb->posts} AS posts
+				LEFT JOIN {$wpdb->postmeta} AS ours
+					ON ours.post_id = posts.ID AND ours.meta_key = %s
+				LEFT JOIN {$wpdb->postmeta} AS seen
+					ON seen.post_id = posts.ID AND seen.meta_key = %s
+				WHERE posts.post_type = 'product'
+					AND posts.post_status NOT IN ( 'trash', 'auto-draft' )
+					AND ours.post_id IS NULL
+					AND ( seen.post_id IS NULL OR CAST( seen.meta_value AS SIGNED ) < %d )
+				ORDER BY posts.ID
+				LIMIT %d",
+				self::META_SYNCED_AT,
+				self::META_SEEN_AT,
+				(int) $run,
+				self::FINALISE_BATCH
+			)
+		);
+
+		$strays  = array_map( 'intval', (array) $strays );
+		$trashed = array();
+
+		foreach ( $strays as $product_id ) {
+			$product = wc_get_product( $product_id );
+
+			if ( ! $product ) {
+				continue;
+			}
+
+			$sku = (string) $product->get_sku();
+
+			// False is WooCommerce's own way of saying "trash rather than delete". The
+			// images are attachments of their own and are not touched by it.
+			$product->delete( false );
+
+			$trashed[] = '' === $sku ? sprintf( '#%d', $product_id ) : sprintf( '#%d (%s)', $product_id, $sku );
+		}
+
+		if ( ! empty( $trashed ) ) {
+			/*
+			 * Named rather than counted. This is the only pass that removes a product,
+			 * and the log is the only record of which ones: the trash itself says when
+			 * they went but not why, and a shop manager finding four hundred products
+			 * there needs to be able to check that they were the ones intended.
+			 */
+			$this->log(
+				'info',
+				sprintf(
+					'Trashed %1$d products Kontor does not list: %2$s.',
+					count( $trashed ),
+					implode( ', ', $trashed )
+				)
+			);
+		}
+
+		Status::progress( self::JOB, array( 'trashed' => count( $trashed ) ) );
+
+		/*
+		 * A full batch means there may be more. Nothing trashed means the whole batch
+		 * was products wc_get_product() could not load, which the next pass would find
+		 * again — so stop rather than chain for ever.
+		 */
+		if ( count( $strays ) === self::FINALISE_BATCH && ! empty( $trashed ) ) {
+			Scheduler::chain( Scheduler::ACTION_SYNC_PRODUCTS_TRASH, array( 'run' => $run ) );
+
+			return;
+		}
+
+		$this->complete();
+	}
+
+	/**
+	 * Close the run and say what it did.
+	 *
+	 * Reached from the drafting pass or from the trash pass, whichever ends the chain,
+	 * so there is one wording rather than two that could drift apart. It takes no run
+	 * identifier: everything it reports was accumulated by Status::progress() as the
+	 * run went, and whichever pass gets here has already checked the run is current.
+	 *
+	 * @return void
+	 */
+	protected function complete() {
 		$counts = Status::get( self::JOB )['counts'];
 
 		$message = sprintf(
@@ -474,6 +654,21 @@ class ProductSync {
 				/* translators: %d: number of articles Kontor has switched off for the webshop. */
 				__( 'Held %d back as drafts, switched off for the webshop in Kontor.', 'woo-kontor-sync-pro' ),
 				$inactive
+			);
+		}
+
+		$trashed = isset( $counts['trashed'] ) ? (int) $counts['trashed'] : 0;
+
+		/*
+		 * Only when the sweep actually removed something, so a shop that leaves the
+		 * setting alone reads the sentence it read before the setting existed — and one
+		 * that has turned it on stops being told about it once the shop is clean.
+		 */
+		if ( $trashed > 0 ) {
+			$message .= ' ' . sprintf(
+				/* translators: %d: number of products moved to the trash for not being in Kontor's catalogue. */
+				__( 'Moved %d to the trash that Kontor does not list.', 'woo-kontor-sync-pro' ),
+				$trashed
 			);
 		}
 
@@ -546,6 +741,7 @@ class ProductSync {
 			);
 
 			$this->keep_alive( $matches, $run );
+			$this->mark_seen( $matches, $run );
 
 			return 'duplicate_sku';
 		}
@@ -570,6 +766,14 @@ class ProductSync {
 		 * drafting it on the run after this one.
 		 */
 		if ( '' !== $withheld && $existing && '' === (string) $existing->get_meta( self::META_SYNCED_AT ) ) {
+			/*
+			 * Left alone, but not left looking like a product Kontor has never heard
+			 * of: the article is in the catalogue, and trash_unmanaged() decides by
+			 * that and nothing else. Without the marker the one pass that removes
+			 * products would remove precisely the ones this branch protects.
+			 */
+			$this->mark_seen( array( $existing->get_id() ), $run );
+
 			return $withheld;
 		}
 
@@ -633,6 +837,12 @@ class ProductSync {
 
 		if ( ! $saved_id ) {
 			$this->log( 'error', sprintf( 'Could not save product for article %s.', $sku ) );
+
+			// A save that failed left no stamp behind, so an existing product would read
+			// as one Kontor never listed. The article was in the feed either way.
+			if ( $existing ) {
+				$this->mark_seen( array( $existing->get_id() ), $run );
+			}
 
 			return 'failed';
 		}
@@ -716,6 +926,31 @@ class ProductSync {
 			}
 
 			update_post_meta( $product_id, self::META_SYNCED_AT, $run );
+		}
+	}
+
+	/**
+	 * Record that this run's catalogue named these products' article number.
+	 *
+	 * Only for products the run did not adopt. Everything else already carries
+	 * META_SYNCED_AT, which answers the same question and is what tells finalise()
+	 * a product is ours; this key deliberately says less than that.
+	 *
+	 * Written whatever the trash setting says, unlike the stock sync's run stamp,
+	 * which is skipped when its own pass is off. The two differ in what they cost and
+	 * in what going without costs. That stamp is one write per article across a feed
+	 * of three thousand, every fifteen minutes; this one reaches only the handful of
+	 * products a run declines to adopt. And the gap it would leave is destructive
+	 * rather than recoverable: a setting turned on between the walk and the pass would
+	 * find no markers at all and trash every product the walk had protected.
+	 *
+	 * @param int[] $product_ids Products whose article was in the feed.
+	 * @param int   $run         Run identifier.
+	 * @return void
+	 */
+	protected function mark_seen( array $product_ids, $run ) {
+		foreach ( $product_ids as $product_id ) {
+			update_post_meta( (int) $product_id, self::META_SEEN_AT, (int) $run );
 		}
 	}
 

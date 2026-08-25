@@ -855,6 +855,53 @@ last page — the walk is unbounded, which is the one thing that would put a chu
 host's execution limit. The stock sync used to do the same for its own feed and no longer does; see
 the `stock` entity above for why, and for the marker left behind to undo it.
 
+**One job removes products, and only where a shop has asked for it.**
+`Settings::TRASH_UNMANAGED` (`trash_unmanaged`, off by default) chains
+`Scheduler::ACTION_SYNC_PRODUCTS_TRASH` after the finalising pass, and
+`ProductSync::trash_unmanaged()` moves every product this plugin does not manage to the trash. It
+is for the shop whose catalogue is Kontor's and nothing else; every other shop leaves it alone and
+reads the same summary sentence it always read.
+
+- **Two conditions, and the second is what makes it safe.** The product carries no
+  `META_SYNCED_AT`, so this plugin never imported it — the same test `finalise()` and
+  `StockSync::apply()` make. *And* its article number was not in this run's catalogue. Asking only
+  the first question would sweep away precisely the products `import_article()` goes out of its way
+  to protect.
+- **`ProductSync::META_SEEN_AT` (`_wksync_seen_at`) is what answers the second**, because the pass
+  runs in a later action with the feed long gone. It is written to the products a run declines to
+  adopt and nothing else: one held back for an article we do not own (the `withheld` early return),
+  one of several sharing an article number, one whose save failed. Every other product in the feed
+  carries `META_SYNCED_AT`, which says the same thing and more.
+  - **Deliberately not `META_SYNCED_AT`.** That key means "this plugin imported this product", and
+    writing it here would adopt a product the sync had just decided was none of its business,
+    handing `finalise()` the right to draft it on the next run.
+  - **Written whatever the setting says**, unlike `StockSync`'s run stamp, which is skipped while its
+    own pass is off. The two differ in cost and in what going without costs: that stamp is one write
+    per article across a feed of three thousand every fifteen minutes, this one reaches only the
+    handful a run declines to adopt — and the gap it would leave is destructive rather than
+    recoverable, because a setting turned on between the walk and the pass would find no markers and
+    trash every product the walk had protected.
+  - **A marker from an earlier run does not protect a product.** The comparison is `< $run`, so an
+    article withheld last month and dropped from the catalogue since is swept like anything else.
+- **Trashed, never deleted, and the images are kept.** Trashing is the whole of the safety: a run
+  that swept too widely — a catalogue that came back short, a manufacturer filter narrowed by
+  mistake — is undone from Products → Trash, and an attachment deleted alongside could not be. It is
+  also what makes the chain terminate, since `post_status NOT IN ( 'trash', 'auto-draft' )` takes a
+  swept product out of the next batch.
+- **Every status is swept** — published, private and draft alike — and so is a product with no SKU
+  at all, which cannot be in the catalogue by definition.
+- **Hand-written SQL, for `StockSync::draft_batch()`'s reason.** The query needs an OR ("no marker
+  at all, or one from an earlier run") and `WP_Meta_Query` drops `meta_key` from every `ON` clause
+  the moment an OR appears. Both joins here name their key, so each matches at most one row per
+  product.
+- **The setting is read at the pass, not at the queue.** Clearing the box stops the sweeping at the
+  next pass rather than the next run, and `trash_unmanaged()` then closes the run rather than
+  leaving it hanging. Clearing it does **not** empty the trash and does not restore anything; that
+  is Products → Trash's job, and the settings screen says so.
+- **`ProductSync::complete()` exists because two passes can now end the chain.** The drafting pass
+  hands off to the trash pass when the setting is on and closes the run itself when it is not, so
+  the summary wording lives in one place rather than two that could drift.
+
 **No job runs until its preconditions hold** — `Preflight::check()`, called at the top of every
 `start()`. Four gates, cheapest first: the API base URL and key are set; the shop exchanges orders
 with Kontor at all; every job that talks to Kontor about orders — the push, the delivery import and
