@@ -490,6 +490,34 @@ of them wrong produces silently wrong data rather than an error:
   `ProductSync::META_IMAGE_SOURCE`. The same photograph is shared across articles often enough that
   downloading per product would multiply the media library. That meta doubles as the marker for
   "this plugin downloaded this file".
+  - **The lookup is hand-written SQL, and the reason is measurement.** Through `get_posts()` it took
+    **26.4ms** against the development site's library and **0.44ms** written out — sixty times, all
+    of it `WP_Query`'s own setup rather than the database, which answers from the `meta_key` index
+    either way. One URL is resolved per image, so on that catalogue's 10665 images the wrapper alone
+    accounted for some four and a half minutes of a job otherwise bound by how fast somebody else's
+    image host replies. Cross-checked against the old query on 50 real URLs: identical answers.
+- **Every image is given alt text, because Kontor's carry none.** `media_handle_sideload()` writes
+  `_wp_attachment_image_alt` only when the file itself supplies one, and measured across the 10522
+  images downloaded on the development site **not one did** — so before this every product image in
+  the shop reached a customer with an empty alt attribute, and every search engine with nothing to
+  read. `ProductSync::describe()` writes the product's name, and `attach()` passes it as the
+  attachment title too, in place of a filename like `abel-AB12_001`.
+  - **`ProductSync::META_ALT` is core's key, deliberately unprefixed.** The alt attribute is read by
+    themes, blocks, the media library and every SEO plugin there is; a key of this plugin's own
+    would be invisible to all of them.
+  - **Never overwritten.** An alt already there was either written for the article that first
+    fetched a shared photograph or typed by a person, and both know more about the picture than this
+    does. That is also what makes it safe on the reuse path, where `resolve_images()` describes an
+    attachment it did not download.
+  - **A gallery of five photographs gets the same sentence five times**, and numbering them was
+    considered and rejected: images are deduplicated on their source URL, so the file that is second
+    here is first somewhere else and a number would be wrong on one of the two. Nothing in the feed
+    distinguishes one photograph of an article from another. A repeated description is a far smaller
+    failure than none.
+  - **Not `sanitize_text_field()`**, which eats percent-encoded octets — a product called
+    "Rabatt 20%ab Lager" would lose three characters out of its description.
+  - Images already in the library keep their empty alt until their product's image set changes,
+    since nothing re-examines an article whose hash still matches.
   - An image the product no longer uses is deleted only when it carries that marker **and** no
     product references it at all. Deduplication means one file can be the featured image of one
     article and a gallery entry of another, so "this product dropped it" is not "nobody wants it".
