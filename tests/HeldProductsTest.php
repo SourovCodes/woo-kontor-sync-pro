@@ -247,6 +247,57 @@ class HeldProductsTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Asking for all of them joins the meta table once, not once per reason.
+	 *
+	 * This is a test about the SQL rather than about the answer, and it has to be:
+	 * the OR group it replaces returned exactly the right products, which is why
+	 * test_every_reason_at_once_lists_them_all passed throughout. On the four products
+	 * a test builds, five INNER JOINs multiply out to nothing anybody notices. On the
+	 * development site's 4386 articles the same query had to be killed — every
+	 * combination of five meta rows on a product, before the WHERE looks at any of
+	 * them. Nothing about the rows that come back can tell the two apart, so the join
+	 * count is what gets pinned.
+	 *
+	 * @return void
+	 */
+	public function test_every_reason_at_once_joins_the_meta_table_once() {
+		$this->held( ProductSync::META_INACTIVE_DRAFTED, 'in-1' );
+		$this->published( 'ok-1' );
+
+		$this->request( HeldProducts::ANY );
+
+		$sql   = '';
+		$grab  = static function ( $request ) use ( &$sql ) {
+			$sql = $request;
+
+			return $request;
+		};
+		$panel = new HeldProducts();
+
+		add_action( 'pre_get_posts', array( $panel, 'filter_query' ) );
+		add_filter( 'posts_request', $grab, 999 );
+
+		$this->main_query()->query(
+			array(
+				'post_type'      => 'product',
+				'post_status'    => array( 'publish', 'draft' ),
+				'posts_per_page' => -1,
+				'fields'         => 'ids',
+			)
+		);
+
+		remove_filter( 'posts_request', $grab, 999 );
+		remove_action( 'pre_get_posts', array( $panel, 'filter_query' ) );
+
+		$this->assertSame(
+			1,
+			substr_count( $sql, 'JOIN ' . $GLOBALS['wpdb']->postmeta ),
+			'Every reason at once must cost one join, whatever the number of reasons.'
+		);
+		$this->assertStringContainsString( 'meta_key IN (', $sql );
+	}
+
+	/**
 	 * A slug that is not a reason filters nothing rather than emptying the list.
 	 *
 	 * @return void
