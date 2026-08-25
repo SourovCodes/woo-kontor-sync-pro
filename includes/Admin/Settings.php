@@ -99,6 +99,17 @@ class Settings {
 	const DRAFT_MISSING_STOCK = 'draft_missing_stock';
 
 	/**
+	 * Setting key: move products this plugin does not manage to the trash.
+	 *
+	 * Off by default, and the only setting here that removes a product rather than
+	 * changing what it says. A shop whose catalogue is Kontor's and nothing else can
+	 * turn it on to have the strays swept up; every other shop leaves it alone.
+	 *
+	 * @var string
+	 */
+	const TRASH_UNMANAGED = 'trash_unmanaged';
+
+	/**
 	 * Setting deciding whether the product page shows the recommended retail price.
 	 *
 	 * Off by default, like every other setting here that changes what the shop does.
@@ -217,6 +228,7 @@ class Settings {
 			'require_main_image'      => false,
 			self::ENFORCE_QUANTITIES  => false,
 			self::DRAFT_MISSING_STOCK => false,
+			self::TRASH_UNMANAGED     => false,
 			self::SHOW_MSRP           => false,
 			self::MSRP_LABEL          => '',
 			self::SHOW_EAN            => false,
@@ -539,6 +551,7 @@ class Settings {
 			'require_main_image'      => $this->pick_toggle( $input, 'require_main_image', $existing ),
 			self::ENFORCE_QUANTITIES  => $this->pick_toggle( $input, self::ENFORCE_QUANTITIES, $existing ),
 			self::DRAFT_MISSING_STOCK => $this->pick_toggle( $input, self::DRAFT_MISSING_STOCK, $existing ),
+			self::TRASH_UNMANAGED     => $this->pick_toggle( $input, self::TRASH_UNMANAGED, $existing ),
 			self::SHOW_MSRP           => $this->pick_toggle( $input, self::SHOW_MSRP, $existing ),
 			self::MSRP_LABEL          => $this->pick_label( $input, self::MSRP_LABEL, $existing ),
 			self::SHOW_EAN            => $this->pick_toggle( $input, self::SHOW_EAN, $existing ),
@@ -1591,6 +1604,47 @@ class Settings {
 							</p>
 							<p class="description">
 								<?php echo esc_html__( 'Clearing it again republishes what it drafted, on the next stock sync — unless the product sync is holding the product back for its own reason.', 'woo-kontor-sync-pro' ); ?>
+							</p>
+						</td>
+					</tr>
+					<tr>
+						<th scope="row"><?php echo esc_html__( 'Products Kontor does not list', 'woo-kontor-sync-pro' ); ?></th>
+						<td>
+							<?php
+							/*
+							 * Paired with a hidden zero for the same reason as the boxes above: a
+							 * browser sends nothing for a cleared checkbox, and an absent field
+							 * has to keep the stored value. It matters more here than anywhere
+							 * else on this screen, because the value being restored is the one
+							 * that takes products out of the shop.
+							 */
+							?>
+							<input type="hidden" name="<?php echo esc_attr( self::OPTION_KEY ); ?>[<?php echo esc_attr( self::TRASH_UNMANAGED ); ?>]" value="0" />
+							<label for="wksync-trash-unmanaged">
+								<input
+									type="checkbox"
+									id="wksync-trash-unmanaged"
+									name="<?php echo esc_attr( self::OPTION_KEY ); ?>[<?php echo esc_attr( self::TRASH_UNMANAGED ); ?>]"
+									value="1"
+									<?php checked( ! empty( $settings[ self::TRASH_UNMANAGED ] ) ); ?>
+								/>
+								<?php echo esc_html__( 'Move products this plugin did not import to the trash', 'woo-kontor-sync-pro' ); ?>
+							</label>
+							<p class="description">
+								<?php echo esc_html__( 'Leave it clear and a product this plugin never imported is left alone for ever, whoever made it and whatever its article number. Tick it only where the shop sells Kontor\'s catalogue and nothing besides.', 'woo-kontor-sync-pro' ); ?>
+							</p>
+							<p class="description">
+								<strong><?php echo esc_html__( 'This removes products from the shop.', 'woo-kontor-sync-pro' ); ?></strong>
+								<?php echo esc_html__( 'At the end of each product sync, every product with no article number of Kontor\'s — and every product whose article number the catalogue did not carry in that run — is moved to the trash, whether it is published, private or a draft. Products made by another plugin, by an importer or by hand all count.', 'woo-kontor-sync-pro' ); ?>
+							</p>
+							<p class="description">
+								<?php echo esc_html__( 'They go to the trash rather than being deleted, so Products → Trash is the way back and nothing is lost until the trash is emptied. Their images are kept in the media library either way, because a restored product needs them.', 'woo-kontor-sync-pro' ); ?>
+							</p>
+							<p class="description">
+								<?php echo esc_html__( 'Clearing this setting again stops the sweeping, but it does not empty the trash and it does not restore anything already trashed. Restoring is done in Products → Trash.', 'woo-kontor-sync-pro' ); ?>
+							</p>
+							<p class="description">
+								<?php echo esc_html__( 'A product whose article Kontor lists but is holding back — switched off for the webshop, or without an image — is never trashed by this. It was in the catalogue, which is the whole question being asked.', 'woo-kontor-sync-pro' ); ?>
 							</p>
 						</td>
 					</tr>
