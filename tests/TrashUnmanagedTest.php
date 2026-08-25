@@ -204,7 +204,7 @@ class TrashUnmanagedTest extends WP_UnitTestCase {
 			$run
 		);
 
-		$this->assertSame( 'inactive', $outcome );
+		$this->assertSame( 'unmanaged', $outcome );
 
 		$this->sweeping_sync()->trash_unmanaged( $run );
 

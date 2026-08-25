@@ -352,7 +352,9 @@ class ProductActiveFlagTest extends WP_UnitTestCase {
 		$product->set_status( 'publish' );
 		$id = $product->save();
 
-		$this->assertSame( 'inactive', $this->sync()->import_article( $this->article( array( 'Ws_aktiv' => false ) ), 1000 ) );
+		// Not "inactive": nothing was drafted, so the outcome must not be counted as if
+		// it had been. The product is the shop's own and stays exactly as it was.
+		$this->assertSame( 'unmanaged', $this->sync()->import_article( $this->article( array( 'Ws_aktiv' => false ) ), 1000 ) );
 
 		$untouched = wc_get_product( $id );
 

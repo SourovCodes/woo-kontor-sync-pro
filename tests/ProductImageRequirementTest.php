@@ -206,7 +206,9 @@ class ProductImageRequirementTest extends WP_UnitTestCase {
 		$product->set_status( 'publish' );
 		$id = $product->save();
 
-		$this->assertSame( 'no_image', $this->sync()->import_article( $this->article(), 1000 ) );
+		// Not "no_image": that outcome means a product was drafted, and this one is the
+		// shop manager's own, left published exactly as it was.
+		$this->assertSame( 'unmanaged', $this->sync()->import_article( $this->article(), 1000 ) );
 
 		$untouched = wc_get_product( $id );
 
