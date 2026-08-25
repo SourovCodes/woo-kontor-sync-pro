@@ -48,9 +48,18 @@ class OrderPanel {
 	/**
 	 * Register the meta box.
 	 *
+	 * Nothing on a shop that does not exchange orders with Kontor. Every group here
+	 * renders even when it is empty, on purpose — "nothing has come back yet" and
+	 * "this plugin has nothing to say" are different statements — so without this the
+	 * order screen would carry an empty Kontor box for ever.
+	 *
 	 * @return void
 	 */
 	public function register() {
+		if ( ! Settings::orders_enabled() ) {
+			return;
+		}
+
 		add_action( 'add_meta_boxes', array( $this, 'add_box' ) );
 	}
 

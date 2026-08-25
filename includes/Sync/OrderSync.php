@@ -161,10 +161,29 @@ class OrderSync {
 	 * Called from an order status hook, which runs inside a request a customer may
 	 * be waiting on, so this only ever enqueues an action.
 	 *
+	 * Two settings can decide there is nothing to queue, and they are read here rather
+	 * than around the add_action() that leads here: gating the hook would mean reading
+	 * the settings option on every request the site serves in order to decide about
+	 * the few that are checkouts. This costs nothing until an order is paid, and it
+	 * keeps the decision beside pushable_statuses(), which is the other half of the
+	 * same rule.
+	 *
+	 * Nothing is lost by holding an order back. META_PUSHED_AT is only written by a
+	 * push that happened, so pending_orders() picks the order up on the next sweep
+	 * exactly as it picks up one Kontor rejected.
+	 *
 	 * @param int $order_id Order that changed status.
 	 * @return void
 	 */
 	public function enqueue( $order_id ) {
+		if ( ! Settings::orders_enabled( $this->settings ) ) {
+			return;
+		}
+
+		if ( Settings::PUSH_SWEEP === Settings::push_mode( $this->settings ) ) {
+			return;
+		}
+
 		$order = wc_get_order( $order_id );
 
 		if ( ! $order || ! in_array( $order->get_status(), self::pushable_statuses(), true ) ) {

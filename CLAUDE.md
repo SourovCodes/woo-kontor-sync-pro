@@ -601,6 +601,21 @@ of them wrong produces silently wrong data rather than an error:
   from a cached copy that could go stale silently. Product and stock sync do not use the shop at
   all; it identifies the store when **orders are pushed and delivery information is pulled back**,
   so both of those need it set before they can run.
+  - **A shop that only imports the catalogue never has to choose one**, and as of 0.22.0 is never
+    asked to. `Settings::SYNC_ORDERS` (`sync_orders`) is a master switch over the whole order side:
+    off, the push, the delivery import and the invoice import are refused by `Preflight`, their
+    recurring actions are cancelled, no order is queued at checkout, `Admin\OrderPanel` and the
+    force-push section do not render, and the shop picker is not on the screen at all. It is the
+    one setting here that **defaults to on**, because off is the value that takes a capability
+    away — an update must leave a shop doing what it did yesterday.
+  - **Absent reads as on**, in `Settings::orders_enabled()`, not as off. `get_settings()` fills the
+    key in from the defaults, so this only arises for a settings array handed in from elsewhere —
+    and the two ways of being wrong are not equal, exactly as with `Ws_aktiv`. Reading "on" as
+    "off" silently stops a working shop sending orders and nobody notices until the warehouse asks;
+    the reverse queues an upload the next gate refuses and logs.
+  - **The intervals are ignored, never cleared.** `Scheduler::sync_schedules()` reads an order-side
+    job as `INTERVAL_NEVER` while the switch is off, so turning it back on restores all three
+    schedules as they were rather than asking for them again.
 - **`/upsert` is the only write endpoint**, selected by `name: orders` rather than `entity`, and it
   needs `meta.userId` plus `params.shopid`. **Its top-level `success` stays `true` even when every
   order in the batch was rejected** — the per-row `status` (`ok` / `fehler`) is the only real signal.
@@ -802,9 +817,13 @@ host's execution limit. The stock sync used to do the same for its own feed and 
 the `stock` entity above for why, and for the marker left behind to undo it.
 
 **No job runs until its preconditions hold** — `Preflight::check()`, called at the top of every
-`start()`. Three gates, cheapest first: the API base URL and key are set; every job that talks to
-Kontor about orders — the push, the delivery import and the invoice import — additionally has a shop
-selected; and the credentials actually authenticate. This is not defensive padding. An
+`start()`. Four gates, cheapest first: the API base URL and key are set; the shop exchanges orders
+with Kontor at all; every job that talks to Kontor about orders — the push, the delivery import and
+the invoice import — additionally has a shop selected; and the credentials actually authenticate.
+The middle two apply to the same three jobs, which is why one list (`Preflight::$order_jobs`)
+answers both, and the orders gate is asked first: "this shop does not do orders" is the truer answer
+for a shop that deliberately has no shop ID, and naming the shop field would send whoever read the
+refusal looking for something that is not on their screen. This is not defensive padding. An
 unauthenticated product sync reads as "Kontor lists no articles", and `finalise()` would then draft
 the entire catalogue. Only *success* is cached (`Preflight::CONNECTION_TTL`, 15 minutes), so a
 frequent job does not re-test every run while a fixed key still takes effect immediately. Saving the
@@ -886,6 +905,19 @@ calling it queues real work: it is not a way to test whether a job would be allo
   `init` rather than after it.
 - **Never sync inside a request that a customer is waiting on.** Checkout and order-status hooks
   enqueue an action; they do not call Kontor.
+- **When a paid order is sent is a setting**, `Settings::ORDER_PUSH_MODE` (`order_push_mode`),
+  defaulting to `PUSH_IMMEDIATE` — the status hook queues the upload the moment the order is paid,
+  which is what the plugin has always done. `PUSH_SWEEP` leaves every order to the scheduled sweep
+  instead. Nothing is lost either way: `META_PUSHED_AT` is only written by a push that happened, so
+  an order held back is pending exactly as one Kontor rejected is.
+  - **Read inside `OrderSync::enqueue()`, not around the `add_action()` in `Scheduler::register()`.**
+    Gating the hook would mean reading the settings option on every request the site serves in order
+    to decide about the few that are checkouts. Read here it costs nothing until an order is paid,
+    and it sits beside `pushable_statuses()`, which is the other half of the same rule.
+  - **Sweep-only with the sweep set to Never is allowed**, and the settings screen says what it
+    means: nothing sends orders on its own, and Run now is the only path left. Never is a legitimate
+    choice on every schedule here, and a save that silently did something other than what was
+    submitted would be the worse answer.
 - **HTTP via `wp_remote_request()`** with an explicit `timeout` (`Client::REQUEST_TIMEOUT`, 30s), a
   descriptive `user-agent`, and `WP_Error` handled on every call.
 - **Retry with exponential backoff** and a bounded attempt count. Retry 429, 502, 503, 504 and

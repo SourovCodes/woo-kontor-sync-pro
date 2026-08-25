@@ -310,14 +310,24 @@ class Scheduler {
 	/**
 	 * Queue, or cancel, each job's recurring action to match its setting.
 	 *
+	 * A shop that does not exchange orders with Kontor reads as Never for the three
+	 * order-side jobs, whatever their intervals say. Their stored intervals are left
+	 * alone rather than cleared, so switching orders back on restores each schedule
+	 * instead of asking for it again.
+	 *
 	 * @return void
 	 */
 	public function sync_schedules() {
 		$settings = Settings::get_settings();
+		$orders   = Settings::orders_enabled( $settings );
 
 		foreach ( self::get_jobs() as $job ) {
 			$interval = absint( $settings[ $job['setting'] ] );
 			$next     = as_next_scheduled_action( $job['action'], array(), self::GROUP );
+
+			if ( ! empty( $job['needs_shop'] ) && ! $orders ) {
+				$interval = Settings::INTERVAL_NEVER;
+			}
 
 			// "Never" means no recurring action at all; the job stays manual.
 			if ( Settings::INTERVAL_NEVER === $interval ) {
@@ -394,6 +404,12 @@ class Scheduler {
 		}
 
 		if ( ! empty( $jobs[ $job ]['needs_shop'] ) ) {
+			$enabled = Preflight::orders_enabled( $settings );
+
+			if ( is_wp_error( $enabled ) ) {
+				return $enabled;
+			}
+
 			$shop = Preflight::shop( $settings );
 
 			if ( is_wp_error( $shop ) ) {
