@@ -114,13 +114,16 @@ class ProductSync {
 	/**
 	 * Fields this sync consumes on every shop type.
 	 *
-	 * The change hash is built from these, so churn in fields we deliberately ignore
-	 * — Categories, and Ek on the shop types that do not price from it — cannot
-	 * trigger a pointless rewrite of every product. The Categories GUIDs cannot be
-	 * resolved at all, because Kontor's categories entity returns no rows.
+	 * The change hash is built from these, so churn in fields we deliberately ignore —
+	 * Ek on the shop types that do not price from it — cannot trigger a pointless
+	 * rewrite of every product.
 	 *
 	 * mapped_fields() adds Ek for a wholesale shop, which is the one case where the
-	 * purchase price is the price the shop charges and so has to be watched.
+	 * purchase price is the price the shop charges and so has to be watched, and
+	 * Categories on a shop that imports them, where it is the filing this sync writes.
+	 * Categories is absent here rather than present because a shop that does not import
+	 * them must not have its whole catalogue rewritten every time somebody reorganises
+	 * a tree it takes no notice of.
 	 *
 	 * Herstellerid is in the list because brands are matched on it. A manufacturer
 	 * moved to a different ID has to reach Brands::resolve() to be followed, and an
@@ -220,6 +223,17 @@ class ProductSync {
 	const META_INACTIVE_DRAFTED = '_wksync_drafted_inactive';
 
 	/**
+	 * Marks a product this sync drafted for belonging to no category.
+	 *
+	 * Its own marker, for the reason all of these have their own: it means "Kontor
+	 * lists this article and files it under nothing", which clears the moment a
+	 * category is put on it in the ERP and at no other moment. Sharing a marker with
+	 * the image reason would let a photograph arriving republish an article that is
+	 * still filed nowhere.
+	 */
+	const META_NO_CATEGORY_DRAFTED = '_wksync_drafted_no_category';
+
+	/**
 	 * Marks a product the stock sync drafted, before it stopped drafting anything.
 	 *
 	 * The stock feed is narrower than the catalogue, so that pass took a fifth of the
@@ -279,6 +293,13 @@ class ProductSync {
 	private $client;
 
 	/**
+	 * The shop's Kontor category tree, when this shop imports one.
+	 *
+	 * @var Categories|null
+	 */
+	private $categories = null;
+
+	/**
 	 * Constructor.
 	 *
 	 * @param Client|null $client   Optional client override, mainly for tests.
@@ -287,6 +308,27 @@ class ProductSync {
 	public function __construct( $client = null, $settings = null ) {
 		$this->settings = null === $settings ? Settings::get_settings() : $settings;
 		$this->client   = null === $client ? new Client( $this->settings ) : $client;
+	}
+
+	/**
+	 * The category tree, or null when this shop does not import one.
+	 *
+	 * Built lazily and kept, so a page of two hundred articles pays for one request and
+	 * one reconciliation. The object memoises the tree itself; this only decides whether
+	 * there is to be one at all.
+	 *
+	 * @return Categories|null
+	 */
+	protected function categories() {
+		if ( ! Settings::categories_enabled( $this->settings ) ) {
+			return null;
+		}
+
+		if ( null === $this->categories ) {
+			$this->categories = new Categories( $this->client, $this->settings );
+		}
+
+		return $this->categories;
 	}
 
 	/**
@@ -341,6 +383,29 @@ class ProductSync {
 			return;
 		}
 
+		$categories = $this->categories();
+
+		/*
+		 * Read before the catalogue rather than after it, and a failure stops the run
+		 * rather than being logged and stepped over. An unreadable tree reads as "no
+		 * article has a category", which with the requirement switched on would draft the
+		 * entire shop — the same failure Preflight exists to keep the walk out of. The
+		 * tree is memoised, so the pages after this one pay nothing.
+		 */
+		if ( $categories ) {
+			$tree = $categories->map();
+
+			if ( is_wp_error( $tree ) ) {
+				Status::fail( self::JOB, $tree->get_error_message() );
+				$this->log(
+					'error',
+					sprintf( 'Product sync aborted at offset %1$d: the category tree could not be read: %2$s', $skip, $tree->get_error_message() )
+				);
+
+				return;
+			}
+		}
+
 		$response = $this->client->fetch_products( $skip, Client::PRODUCT_PAGE_SIZE, $this->request_shoptype(), $this->manufacturers() );
 
 		if ( is_wp_error( $response ) ) {
@@ -366,6 +431,7 @@ class ProductSync {
 			'skipped'       => 0,
 			'no_sku'        => 0,
 			'no_image'      => 0,
+			'no_category'   => 0,
 			'inactive'      => 0,
 			'duplicate_sku' => 0,
 			'unmanaged'     => 0,
@@ -671,6 +737,22 @@ class ProductSync {
 			);
 		}
 
+		$no_category = isset( $counts['no_category'] ) ? (int) $counts['no_category'] : 0;
+
+		/*
+		 * Only when the shop asked for it, like the image line above, and worth saying
+		 * for the same reason plus one: on the account this was measured against, nearly
+		 * half the catalogue belongs to no category at all, so this is the line that
+		 * explains where two thousand products went.
+		 */
+		if ( $no_category > 0 ) {
+			$message .= ' ' . sprintf(
+				/* translators: %d: number of articles Kontor files under no category. */
+				__( 'Held %d back as drafts for belonging to no category.', 'woo-kontor-sync-pro' ),
+				$no_category
+			);
+		}
+
 		$inactive = isset( $counts['inactive'] ) ? (int) $counts['inactive'] : 0;
 
 		/*
@@ -915,6 +997,12 @@ class ProductSync {
 
 		Brands::assign( $saved_id, $this->text( $row, 'Hersteller', '' ), $this->text( $row, 'Herstellerid', '' ) );
 
+		$categories = $this->categories();
+
+		if ( $categories ) {
+			$categories->assign( $saved_id, $this->text( $row, 'Categories', '' ) );
+		}
+
 		/*
 		 * A withheld product is pictured like any other. It is in the shop, a shop
 		 * manager opening it should see the article rather than a placeholder, and one
@@ -1113,8 +1201,13 @@ class ProductSync {
 	 * looks like in the shop, and it never asks whether the images can be *fetched* —
 	 * see image_withheld() for both.
 	 *
+	 * The shop's own two settings are asked in the order they were added, which is also
+	 * the order that leaves every existing shop reading exactly what it read before: an
+	 * article with neither a picture nor a category is reported as having no picture,
+	 * as it always was.
+	 *
 	 * @param array $row Article row from the API.
-	 * @return string "inactive", "no_image", or an empty string when nothing is.
+	 * @return string "inactive", "no_image", "no_category", or an empty string when nothing is.
 	 */
 	protected function withheld_reason( array $row ) {
 		if ( $this->is_inactive( $row ) ) {
@@ -1125,7 +1218,40 @@ class ProductSync {
 			return 'no_image';
 		}
 
+		if ( $this->category_withheld( $row ) ) {
+			return 'no_category';
+		}
+
 		return '';
+	}
+
+	/**
+	 * Whether the shop's category requirement holds this article back.
+	 *
+	 * Answered against the shop's tree, never against the product's own terms, for the
+	 * reason image_withheld() reads the row: the terms are written after the product is
+	 * saved, so a product written moments ago legitimately has none yet.
+	 *
+	 * Without a readable tree there is no verdict to give, and the article is let
+	 * through. That branch should be unreachable — import_page() stops the run on a tree
+	 * it could not read — but the two ways of being wrong here are not equal, and the
+	 * one that guesses "no category" takes the whole shop dark.
+	 *
+	 * @param array $row Article row from the API.
+	 * @return bool True when the article belongs to no category this shop carries.
+	 */
+	protected function category_withheld( array $row ) {
+		if ( ! Settings::category_required( $this->settings ) ) {
+			return false;
+		}
+
+		$categories = $this->categories();
+
+		if ( ! $categories || is_wp_error( $categories->map() ) ) {
+			return false;
+		}
+
+		return ! $categories->has_category( $this->text( $row, 'Categories', '' ) );
 	}
 
 	/**
@@ -1135,7 +1261,13 @@ class ProductSync {
 	 * @return string Meta key.
 	 */
 	protected function marker_for( $withheld ) {
-		return 'inactive' === $withheld ? self::META_INACTIVE_DRAFTED : self::META_NO_IMAGE_DRAFTED;
+		$markers = array(
+			'inactive'    => self::META_INACTIVE_DRAFTED,
+			'no_image'    => self::META_NO_IMAGE_DRAFTED,
+			'no_category' => self::META_NO_CATEGORY_DRAFTED,
+		);
+
+		return isset( $markers[ $withheld ] ) ? $markers[ $withheld ] : self::META_NO_IMAGE_DRAFTED;
 	}
 
 	/**
@@ -1145,9 +1277,13 @@ class ProductSync {
 	 * @return string Sentence fragment naming the reason.
 	 */
 	protected function reason_for( $withheld ) {
-		return 'inactive' === $withheld
-			? 'Kontor has switched it off for the webshop'
-			: 'Kontor lists no image for it';
+		$reasons = array(
+			'inactive'    => 'Kontor has switched it off for the webshop',
+			'no_image'    => 'Kontor lists no image for it',
+			'no_category' => 'Kontor files it under no category',
+		);
+
+		return isset( $reasons[ $withheld ] ) ? $reasons[ $withheld ] : 'Kontor lists no image for it';
 	}
 
 	/**
@@ -1286,6 +1422,20 @@ class ProductSync {
 			$fields[] = 'Ek';
 		}
 
+		/*
+		 * Categories joins the list only on a shop that imports them, where it is data
+		 * this sync writes. Left out there, an article moved between categories and
+		 * unchanged in every other respect would read as unchanged and keep its old
+		 * filing for good.
+		 *
+		 * Adding or removing the key changes the hashed JSON for every article, so
+		 * turning the setting on or off rewrites the whole catalogue once. That is the
+		 * intended cost, and the same one changing the shop type carries.
+		 */
+		if ( Settings::categories_enabled( $this->settings ) ) {
+			$fields[] = 'Categories';
+		}
+
 		return $fields;
 	}
 
@@ -1368,6 +1518,12 @@ class ProductSync {
 			$product->delete_meta_data( self::META_INACTIVE_DRAFTED );
 
 			$reasons[] = 'Kontor has switched it on for the webshop again';
+		}
+
+		if ( $product->get_meta( self::META_NO_CATEGORY_DRAFTED ) ) {
+			$product->delete_meta_data( self::META_NO_CATEGORY_DRAFTED );
+
+			$reasons[] = 'it belongs to a category again';
 		}
 
 		if ( $product->get_meta( self::META_LEGACY_STOCK_DRAFTED ) ) {

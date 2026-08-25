@@ -283,11 +283,14 @@ of them wrong produces silently wrong data rather than an error:
     and they report **what this shop will accept rather than what Kontor stated**, so they read 1
     while enforcement is off. Both come from `Quantities::limits()`, the same method the cart is held
     to, so a client obeying them cannot be turned away by a shop that disagrees.
-- **`Categories` is deliberately ignored**, and so is `Ek` on the shop types that do not price from
-  it; neither is part of the change hash there. The hash covers the fields in
+- **`Ek` is ignored on the shop types that do not price from it**, and `Categories` on a shop that
+  does not import them; neither is part of the change hash there. The hash covers the fields in
   `ProductSync::mapped_fields()`; hashing the whole row would rewrite every product whenever
   purchase prices moved. `Ek` **joins** that list on a wholesale shop, because it is the price
-  there — left out, a price rise that moved nothing else would never reach the shop. `Herstellerid`
+  there — left out, a price rise that moved nothing else would never reach the shop. `Categories`
+  joins it on a shop with `Settings::categories_enabled()`, because it is the filing this sync
+  writes; adding or removing the key changes the hashed JSON for every article, which is what makes
+  turning the setting on or off rewrite the whole catalogue once. `Herstellerid`
   *is* in the hash on every shop type, because brands are matched on it — an article skipped as
   unchanged never reaches `Brands::resolve()`, so a manufacturer that moved would never be followed.
 - **The configured shop type is hashed alongside the row.** Without it, switching a shop from
@@ -331,9 +334,13 @@ of them wrong produces silently wrong data rather than an error:
     the list. Same reasoning as the intervals and the shop.
   - Pressing **Fetch manufacturers** keeps a ticked manufacturer that Kontor no longer lists, at the
     end of the list. Looking something up must not quietly edit the selection underneath it.
-- **Two things hold an article out of the shop — `Ws_aktiv` and the image requirement — and both
-  answer the same way: import it and leave it a draft.** `ProductSync::withheld_reason()` is the one
-  place that decides which, if either, applies, and everything below follows from it.
+- **Three things hold an article out of the shop — `Ws_aktiv`, the image requirement and the
+  category requirement — and all three answer the same way: import it and leave it a draft.**
+  `ProductSync::withheld_reason()` is the one place that decides which, if any, applies, and
+  everything below follows from it. Kontor's own verdict is asked first; the shop's two settings
+  follow in the order they were added, which is what keeps an existing shop reading exactly what it
+  read before — an article with neither a picture nor a category is still reported as having no
+  picture.
   - **A withheld article is created, not passed over.** The shop ends up holding the whole
     catalogue — priced, stocked, branded and pictured — with the part it may not sell sitting one
     status change away, which is what lets an article switched on in the ERP appear in the shop on
@@ -429,10 +436,10 @@ of them wrong produces silently wrong data rather than an error:
     - **Core marks "All" current by the absence of its own filters, and ours is not one of them**, so
       the class takes that marking off the other views when a reason is being looked at. Otherwise
       two views are highlighted at once.
-    - The slugs in the URL are `withheld_reason()`'s own vocabulary — `inactive`, `no_image` — rather
-      than the meta keys, which are this plugin's storage and not a published name. All five markers
-      are listed, including `META_LEGACY_STOCK_DRAFTED`: a product still carrying it is hidden right
-      now, whatever the marker's future is.
+    - The slugs in the URL are `withheld_reason()`'s own vocabulary — `inactive`, `no_image`,
+      `no_category` — rather than the meta keys, which are this plugin's storage and not a published
+      name. All six markers are listed, including `META_LEGACY_STOCK_DRAFTED`: a product still
+      carrying it is hidden right now, whatever the marker's future is.
 - **`Ws_aktiv` is Kontor saying whether an article belongs in the webshop at all**, and it is
   obeyed unconditionally — there is no setting, because it is not this shop's decision to make. A
   false article is **imported as a draft** and marked `ProductSync::META_INACTIVE_DRAFTED`
@@ -486,6 +493,72 @@ of them wrong produces silently wrong data rather than an error:
   - The checkbox is paired with a **hidden `0` field**, so "off" is a value that arrives rather than
     one inferred from a browser's silence. Absent still means "keep the stored value" — same
     reasoning as the intervals, the shop and the manufacturers.
+- **Kontor can own the shop's product categories**, via `Settings::SYNC_CATEGORIES`
+  (`sync_categories`), off by default. `Sync\Categories` builds the tree and files each product from
+  the article's `Categories` field; `Sync\CategoryPush` is the separate, manual way back.
+  - **`Settings::categories_enabled()` asks two questions with one answer** — the setting is on
+    *and* a well-formed `shop_id` is stored. The tree is per-shop and the entity returns nothing
+    without one, so acting on half the answer is never right. The change hash, the assignments and
+    the withheld reason all read this one method, so the three cannot disagree.
+  - **The shop picker therefore moved out of the Orders section into Connection**, rendered when
+    either orders or categories want it. That keeps 0.22.0's promise exactly — a shop that only
+    imports the catalogue is still never asked to choose one — without the same field existing twice
+    and being able to disagree with itself.
+  - **The tree is read once per page action and a failure stops the run.** This is the dangerous
+    edge in the whole feature: an unreadable tree reads as "no article has a category", so with
+    `require_category` on it would draft the entire shop. **An empty reply is treated as a failure
+    too**, and that is not defensive padding — zero rows is exactly what the entity returns when the
+    request carries no shop. Same trap `Preflight` exists to keep the catalogue walk out of.
+  - **Reconciliation is driven by the tree fetch, not by the article rows**, so a category renamed
+    or moved in Kontor is followed even on a run where every article is skipped as unchanged.
+  - **Terms are matched on `Katid` alone, never on a name.** But *creating* one has to deal with
+    WordPress refusing a second term of the same name under the same parent, which is a real case:
+    a term with **no** Katid is adopted and stamped — narrower than `Brands`' adoption, since the
+    parent must match too — while one already carrying a *different* Katid is left alone and a
+    distinct term created beside it with an explicit slug. Stealing it would collapse two of
+    Kontor's categories into one and re-stamp it on every run.
+    - **Adoption is what makes this usable on a shop that already has categories, and the margin is
+      not close.** Measured on the ToysOnline site, which has 103 product categories built from the
+      same source: **100 of Kontor's 101 categories already existed there under the same name *and*
+      the same parent**. Only "Ohne Kategorie" was new. Without adoption the first run would have
+      created a hundred duplicates — "kuscheltiere-2" and the like — beside the categories the shop
+      was already selling from. The live run created exactly one term, edited none, and changed no
+      slug, name, parent or product count on any of the hundred it adopted.
+  - **WordPress puts every term name through `sanitize_text_field()` and `_wp_specialchars()`** on
+    `pre_term_name`, so "Rabatt 20%ab Lager" is stored as "Rabatt 20 Lager" and an `&` comes back
+    `&amp;` — whether the name came from Kontor or was typed into wp-admin. Nothing can be done
+    about it and nothing should be; what matters is that `Categories::follow()` compares against
+    `sanitize_term_field( 'name', …, 'db' )` rather than against the raw name. Comparing raw would
+    never match and would call `wp_update_term()` on 74 of one live shop's 141 categories **on every
+    run, for ever**. `test_an_unchanged_tree_is_not_rewritten_on_the_next_run` is the guard.
+  - **Only the terms the tree currently accounts for are managed.** A category a shop manager
+    created, and one Kontor has stopped listing, are both left on their products — which also means
+    **nothing here ever deletes a term**. A term takes its URL and its manual assignments with it,
+    and there is no draft state for a taxonomy.
+  - **`require_category` is the third withheld reason** (`Settings::REQUIRE_CATEGORY`, off by
+    default), marker `ProductSync::META_NO_CATEGORY_DRAFTED`. Its own marker for the reason the
+    others have theirs: the conditions clear at different moments, and a shared one would let a
+    picture arriving republish an article still filed nowhere. Decided on the feed row against the
+    tree, never on the product's terms, exactly as `has_image()` is — the terms are written after
+    the save. **It is a large number**: 2056 of 4389 on the account measured, which is why the
+    settings screen says so before anybody reads the run summary as a fault.
+  - **The push is `overwrite_all: true` and nothing else.** Kept in its own class for the reason
+    `interpret_force_rows()` is kept apart from `interpret_rows()`: it destroys data in the ERP and
+    the routine path must have no way of drifting into it. It runs in the request that asked for it,
+    like `OrderSync::force_push()`, never touches `Status`, and is confirmed by typing **`REPLACE`**
+    — deliberately not the order screen's `OVERWRITE`, so muscle memory from one cannot fire the
+    other. `test_the_confirmation_word_differs_from_the_order_one` pins that.
+    - **A category already carrying a `Katid` is sent back under it**, which is the whole of what
+      keeps its product assignments attached through a replace. One created here is minted
+      `wc-{term_id}` — prefixed, because three of the four shops sampled use bare integers as Katids
+      and an unprefixed one would eventually collide. Minting is **deterministic**, so a retry sends
+      the same tree and the stamp written afterwards is bookkeeping rather than correctness.
+    - **The whole taxonomy goes in one request and is never batched**, and a tree over `MAX_TERMS`
+      is **refused rather than truncated** — a truncated payload under `overwrite_all` is the
+      destructive outcome, not a smaller one.
+    - **The preview sends nothing**, and it is not a convenience. It is the only way to see what a
+      replace would contain without performing one, which on a live account is the difference
+      between checking and finding out.
 - **Images are deduplicated on their source URL**, recorded on the attachment as
   `ProductSync::META_IMAGE_SOURCE`. The same photograph is shared across articles often enough that
   downloading per product would multiply the media library. That meta doubles as the marker for
@@ -693,14 +766,20 @@ of them wrong produces silently wrong data rather than an error:
   shops** button (`wksync_fetch_shops`, nonce plus `manage_woocommerce`). The list is never rendered
   from a cached copy that could go stale silently. Product and stock sync do not use the shop at
   all; it identifies the store when **orders are pushed and delivery information is pulled back**,
-  so both of those need it set before they can run.
-  - **A shop that only imports the catalogue never has to choose one**, and as of 0.22.0 is never
-    asked to. `Settings::SYNC_ORDERS` (`sync_orders`) is a master switch over the whole order side:
-    off, the push, the delivery import and the invoice import are refused by `Preflight`, their
-    recurring actions are cancelled, no order is queued at checkout, `Admin\OrderPanel` and the
-    force-push section do not render, and the shop picker is not on the screen at all. It is the
-    one setting here that **defaults to on**, because off is the value that takes a capability
-    away — an update must leave a shop doing what it did yesterday.
+  and, as of 0.27.0, which **category tree** is imported, so all of those need it set before they
+  can run.
+  - **A shop that imports nothing but the catalogue never has to choose one**, and as of 0.22.0 is
+    never asked to. `Settings::SYNC_ORDERS` (`sync_orders`) is a master switch over the whole order
+    side: off, the push, the delivery import and the invoice import are refused by `Preflight`,
+    their recurring actions are cancelled, no order is queued at checkout, `Admin\OrderPanel` and
+    the force-push section do not render. It is the one setting here that **defaults to on**,
+    because off is the value that takes a capability away — an update must leave a shop doing what
+    it did yesterday.
+    - **The shop picker itself belongs to neither switch now.** It lives in the Connection section
+      and is shown when orders *or* categories want it, because two unrelated features need the
+      same field and rendering it twice would let one copy disagree with the other. Hidden rather
+      than left out, so it goes on submitting and a stored shop survives a save made with the row
+      closed — and a shop that wants neither still never sees it.
   - **Absent reads as on**, in `Settings::orders_enabled()`, not as off. `get_settings()` fills the
     key in from the defaults, so this only arises for a settings array handed in from elsewhere —
     and the two ways of being wrong are not equal, exactly as with `Ws_aktiv`. Reading "on" as
@@ -878,9 +957,35 @@ of them wrong produces silently wrong data rather than an error:
   - **Uninstalling deletes neither the files nor the option naming their directory.** They are
     records the shop may be required to keep, and dropping the option would generate a new directory
     on reinstall and strand everything already there.
-- **The `categories` entity exists but returns zero rows**, filtered or not, so the `Categories`
-  GUIDs on an article could not be resolved to names even if we wanted them. Category mapping is
-  not possible.
+- **The `categories` entity returns nothing without `filter.shopid`, and a whole tree with one.**
+  This was recorded here for a long time as an entity that returns zero rows "filtered or not",
+  which was wrong: it had never been sent a shop. Row counts across four shops on the account:
+  3, 101, 141 and 554. No paging, like `stock`, `shops` and `manufacturer` — the largest came back
+  whole in 2ms. Each row is a `Katid`, a `Katidparent` (empty at the top level) and a `Katname`.
+- **An article's `Categories` is a union across every shop on the account** unless the products
+  request carries `filter.shopid`. `abel-AB12` comes back with three IDs unfiltered — two of them
+  ToysOnline's and one the Shopware shop's — and exactly the two when filtered; **334 distinct
+  foreign IDs** appear across the catalogue. The unfiltered value is a *superset*, which is why
+  `Sync\Categories` filters client-side against the loaded tree rather than changing a products
+  request every existing shop already depends on.
+- **`Katid` is an opaque string, and the shapes differ per shop.** Canonical GUIDs on one, 32-char
+  hex without hyphens on another, bare integers (`15`, `1435`) on two more. Casting collides them
+  exactly as casting `Herstellerid` would collide `084` with `84`.
+- **Category names repeat inside one tree**, so a term can never be matched on its name.
+  "Soziales Lernen" appears **6 times** on one shop and "Piraten" **4 times** on another, and that
+  shop carries two "Waldtiere" under the *same* parent. Matching is on `Katid`, held in term meta as
+  `Categories::TERM_META_ID` (`_wksync_katid`) — the same arrangement `Brands` uses.
+- **`Katname` can arrive HTML-encoded** — 74 of 141 rows on one shop, e.g. `Emotionen &amp; Empathie`
+  — and the tree reaches **five levels deep** on the largest shop, so a parent must be created before
+  its children. Measured coverage on ToysOnline: **2333 of 4389 articles carry a category, 2056
+  carry none**, 1–8 each, and 9 of the 101 categories are used by nothing.
+- **`/upsert` also writes categories**, selected by `name: categories` with `params.shopid`,
+  `params.overwrite_all` and a `categories` list of `katid` / `katidparent` / `katname`. **Its
+  behaviour has never been established against the live account** — it is the one thing here found
+  from a supplied description rather than by probing — and per that description `overwrite_all: true`
+  replaces the shop's whole tree, so **a category the payload leaves out loses its product
+  assignments in the ERP**. That single sentence is why `Sync\CategoryPush` sends everything in one
+  request, refuses rather than truncates above `MAX_TERMS`, and sits behind a typed confirmation.
 - **Image fields are bare filenames** (`abel-AB12_001.jpg`), not URLs. They are only usable if an
   image base URL is configured; with it blank, the sync skips images.
 - **Errors are well formed**: a bad key gives HTTP 401 with `success:false` and
