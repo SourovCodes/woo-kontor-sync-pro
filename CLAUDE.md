@@ -719,6 +719,25 @@ of them wrong produces silently wrong data rather than an error:
   per-unit figure cannot always be multiplied back up to the line total. `priceFaktor` is sent as a
   constant `1`: Kontor multiplies by it, so what it defaults to on an absent field is the difference
   between the right price and none, while an explicit 1 cannot change an amount.
+- **`taxRate` is the opposite: read off the order, never derived from the line.** It is the one
+  figure here that is not money, and the arithmetic that is right for the prices is wrong for it.
+  A tax amount is stored rounded to two decimals, so `tax ÷ total × 100` magnifies a rounding of
+  half a rappen into a tenth of a percentage point — at 8.1%, a line of 4.15 came back as 8.19, one
+  of 9.90 as 8.08 and one of 0.95 as 8.42. Kontor holds one rate per article and rejected the
+  variation, correctly. **Shipped that way up to 0.22.2**, which is why an order sent before 0.22.3
+  carries whatever the division produced; nothing automatic can correct it, because Kontor answers a
+  resend with a Dublette.
+  - **`OrderSync::order_tax_rates()` maps the order's own tax lines**, `rate_id` → `rate_percent`.
+    WooCommerce freezes that percentage onto the order at checkout, so it is the rate the order was
+    *placed* under — which is what the derivation was reaching for, and gets without the drift. A
+    rate edited or deleted since cannot move what an old order reports.
+    `WC_Tax::_get_tax_rate()` fills in only for an order predating `rate_percent` (WooCommerce 3.7).
+  - **A line's rate comes from the rate IDs in its tax data, not from its amounts**, so a line
+    discounted to nothing still reports the rate it was sold under instead of looking tax exempt.
+    Several rates on one line are added, this field holding a single figure; exact unless they
+    compound.
+  - **`derived_tax_rate()` survives as the fallback for a line nothing resolves for**, and is
+    reached by a genuinely untaxed line, where its zero is the right answer.
 - **`provider` and `trackinginfo` arrive as `null`, not absent** — confirmed against live data, where
   all 7 rows for one shop had both null. Anything reading them has to treat null as empty.
 - **An order the upsert reply says nothing about is counted as failed.** Nothing is written on it, so
