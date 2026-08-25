@@ -60,6 +60,18 @@ class HeldProducts {
 	const NONE = 'none';
 
 	/**
+	 * Slug: products Kontor lists but this plugin does not manage.
+	 *
+	 * Kept apart from the drafting reasons because it is not one. These products are
+	 * published and on sale; every other reason here means a product was taken out of
+	 * the shop. Mixing them would have "held back as drafts" counting products that
+	 * are nothing of the sort.
+	 *
+	 * @var string
+	 */
+	const UNMANAGED = 'unmanaged';
+
+	/**
 	 * Register the hooks.
 	 *
 	 * @return void
@@ -94,23 +106,52 @@ class HeldProducts {
 	}
 
 	/**
+	 * The reasons a product is in the shop without this plugin managing it.
+	 *
+	 * Its own map rather than an entry in reasons(), because everything built on that
+	 * one is about products taken out of the shop: total() counts drafts, the settings
+	 * screen calls them drafts, and the NONE view is the drafts nothing of ours
+	 * accounts for. A published product belongs in none of those sentences.
+	 *
+	 * @return array<string,string> Slug to meta key.
+	 */
+	public static function unmanaged() {
+		return array(
+			self::UNMANAGED => ProductSync::META_UNMANAGED,
+		);
+	}
+
+	/**
+	 * Every reason this plugin can name for a product, drafted or not.
+	 *
+	 * What the views, the filter and the state labels work from — a shop manager
+	 * looking at the products list wants both questions answered on the one screen.
+	 *
+	 * @return array<string,string> Slug to meta key.
+	 */
+	public static function all_reasons() {
+		return array_merge( self::reasons(), self::unmanaged() );
+	}
+
+	/**
 	 * How each reason reads on screen.
 	 *
 	 * Every one of them names Kontor or the sync rather than the product, because the
 	 * product is not at fault and there is nothing to correct on it. "Switched off in
 	 * Kontor" tells a shop manager where to go; "hidden" would not.
 	 *
-	 * @param string $slug Reason slug, or NONE.
-	 * @return string Label, or an empty string for a slug that names neither.
+	 * @param string $slug Reason slug, UNMANAGED, or NONE.
+	 * @return string Label, or an empty string for a slug that names none of them.
 	 */
 	public static function label( $slug ) {
 		$labels = array(
-			'inactive'     => __( 'Switched off in Kontor', 'woo-kontor-sync-pro' ),
-			'no_image'     => __( 'No image in Kontor', 'woo-kontor-sync-pro' ),
-			'delisted'     => __( 'No longer in Kontor’s catalogue', 'woo-kontor-sync-pro' ),
-			'no_stock'     => __( 'No stock record in Kontor', 'woo-kontor-sync-pro' ),
-			'legacy_stock' => __( 'Held back by an earlier stock sync', 'woo-kontor-sync-pro' ),
-			self::NONE     => __( 'Drafts the sync did not make', 'woo-kontor-sync-pro' ),
+			'inactive'      => __( 'Switched off in Kontor', 'woo-kontor-sync-pro' ),
+			'no_image'      => __( 'No image in Kontor', 'woo-kontor-sync-pro' ),
+			'delisted'      => __( 'No longer in Kontor’s catalogue', 'woo-kontor-sync-pro' ),
+			'no_stock'      => __( 'No stock record in Kontor', 'woo-kontor-sync-pro' ),
+			'legacy_stock'  => __( 'Held back by an earlier stock sync', 'woo-kontor-sync-pro' ),
+			self::NONE      => __( 'Drafts the sync did not make', 'woo-kontor-sync-pro' ),
+			self::UNMANAGED => __( 'Kontor holds it back; not imported here', 'woo-kontor-sync-pro' ),
 		);
 
 		return isset( $labels[ $slug ] ) ? $labels[ $slug ] : '';
@@ -150,8 +191,10 @@ class HeldProducts {
 		$reasons = self::reasons();
 
 		if ( self::ANY !== $slug && self::NONE !== $slug ) {
+			$all = self::all_reasons();
+
 			return array(
-				'key'     => $reasons[ $slug ],
+				'key'     => $all[ $slug ],
 				'compare' => 'EXISTS',
 			);
 		}
@@ -233,6 +276,29 @@ class HeldProducts {
 	}
 
 	/**
+	 * How many products Kontor lists that this plugin does not manage.
+	 *
+	 * Counted the same way as counts(), and kept out of it: total() feeds a sentence
+	 * about drafts, and these products are published.
+	 *
+	 * @return array<string,int> Slug to number of products, including the zeroes.
+	 */
+	public static function unmanaged_counts() {
+		global $wpdb;
+
+		$counts = array();
+
+		foreach ( self::unmanaged() as $slug => $meta_key ) {
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Counting protected meta has no CRUD equivalent, and a count served from cache would disagree with the list it labels.
+			$total = $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$wpdb->postmeta} WHERE meta_key = %s", $meta_key ) );
+
+			$counts[ $slug ] = (int) $total;
+		}
+
+		return $counts;
+	}
+
+	/**
 	 * How many products are held back for any reason at all.
 	 *
 	 * @return int Number of products.
@@ -291,6 +357,19 @@ class HeldProducts {
 		}
 
 		foreach ( self::counts() as $slug => $count ) {
+			if ( $count < 1 ) {
+				continue;
+			}
+
+			$views[ self::QUERY_VAR . '_' . $slug ] = $this->view( $slug, $count, $current );
+		}
+
+		/*
+		 * Offered beside the drafting reasons, though it is not one of them. It is the
+		 * only way to see the products where the shop and the ERP openly disagree: the
+		 * shop's own, published and on sale, for an article Kontor is holding back.
+		 */
+		foreach ( self::unmanaged_counts() as $slug => $count ) {
 			if ( $count < 1 ) {
 				continue;
 			}
@@ -382,7 +461,7 @@ class HeldProducts {
 			return $states;
 		}
 
-		foreach ( self::reasons() as $slug => $meta_key ) {
+		foreach ( self::all_reasons() as $slug => $meta_key ) {
 			if ( '' === (string) get_post_meta( $post->ID, $meta_key, true ) ) {
 				continue;
 			}
@@ -411,6 +490,6 @@ class HeldProducts {
 			return $slug;
 		}
 
-		return array_key_exists( $slug, self::reasons() ) ? $slug : '';
+		return array_key_exists( $slug, self::all_reasons() ) ? $slug : '';
 	}
 }

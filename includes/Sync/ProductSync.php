@@ -69,6 +69,26 @@ class ProductSync {
 	const META_SEEN_AT = '_wksync_seen_at';
 
 	/**
+	 * Meta marking a product Kontor lists but this plugin does not manage.
+	 *
+	 * Written to a product the shop made itself whose article Kontor is holding back —
+	 * switched off for the webshop, or without an image — where import_article()
+	 * therefore declines to touch it. The value is the run that last saw it that way.
+	 *
+	 * It is the only record such a product leaves. It is never drafted, so it carries
+	 * none of the drafting markers Admin\HeldProducts is built on, and it is never
+	 * stamped, so no later run mentions it again. Without this there was nowhere in
+	 * wp-admin to find out that the shop is publicly selling an article the ERP has
+	 * switched off.
+	 *
+	 * Cleared the moment the product is adopted, which is what happens as soon as
+	 * Kontor stops holding the article back. A product whose article leaves the
+	 * catalogue altogether keeps the marker, because nothing looks at that article
+	 * again — the reason it names was true when it was written.
+	 */
+	const META_UNMANAGED = '_wksync_unmanaged';
+
+	/**
 	 * Shop type whose price list Kontor returns as the purchase price.
 	 *
 	 * See price_field() for why this one is singled out.
@@ -339,6 +359,7 @@ class ProductSync {
 			'no_image'      => 0,
 			'inactive'      => 0,
 			'duplicate_sku' => 0,
+			'unmanaged'     => 0,
 			'failed'        => 0,
 		);
 
@@ -672,6 +693,24 @@ class ProductSync {
 			);
 		}
 
+		$unmanaged = isset( $counts['unmanaged'] ) ? (int) $counts['unmanaged'] : 0;
+
+		/*
+		 * Its own sentence, and deliberately not the drafting one. These products were
+		 * not drafted: they are the shop's own, still published and still on sale, for
+		 * articles the ERP is holding back. Folded into the "held back as drafts" count
+		 * — which is what happened until this was separated out — the summary reported
+		 * a drafting that had not taken place, and the one case where the shop and
+		 * Kontor openly disagree read as a case that had been dealt with.
+		 */
+		if ( $unmanaged > 0 ) {
+			$message .= ' ' . sprintf(
+				/* translators: %d: number of the shop's own products whose article Kontor is holding back. */
+				__( 'Left %d alone that Kontor is holding back but this plugin did not import.', 'woo-kontor-sync-pro' ),
+				$unmanaged
+			);
+		}
+
 		$no_sku    = isset( $counts['no_sku'] ) ? (int) $counts['no_sku'] : 0;
 		$duplicate = isset( $counts['duplicate_sku'] ) ? (int) $counts['duplicate_sku'] : 0;
 
@@ -774,7 +813,17 @@ class ProductSync {
 			 */
 			$this->mark_seen( array( $existing->get_id() ), $run );
 
-			return $withheld;
+			// The only record this product leaves. Nothing drafts it and nothing stamps
+			// it, so without the marker no screen in wp-admin could name it.
+			update_post_meta( $existing->get_id(), self::META_UNMANAGED, (int) $run );
+
+			/*
+			 * Deliberately not $withheld. That value means "held back as a draft", and
+			 * nothing here was drafted — the product is still published, still on sale,
+			 * and still the shop's own. Counting the two together had the run summary
+			 * reporting drafts that were never made.
+			 */
+			return 'unmanaged';
 		}
 
 		$hash = $this->hash( $row );
@@ -831,6 +880,14 @@ class ProductSync {
 
 		$product->update_meta_data( self::META_HASH, $hash );
 		$product->update_meta_data( self::META_SYNCED_AT, $run );
+
+		/*
+		 * Adopting the product answers the marker: whatever was holding the article
+		 * back has stopped, or the product was never unmanaged in the first place.
+		 * Left behind it would have Admin\HeldProducts naming a product the sync now
+		 * manages perfectly well.
+		 */
+		$product->delete_meta_data( self::META_UNMANAGED );
 		$product->update_meta_data( self::META_MPN, $this->text( $row, 'Mpn', '' ) );
 
 		$saved_id = $product->save();

@@ -352,6 +352,22 @@ of them wrong produces silently wrong data rather than an error:
     rewritten*. `import_article()` returns before touching it. Adopting it would only mean drafting
     it on the run after this one, once the stamp it wrote made it ours, which is a worse answer than
     either doing it at once or not at all.
+    - **It is counted as `unmanaged`, never as the reason itself.** Both outcomes used to be the
+      same string, so the summary's "Held N back as drafts" counted products that were still
+      published and on sale — a drafting reported that had not happened, on the one case where the
+      shop and the ERP openly disagree. It has its own sentence for the same reason.
+    - **It carries `ProductSync::META_UNMANAGED` (`_wksync_unmanaged`), and that marker is the only
+      record it leaves.** Nothing drafts it, so it holds none of the markers `Admin\HeldProducts`
+      was built on, and nothing stamps it, so no later run mentions it again. Before this there was
+      nowhere in wp-admin to find out that the shop was publicly selling an article Kontor had
+      switched off. `HeldProducts::UNMANAGED` turns it into a view, kept in `unmanaged()` rather
+      than `reasons()` because everything built on that map is about products taken *out* of the
+      shop — `total()` counts drafts and the settings screen calls them drafts, and a published
+      product belongs in neither sentence.
+    - **Cleared the moment the product is adopted**, which is what happens as soon as Kontor stops
+      holding the article back. A product whose article leaves the catalogue altogether keeps the
+      marker, because nothing looks at that article again; the reason it names was true when it was
+      written, and the trash sweep is what removes such a product where a shop has asked for it.
   - **A status this sync does not own is left where it was put**, `private`, `pending` or anything
     another plugin registered. The article's data is still written over it; only the status and the
     marker are withheld, because marking it would hand a later run the right to publish something
