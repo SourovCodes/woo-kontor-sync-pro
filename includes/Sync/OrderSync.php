@@ -10,6 +10,7 @@ namespace WooKontorSync\Sync;
 use Exception;
 use WC_Order;
 use WC_Order_Item_Product;
+use WC_Tax;
 use WooKontorSync\Admin\Settings;
 use WooKontorSync\Api\Client;
 
@@ -1081,6 +1082,7 @@ class OrderSync {
 	protected function items( $order ) {
 		$items    = array();
 		$position = 1;
+		$rates    = $this->order_tax_rates( $order );
 
 		foreach ( $order->get_items() as $item_id => $item ) {
 			if ( ! $item instanceof WC_Order_Item_Product ) {
@@ -1140,7 +1142,7 @@ class OrderSync {
 				'discount'     => round( $list - $paid, 4 ),
 				'totalPrice'   => $total,
 				'position'     => $position,
-				'taxRate'      => $this->tax_rate( $item ),
+				'taxRate'      => $this->tax_rate( $item, $rates ),
 			);
 
 			++$position;
@@ -1150,16 +1152,102 @@ class OrderSync {
 	}
 
 	/**
+	 * Map an order's tax rates by rate ID.
+	 *
+	 * WooCommerce records the rate that applied on the order itself, as
+	 * rate_percent on each tax line, so this is the historical rate the order was
+	 * placed under rather than whatever the tax tables say today. An order from
+	 * before that property existed carries null, and only then is the rate looked
+	 * up; a rate since deleted resolves to nothing and the line falls back to
+	 * deriving one.
+	 *
+	 * Read once per order rather than once per line, because an order with twenty
+	 * lines has one or two rates between them.
+	 *
+	 * @param WC_Order $order Order to read.
+	 * @return array<int, float> Rate percentages keyed by tax rate ID.
+	 */
+	protected function order_tax_rates( $order ) {
+		$rates = array();
+
+		foreach ( $order->get_taxes() as $tax ) {
+			$rate_id = (int) $tax->get_rate_id();
+
+			if ( 0 === $rate_id ) {
+				continue;
+			}
+
+			$percent = $tax->get_rate_percent();
+
+			if ( null === $percent ) {
+				$stored  = WC_Tax::_get_tax_rate( $rate_id );
+				$percent = is_array( $stored ) && isset( $stored['tax_rate'] ) ? $stored['tax_rate'] : null;
+			}
+
+			if ( null === $percent ) {
+				continue;
+			}
+
+			$rates[ $rate_id ] = round( (float) $percent, 4 );
+		}
+
+		return $rates;
+	}
+
+	/**
 	 * Work out a line's tax rate as a percentage.
 	 *
-	 * Derived from the amounts on the line rather than looked up from the tax
-	 * tables, so it stays correct for an order placed under a rate that has since
-	 * been edited or removed.
+	 * Taken from the rates recorded on the order, never computed from the line's
+	 * own amounts. A tax amount is money and is stored rounded to two decimals, so
+	 * dividing it by the net total and multiplying by a hundred turns a rounding of
+	 * half a rappen into a tenth of a percentage point: at 8.1%, a line of 4.15
+	 * comes back as 8.19 and one of 9.90 as 8.08. The rate is a property of the
+	 * article, so Kontor is right to expect one value rather than one per line.
+	 *
+	 * A line's tax data names every rate that applied to it, whatever the amounts
+	 * came to, so a line discounted to nothing still reports the rate it was sold
+	 * under instead of looking tax exempt. Where more than one rate applies the
+	 * percentages are added, this field holding a single figure; that is exact
+	 * unless the rates compound, which no shop this runs against uses.
+	 *
+	 * Deriving the rate is kept only for the case where nothing can be resolved —
+	 * a manually built line, or an order old enough to predate rate_percent whose
+	 * rate has since been deleted. A line no rate applies to is genuinely untaxed
+	 * and answers zero, which is that path arriving at the right answer.
+	 *
+	 * @param WC_Order_Item_Product $item  Line item.
+	 * @param array<int, float>     $rates Rate percentages keyed by tax rate ID.
+	 * @return float Tax rate percentage.
+	 */
+	protected function tax_rate( $item, array $rates ) {
+		$taxes   = $item->get_taxes();
+		$applied = isset( $taxes['total'] ) && is_array( $taxes['total'] ) ? $taxes['total'] : array();
+		$percent = null;
+
+		foreach ( array_keys( $applied ) as $rate_id ) {
+			if ( ! isset( $rates[ (int) $rate_id ] ) ) {
+				continue;
+			}
+
+			$percent = ( null === $percent ? 0.0 : $percent ) + $rates[ (int) $rate_id ];
+		}
+
+		if ( null !== $percent ) {
+			return round( $percent, 4 );
+		}
+
+		return $this->derived_tax_rate( $item );
+	}
+
+	/**
+	 * Derive a line's tax rate from the amounts on it.
+	 *
+	 * The fallback described on tax_rate(), and inexact for the reason given there.
 	 *
 	 * @param WC_Order_Item_Product $item Line item.
 	 * @return float Tax rate percentage.
 	 */
-	protected function tax_rate( $item ) {
+	protected function derived_tax_rate( $item ) {
 		$total = (float) $item->get_total();
 		$tax   = (float) $item->get_total_tax();
 
