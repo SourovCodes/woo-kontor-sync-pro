@@ -190,6 +190,91 @@ class StockDraftingTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * The drafting pass selects exactly the stale products and no others.
+	 *
+	 * The query behind this decides which products get taken out of the shop, so every
+	 * branch of it is spelled out here rather than left to the two cases the other
+	 * tests happen to cover. Two things make a product stale — ours with no stock stamp
+	 * at all, and ours with a stamp from an earlier run — and four things must not:
+	 * a stamp from this very run, a stamp from a later one, a product that was never
+	 * ours, and a product that is already out of the shop.
+	 *
+	 * @return void
+	 */
+	public function test_the_drafting_pass_selects_exactly_the_stale_products() {
+		$run = Status::start( StockSync::JOB );
+
+		$never_stamped = $this->imported_product( 'NEVER' );
+		$stale_stamp   = $this->imported_product( 'STALE', 'publish', array( StockSync::META_STOCK_AT => $run - 1 ) );
+
+		$this_run  = $this->imported_product( 'CURRENT', 'publish', array( StockSync::META_STOCK_AT => $run ) );
+		$later_run = $this->imported_product( 'LATER', 'publish', array( StockSync::META_STOCK_AT => $run + 1 ) );
+		$already   = $this->imported_product( 'ALREADY-DRAFT', 'draft' );
+
+		$foreign = new WC_Product_Simple();
+		$foreign->set_sku( 'HAND-MADE' );
+		$foreign->set_status( 'publish' );
+		$foreign->save();
+
+		$this->sync_with_drafting()->finalise( $run );
+
+		$this->assertSame( 'draft', wc_get_product( $never_stamped )->get_status(), 'A product this plugin owns with no stock stamp is stale.' );
+		$this->assertSame( 'draft', wc_get_product( $stale_stamp )->get_status(), 'A stamp from an earlier run is stale.' );
+
+		$this->assertSame( 'publish', wc_get_product( $this_run )->get_status(), 'This run stamped it, so the feed carried it.' );
+		$this->assertSame( 'publish', wc_get_product( $later_run )->get_status(), 'A newer stamp means a newer run has already spoken.' );
+		$this->assertSame( 'publish', wc_get_product( $foreign->get_id() )->get_status(), 'Never ours, never drafted.' );
+
+		// Already a draft, so the pass has nothing to do and leaves no marker claiming it did.
+		$this->assertSame( 'draft', wc_get_product( $already )->get_status() );
+		$this->assertSame( '', (string) get_post_meta( $already, StockSync::META_STOCK_DRAFTED, true ) );
+
+		// And the two it did draft are the two it marked.
+		$this->assertSame( '1', (string) get_post_meta( $never_stamped, StockSync::META_STOCK_DRAFTED, true ) );
+		$this->assertSame( '1', (string) get_post_meta( $stale_stamp, StockSync::META_STOCK_DRAFTED, true ) );
+	}
+
+	/**
+	 * The drafting query names its key in every join, so neither can multiply.
+	 *
+	 * A test about the SQL, because nothing about the rows coming back shows the
+	 * difference — the test above passes either way. WP_Meta_Query leaves meta_key out
+	 * of a clause's ON condition once an OR relation appears anywhere in the query, and
+	 * a join that does not name a key matches every meta row the product has. Two such
+	 * joins multiply: this pass cost 0.57s a batch on 4398 products before, and the
+	 * same shape with five joins elsewhere in this plugin never returned at all.
+	 *
+	 * @return void
+	 */
+	public function test_the_drafting_query_names_its_key_in_every_join() {
+		global $wpdb;
+
+		$this->imported_product( 'NEVER' );
+
+		$captured = '';
+		$grab     = static function ( $sql ) use ( &$captured ) {
+			if ( false !== strpos( $sql, StockSync::META_STOCK_AT ) && false !== strpos( $sql, 'JOIN' ) ) {
+				$captured = $sql;
+			}
+
+			return $sql;
+		};
+
+		$run = Status::start( StockSync::JOB );
+
+		add_filter( 'query', $grab );
+		$this->sync_with_drafting()->finalise( $run );
+		remove_filter( 'query', $grab );
+
+		$this->assertNotSame( '', $captured, 'The drafting pass did not run its query.' );
+
+		$joins = substr( $captured, 0, strpos( $captured, 'WHERE' ) );
+
+		$this->assertSame( 2, substr_count( $joins, $wpdb->postmeta ), 'One join per key, however the question is phrased.' );
+		$this->assertSame( 2, substr_count( $joins, 'meta_key' ), 'Every join must name its key in the ON condition, or it matches all of a product\'s meta.' );
+	}
+
+	/**
 	 * A shop manager's own product is never drafted for missing the feed.
 	 *
 	 * It was never in one. META_SYNCED_AT is the marker for "this plugin imported

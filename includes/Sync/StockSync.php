@@ -539,42 +539,63 @@ class StockSync {
 	 * marker for "this plugin imported this product", so a shop manager's own product
 	 * is never drafted for being absent from a feed it was never part of.
 	 *
+	 * Asked of the database directly, and it has to be. WP_Meta_Query leaves meta_key
+	 * out of a clause's ON condition and puts it in the WHERE as soon as an OR relation
+	 * appears anywhere in the query — and a join that does not name a key matches every
+	 * meta row the product has, so two of them multiply. This query needs an OR ("no
+	 * stamp at all, or a stamp older than this run") and cannot avoid it: a missing row
+	 * and a stale row are two different questions about the same key. Written through
+	 * get_posts() it cost three joins, two of them unconstrained, which on the
+	 * development site's 4398 products at ~28 meta rows each is some 777 intermediate
+	 * rows per product — 0.57s for a batch of 200. Both joins below name their key, so
+	 * each matches at most one row per product and the cost is linear.
+	 *
+	 * This is the same reason HeldProducts::counts() asks directly: protected meta has
+	 * no CRUD equivalent to go through, and the alternative is these same joins written
+	 * less carefully. The trade is that a filter on the posts query no longer reaches
+	 * this pass, which is a background sweep over the shop's own catalogue rather than
+	 * anything a visitor sees.
+	 *
 	 * @param int $run Run identifier.
 	 * @return bool True when there may be more to do.
 	 */
 	protected function draft_batch( $run ) {
-		$stale = get_posts(
-			array(
-				'post_type'        => 'product',
-				'post_status'      => 'publish',
-				'posts_per_page'   => self::FINALISE_BATCH,
-				'fields'           => 'ids',
-				'suppress_filters' => false,
+		global $wpdb;
 
-				// phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query -- Runs in a background job; there is no other way to find products this run did not stamp.
-				'meta_query'       => array(
-					'relation' => 'AND',
-					array(
-						'key'     => ProductSync::META_SYNCED_AT,
-						'compare' => 'EXISTS',
-					),
-					array(
-						'relation' => 'OR',
-						array(
-							'key'     => self::META_STOCK_AT,
-							'compare' => 'NOT EXISTS',
-						),
-						array(
-							'key'     => self::META_STOCK_AT,
-							'value'   => $run,
-							'compare' => '<',
-							'type'    => 'NUMERIC',
-						),
-					),
-				),
+		/*
+		 * DISTINCT because a product carrying the same key twice — which nothing here
+		 * writes, but the table permits — would otherwise take two of the batch's slots
+		 * to draft once.
+		 *
+		 * Ordered by ID for the sake of being ordered by something. Which products a
+		 * batch takes does not matter — drafting one removes it from the next batch's
+		 * publish filter, so the pass drains the set whatever order it walks it in —
+		 * but an unordered LIMIT leaves that to the database to decide differently on
+		 * any given day, and a job that takes products out of the shop should do the
+		 * same thing twice.
+		 */
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Explained above; a cached answer would also mean drafting against a stale view of the run stamps.
+		$stale = $wpdb->get_col(
+			$wpdb->prepare(
+				"SELECT DISTINCT posts.ID
+				FROM {$wpdb->posts} AS posts
+				INNER JOIN {$wpdb->postmeta} AS ours
+					ON ours.post_id = posts.ID AND ours.meta_key = %s
+				LEFT JOIN {$wpdb->postmeta} AS stamped
+					ON stamped.post_id = posts.ID AND stamped.meta_key = %s
+				WHERE posts.post_type = 'product'
+					AND posts.post_status = 'publish'
+					AND ( stamped.post_id IS NULL OR CAST( stamped.meta_value AS SIGNED ) < %d )
+				ORDER BY posts.ID
+				LIMIT %d",
+				ProductSync::META_SYNCED_AT,
+				self::META_STOCK_AT,
+				(int) $run,
+				self::FINALISE_BATCH
 			)
 		);
 
+		$stale   = array_map( 'intval', (array) $stale );
 		$drafted = 0;
 
 		foreach ( $stale as $product_id ) {
