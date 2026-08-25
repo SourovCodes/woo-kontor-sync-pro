@@ -98,6 +98,20 @@
 			} );
 		}
 
+		/*
+		 * The order settings are rendered whatever the toggle says and hidden when it
+		 * is off, so ticking it reveals them straight away rather than after a save.
+		 * The server decides the rendered state; this only keeps up with the box.
+		 */
+		var ordersToggle = document.getElementById( 'wksync-sync-orders' );
+		var ordersPanel = document.getElementById( 'wksync-order-settings' );
+
+		if ( ordersToggle && ordersPanel ) {
+			ordersToggle.addEventListener( 'change', function () {
+				ordersPanel.hidden = ! ordersToggle.checked;
+			} );
+		}
+
 		var makersButton = document.getElementById( 'wksync-fetch-manufacturers' );
 		var makersClear = document.getElementById( 'wksync-clear-manufacturers' );
 		var makersOutput = document.getElementById( 'wksync-manufacturers-result' );

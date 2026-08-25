@@ -21,15 +21,24 @@ defined( 'ABSPATH' ) || exit;
  * order push would queue work that can never be delivered. Checking first turns all
  * of that into one clear refusal.
  *
- * Three gates, cheapest first:
+ * Four gates, cheapest first:
  *
  * 1. Credentials — the API base URL and key are present. No network.
- * 2. Shop — every job that talks to Kontor about orders needs a shop chosen: the
+ * 2. Orders — the shop exchanges orders with Kontor at all. Plenty of shops run this
+ *    plugin for the catalogue alone, and for one of those the order push, the
+ *    delivery import and the invoice import are not misconfigured, they are not
+ *    wanted.
+ * 3. Shop — every job that talks to Kontor about orders needs a shop chosen: the
  *    order push, and the delivery and invoice imports. Kontor answers a malformed
  *    shop ID with an HTTP 500 and an empty one with an empty list, and neither reads
  *    as "you forgot to configure this".
- * 3. Connection — the credentials actually authenticate. One small request, with
+ * 4. Connection — the credentials actually authenticate. One small request, with
  *    success cached so a frequent job does not pay for it every run.
+ *
+ * Gates 2 and 3 apply to the same three jobs, which is why one list answers both.
+ * Their order matters: "this shop does not do orders" is the truer answer for a shop
+ * that has deliberately never chosen one, and "pick a shop" would send whoever read
+ * it looking for a field that is not on the screen.
  */
 class Preflight {
 
@@ -47,11 +56,14 @@ class Preflight {
 	const CONNECTION_TTL = 15 * MINUTE_IN_SECONDS;
 
 	/**
-	 * Jobs that additionally require a shop to be selected.
+	 * The jobs that exchange orders with Kontor.
+	 *
+	 * Both the orders gate and the shop gate apply to exactly these three, so there is
+	 * one list rather than two that could drift apart.
 	 *
 	 * @var string[]
 	 */
-	private static $shop_jobs = array( OrderSync::JOB, DeliverySync::JOB, InvoiceSync::JOB );
+	private static $order_jobs = array( OrderSync::JOB, DeliverySync::JOB, InvoiceSync::JOB );
 
 	/**
 	 * Check every precondition for a job.
@@ -70,7 +82,13 @@ class Preflight {
 			return $credentials;
 		}
 
-		if ( in_array( $job, self::$shop_jobs, true ) ) {
+		if ( in_array( $job, self::$order_jobs, true ) ) {
+			$enabled = self::orders_enabled( $settings );
+
+			if ( is_wp_error( $enabled ) ) {
+				return $enabled;
+			}
+
 			$shop = self::shop( $settings );
 
 			if ( is_wp_error( $shop ) ) {
@@ -95,6 +113,23 @@ class Preflight {
 			return new WP_Error(
 				'wksync_not_configured',
 				__( 'Kontor is not configured: set the API base URL and API key before running a sync.', 'woo-kontor-sync-pro' )
+			);
+		}
+
+		return true;
+	}
+
+	/**
+	 * Whether this shop exchanges orders with Kontor at all.
+	 *
+	 * @param array $settings Plugin settings.
+	 * @return true|WP_Error True when the order-side jobs are wanted here.
+	 */
+	public static function orders_enabled( array $settings ) {
+		if ( ! Settings::orders_enabled( $settings ) ) {
+			return new WP_Error(
+				'wksync_orders_disabled',
+				__( 'This shop does not exchange orders with Kontor. Turn that on in the Kontor Sync settings first.', 'woo-kontor-sync-pro' )
 			);
 		}
 

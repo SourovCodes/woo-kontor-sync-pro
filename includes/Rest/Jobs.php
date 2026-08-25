@@ -329,9 +329,10 @@ class Jobs {
 	 * bug in this plugin. No `Retry-After` goes with it: there is no honest estimate of
 	 * when somebody will configure a shop.
 	 *
-	 * `wksync_no_shop` cannot arise for either job served here — only the three
-	 * order-side jobs are checked for a shop — and is mapped regardless, because a map
-	 * with a hole in it is a 500 waiting for the day this list grows.
+	 * `wksync_no_shop` and `wksync_orders_disabled` cannot arise for either job served
+	 * here — only the three order-side jobs are checked for a shop, or for whether the
+	 * shop exchanges orders at all — and both are mapped regardless, because a map with
+	 * a hole in it is a 500 waiting for the day this list grows.
 	 *
 	 * Anything unrecognised stays a 500. A refusal this has never met is a fault here,
 	 * and dressing it up as one of the four would hide that.
@@ -345,6 +346,7 @@ class Jobs {
 			'wksync_not_configured'  => 503,
 			'wksync_unavailable'     => 503,
 			'wksync_no_shop'         => 503,
+			'wksync_orders_disabled' => 503,
 		);
 
 		return isset( $statuses[ $code ] ) ? $statuses[ $code ] : 500;

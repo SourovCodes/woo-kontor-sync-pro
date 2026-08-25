@@ -131,6 +131,41 @@ class Settings {
 	const EAN_LABEL = 'ean_label';
 
 	/**
+	 * Setting deciding whether this shop exchanges orders with Kontor at all.
+	 *
+	 * On by default, which is the one place this plugin deliberately breaks its own
+	 * "a setting that changes what the shop does starts off" rule — and it breaks it
+	 * for the reason behind the rule rather than in spite of it. Off is the value that
+	 * takes a capability away here, so on is what leaves an upgraded shop doing
+	 * exactly what it did before.
+	 *
+	 * Off means the order push, the delivery import and the invoice import are all
+	 * refused by Preflight, their recurring actions are cancelled, no order is queued
+	 * at checkout, and no shop needs choosing — which is the whole point. Plenty of
+	 * shops run this plugin for the catalogue alone.
+	 */
+	const SYNC_ORDERS = 'sync_orders';
+
+	/**
+	 * Setting deciding when a paid order is sent to Kontor.
+	 *
+	 * Defaults to PUSH_IMMEDIATE, which is what the plugin has always done. The sweep
+	 * catches whatever the chosen moment missed either way, so the choice is about the
+	 * ordinary path rather than about reliability.
+	 */
+	const ORDER_PUSH_MODE = 'order_push_mode';
+
+	/**
+	 * Send each order as soon as it reaches a pushable status.
+	 */
+	const PUSH_IMMEDIATE = 'immediate';
+
+	/**
+	 * Leave every order to the scheduled sweep.
+	 */
+	const PUSH_SWEEP = 'sweep';
+
+	/**
 	 * Hook suffix of the settings screen, used to scope asset loading.
 	 *
 	 * @var string
@@ -186,6 +221,8 @@ class Settings {
 			self::MSRP_LABEL          => '',
 			self::SHOW_EAN            => false,
 			self::EAN_LABEL           => '',
+			self::SYNC_ORDERS         => true,
+			self::ORDER_PUSH_MODE     => self::PUSH_IMMEDIATE,
 			'product_sync_interval'   => self::INTERVAL_NEVER,
 			'stock_sync_interval'     => self::INTERVAL_NEVER,
 			'order_sync_interval'     => self::INTERVAL_NEVER,
@@ -208,6 +245,60 @@ class Settings {
 			'B2C' => __( 'B2C — retail', 'woo-kontor-sync-pro' ),
 			'EDU' => __( 'EDU — education', 'woo-kontor-sync-pro' ),
 		);
+	}
+
+	/**
+	 * The moments a paid order can be sent to Kontor.
+	 *
+	 * @return array Map of value to label.
+	 */
+	public static function order_push_modes() {
+		return array(
+			self::PUSH_IMMEDIATE => __( 'As soon as they are paid', 'woo-kontor-sync-pro' ),
+			self::PUSH_SWEEP     => __( 'Only on the scheduled sweep', 'woo-kontor-sync-pro' ),
+		);
+	}
+
+	/**
+	 * Whether this shop exchanges orders with Kontor.
+	 *
+	 * Only a value that is there and false switches orders off. An absent key reads as
+	 * on, matching the default, and the asymmetry is deliberate: the two ways of being
+	 * wrong are not equal. Reading "on" as "off" silently stops a working shop sending
+	 * its orders to the ERP, which nobody notices until the warehouse asks; the reverse
+	 * queues an upload that Preflight refuses one gate later and logs.
+	 *
+	 * get_settings() fills the key in from the defaults, so this only arises for a
+	 * settings array handed in from elsewhere.
+	 *
+	 * @param array|null $settings Optional settings override, mainly for tests.
+	 * @return bool True when the order, delivery and invoice jobs may run.
+	 */
+	public static function orders_enabled( $settings = null ) {
+		$settings = null === $settings ? self::get_settings() : $settings;
+
+		if ( ! array_key_exists( self::SYNC_ORDERS, (array) $settings ) ) {
+			return true;
+		}
+
+		return ! empty( $settings[ self::SYNC_ORDERS ] );
+	}
+
+	/**
+	 * When a paid order is sent.
+	 *
+	 * Anything unrecognised reads as the default rather than as "never send", because
+	 * a stored value this does not know is a fault here and silently holding every
+	 * order back would be the worse way to report it.
+	 *
+	 * @param array|null $settings Optional settings override, mainly for tests.
+	 * @return string One of PUSH_IMMEDIATE or PUSH_SWEEP.
+	 */
+	public static function push_mode( $settings = null ) {
+		$settings = null === $settings ? self::get_settings() : $settings;
+		$mode     = isset( $settings[ self::ORDER_PUSH_MODE ] ) ? (string) $settings[ self::ORDER_PUSH_MODE ] : '';
+
+		return self::PUSH_SWEEP === $mode ? self::PUSH_SWEEP : self::PUSH_IMMEDIATE;
 	}
 
 	/**
@@ -452,6 +543,8 @@ class Settings {
 			self::MSRP_LABEL          => $this->pick_label( $input, self::MSRP_LABEL, $existing ),
 			self::SHOW_EAN            => $this->pick_toggle( $input, self::SHOW_EAN, $existing ),
 			self::EAN_LABEL           => $this->pick_label( $input, self::EAN_LABEL, $existing ),
+			self::SYNC_ORDERS         => $this->pick_toggle( $input, self::SYNC_ORDERS, $existing ),
+			self::ORDER_PUSH_MODE     => $this->pick_mode( $input, $existing ),
 			'product_sync_interval'   => $this->pick_interval( $input, 'product_sync_interval', self::product_sync_intervals(), $existing ),
 			'stock_sync_interval'     => $this->pick_interval( $input, 'stock_sync_interval', self::stock_sync_intervals(), $existing ),
 			'order_sync_interval'     => $this->pick_interval( $input, 'order_sync_interval', self::order_sync_intervals(), $existing ),
@@ -506,6 +599,27 @@ class Settings {
 		$value = absint( $input[ $key ] );
 
 		return isset( $allowed[ $value ] ) ? $value : (int) $existing[ $key ];
+	}
+
+	/**
+	 * Validate the submitted order push mode against the allowed choices.
+	 *
+	 * An absent or unrecognised value keeps the stored one, for the reason the
+	 * intervals do: a partial submission must never quietly change when a shop's
+	 * orders are sent.
+	 *
+	 * @param array $input    Raw submitted settings.
+	 * @param array $existing Currently stored settings.
+	 * @return string One of PUSH_IMMEDIATE or PUSH_SWEEP.
+	 */
+	protected function pick_mode( array $input, array $existing ) {
+		if ( ! isset( $input[ self::ORDER_PUSH_MODE ] ) ) {
+			return self::push_mode( $existing );
+		}
+
+		$mode = sanitize_text_field( $input[ self::ORDER_PUSH_MODE ] );
+
+		return array_key_exists( $mode, self::order_push_modes() ) ? $mode : self::push_mode( $existing );
 	}
 
 	/**
@@ -1200,6 +1314,7 @@ class Settings {
 			'wksync_already_running' => __( 'That job is already running.', 'woo-kontor-sync-pro' ),
 			'wksync_not_configured'  => __( 'Set the API base URL and API key before running a sync.', 'woo-kontor-sync-pro' ),
 			'wksync_no_shop'         => __( 'Choose a Kontor shop before syncing orders.', 'woo-kontor-sync-pro' ),
+			'wksync_orders_disabled' => __( 'This shop does not exchange orders with Kontor. Turn that on under Orders first.', 'woo-kontor-sync-pro' ),
 		);
 	}
 
@@ -1213,7 +1328,9 @@ class Settings {
 			wp_die( esc_html__( 'You do not have permission to manage these settings.', 'woo-kontor-sync-pro' ) );
 		}
 
-		$settings = self::get_settings();
+		$settings  = self::get_settings();
+		$orders    = self::orders_enabled( $settings );
+		$push_mode = self::push_mode( $settings );
 		?>
 		<div class="wrap">
 			<h1><?php echo esc_html__( 'Kontor Sync', 'woo-kontor-sync-pro' ); ?></h1>
@@ -1279,57 +1396,6 @@ class Settings {
 							</select>
 							<p class="description"><?php echo esc_html__( 'Selects which price list is imported. The article list is the same for every shop type; only the selling price differs.', 'woo-kontor-sync-pro' ); ?></p>
 							<p class="description"><?php echo esc_html__( 'B2B also imports the retail price as a recommended retail price, stored on each product as _wksync_msrp. It is the figure a business can resell at, and it is left off any article Kontor lists no retail price for.', 'woo-kontor-sync-pro' ); ?></p>
-						</td>
-					</tr>
-					<tr>
-						<th scope="row">
-							<label for="wksync-shop-id"><?php echo esc_html__( 'Shop', 'woo-kontor-sync-pro' ); ?></label>
-						</th>
-						<td>
-							<select id="wksync-shop-id" name="<?php echo esc_attr( self::OPTION_KEY ); ?>[shop_id]">
-								<option value=""><?php echo esc_html__( '— No shop selected —', 'woo-kontor-sync-pro' ); ?></option>
-								<?php if ( '' !== $settings['shop_id'] ) : ?>
-									<option value="<?php echo esc_attr( $settings['shop_id'] ); ?>" selected>
-										<?php echo esc_html( '' === $settings['shop_name'] ? $settings['shop_id'] : $settings['shop_name'] ); ?>
-									</option>
-								<?php endif; ?>
-							</select>
-							<button type="button" class="button" id="wksync-fetch-shops">
-								<?php echo esc_html__( 'Fetch shops', 'woo-kontor-sync-pro' ); ?>
-							</button>
-							<input
-								type="hidden"
-								id="wksync-shop-name"
-								name="<?php echo esc_attr( self::OPTION_KEY ); ?>[shop_name]"
-								value="<?php echo esc_attr( $settings['shop_name'] ); ?>"
-							/>
-							<p class="description">
-								<?php echo esc_html__( 'Identifies this store in Kontor when orders are sent and delivery information is fetched back. Neither job runs without it. Product and stock sync do not use it.', 'woo-kontor-sync-pro' ); ?>
-							</p>
-							<p class="description" id="wksync-shops-result" aria-live="polite"></p>
-						</td>
-					</tr>
-					<tr>
-						<th scope="row">
-							<label for="wksync-upload-user-id"><?php echo esc_html__( 'Upload user ID', 'woo-kontor-sync-pro' ); ?></label>
-						</th>
-						<td>
-							<?php
-							/*
-							 * Shown for reference only. It carries no name attribute, so it is
-							 * never submitted and sanitize() has nothing to validate — the value
-							 * lives in OrderSync::UPLOAD_USER_ID and cannot drift from what is
-							 * actually sent.
-							 */
-							?>
-							<input
-								type="text"
-								class="regular-text code"
-								id="wksync-upload-user-id"
-								value="<?php echo esc_attr( OrderSync::UPLOAD_USER_ID ); ?>"
-								readonly
-							/>
-							<p class="description"><?php echo esc_html__( 'Sent with every order upload as meta.userId. Fixed by agreement with Kontor and not editable here.', 'woo-kontor-sync-pro' ); ?></p>
 						</td>
 					</tr>
 					<tr>
@@ -1528,6 +1594,36 @@ class Settings {
 							</p>
 						</td>
 					</tr>
+					<tr>
+						<th scope="row">
+							<label for="wksync-product-sync-interval"><?php echo esc_html__( 'Product sync', 'woo-kontor-sync-pro' ); ?></label>
+						</th>
+						<td>
+							<?php
+							$this->render_interval_select(
+								'wksync-product-sync-interval',
+								'product_sync_interval',
+								self::product_sync_intervals(),
+								(int) $settings['product_sync_interval']
+							);
+							?>
+						</td>
+					</tr>
+					<tr>
+						<th scope="row">
+							<label for="wksync-stock-sync-interval"><?php echo esc_html__( 'Stock sync', 'woo-kontor-sync-pro' ); ?></label>
+						</th>
+						<td>
+							<?php
+							$this->render_interval_select(
+								'wksync-stock-sync-interval',
+								'stock_sync_interval',
+								self::stock_sync_intervals(),
+								(int) $settings['stock_sync_interval']
+							);
+							?>
+						</td>
+					</tr>
 				</table>
 
 				<h2><?php echo esc_html__( 'Product page', 'woo-kontor-sync-pro' ); ?></h2>
@@ -1607,109 +1703,192 @@ class Settings {
 					</tr>
 				</table>
 
-				<h2><?php echo esc_html__( 'Schedules', 'woo-kontor-sync-pro' ); ?></h2>
+				<h2><?php echo esc_html__( 'Orders', 'woo-kontor-sync-pro' ); ?></h2>
 				<table class="form-table" role="presentation">
 					<tr>
-						<th scope="row">
-							<label for="wksync-product-sync-interval"><?php echo esc_html__( 'Product sync', 'woo-kontor-sync-pro' ); ?></label>
-						</th>
+						<th scope="row"><?php echo esc_html__( 'Orders with Kontor', 'woo-kontor-sync-pro' ); ?></th>
 						<td>
 							<?php
-							$this->render_interval_select(
-								'wksync-product-sync-interval',
-								'product_sync_interval',
-								self::product_sync_intervals(),
-								(int) $settings['product_sync_interval']
-							);
+							/*
+							 * Hidden field first, as everywhere else here: a browser submits
+							 * nothing for an unticked box, and an absent field keeps the stored
+							 * value, so "off" has to be a value that arrives.
+							 */
 							?>
-						</td>
-					</tr>
-					<tr>
-						<th scope="row">
-							<label for="wksync-stock-sync-interval"><?php echo esc_html__( 'Stock sync', 'woo-kontor-sync-pro' ); ?></label>
-						</th>
-						<td>
-							<?php
-							$this->render_interval_select(
-								'wksync-stock-sync-interval',
-								'stock_sync_interval',
-								self::stock_sync_intervals(),
-								(int) $settings['stock_sync_interval']
-							);
-							?>
-						</td>
-					</tr>
-					<tr>
-						<th scope="row">
-							<label for="wksync-order-sync-interval"><?php echo esc_html__( 'Order sync', 'woo-kontor-sync-pro' ); ?></label>
-						</th>
-						<td>
-							<?php
-							$this->render_interval_select(
-								'wksync-order-sync-interval',
-								'order_sync_interval',
-								self::order_sync_intervals(),
-								(int) $settings['order_sync_interval']
-							);
-							?>
-							<p class="description"><?php echo esc_html__( 'Orders are sent to Kontor as they are paid. This sweep only catches ones that were missed, and needs a shop selected.', 'woo-kontor-sync-pro' ); ?></p>
-						</td>
-					</tr>
-					<tr>
-						<th scope="row">
-							<label for="wksync-delivery-sync-interval"><?php echo esc_html__( 'Delivery sync', 'woo-kontor-sync-pro' ); ?></label>
-						</th>
-						<td>
-							<?php
-							$this->render_interval_select(
-								'wksync-delivery-sync-interval',
-								'delivery_sync_interval',
-								self::delivery_sync_intervals(),
-								(int) $settings['delivery_sync_interval']
-							);
-							?>
-							<p class="description"><?php echo esc_html__( 'Pulls tracking details back from Kontor and needs a shop selected. An order Kontor reports as completed is completed here too, which emails the customer.', 'woo-kontor-sync-pro' ); ?></p>
-						</td>
-					</tr>
-					<tr>
-						<th scope="row">
-							<label for="wksync-invoice-sync-interval"><?php echo esc_html__( 'Invoice sync', 'woo-kontor-sync-pro' ); ?></label>
-						</th>
-						<td>
-							<?php
-							$this->render_interval_select(
-								'wksync-invoice-sync-interval',
-								'invoice_sync_interval',
-								self::invoice_sync_intervals(),
-								(int) $settings['invoice_sync_interval']
-							);
-							?>
-							<p class="description"><?php echo esc_html__( 'Downloads invoice PDFs from Kontor and needs a shop selected. Each invoice is stored privately, shown to the customer on their order, and attached to the order emails sent after it arrives.', 'woo-kontor-sync-pro' ); ?></p>
+							<input type="hidden" name="<?php echo esc_attr( self::OPTION_KEY ); ?>[<?php echo esc_attr( self::SYNC_ORDERS ); ?>]" value="0" />
+							<label for="wksync-sync-orders">
+								<input
+									type="checkbox"
+									id="wksync-sync-orders"
+									name="<?php echo esc_attr( self::OPTION_KEY ); ?>[<?php echo esc_attr( self::SYNC_ORDERS ); ?>]"
+									value="1"
+									<?php checked( $orders ); ?>
+								/>
+								<?php echo esc_html__( 'Send orders to Kontor, and bring deliveries and invoices back', 'woo-kontor-sync-pro' ); ?>
+							</label>
+							<p class="description">
+								<?php echo esc_html__( 'Leave this off for a shop that only imports the catalogue. Nothing is sent at checkout, the three jobs below never run, and no Kontor shop has to be chosen. Turning it back on restores the schedules exactly as they were.', 'woo-kontor-sync-pro' ); ?>
+							</p>
 						</td>
 					</tr>
 				</table>
 
 				<?php
 				/*
-				 * The two mails these jobs can send are WooCommerce email types rather
-				 * than settings of this plugin's, so their switches, subjects and
-				 * headings all live where a shop manager already manages email. This
-				 * line is what stops that being the same as hiding them.
+				 * Rendered whether or not orders are switched on, and hidden rather than
+				 * left out, so ticking the box above reveals the rest without a save. The
+				 * fields still submit while hidden, which is what keeps a shop's stored
+				 * shop and intervals through a save made with the section closed.
 				 */
 				?>
-				<p class="description">
+				<div id="wksync-order-settings" <?php echo $orders ? '' : 'hidden'; ?>>
+					<table class="form-table" role="presentation">
+						<tr>
+							<th scope="row">
+								<label for="wksync-shop-id"><?php echo esc_html__( 'Shop', 'woo-kontor-sync-pro' ); ?></label>
+							</th>
+							<td>
+								<select id="wksync-shop-id" name="<?php echo esc_attr( self::OPTION_KEY ); ?>[shop_id]">
+									<option value=""><?php echo esc_html__( '— No shop selected —', 'woo-kontor-sync-pro' ); ?></option>
+									<?php if ( '' !== $settings['shop_id'] ) : ?>
+										<option value="<?php echo esc_attr( $settings['shop_id'] ); ?>" selected>
+											<?php echo esc_html( '' === $settings['shop_name'] ? $settings['shop_id'] : $settings['shop_name'] ); ?>
+										</option>
+									<?php endif; ?>
+								</select>
+								<button type="button" class="button" id="wksync-fetch-shops">
+									<?php echo esc_html__( 'Fetch shops', 'woo-kontor-sync-pro' ); ?>
+								</button>
+								<input
+									type="hidden"
+									id="wksync-shop-name"
+									name="<?php echo esc_attr( self::OPTION_KEY ); ?>[shop_name]"
+									value="<?php echo esc_attr( $settings['shop_name'] ); ?>"
+								/>
+								<p class="description">
+									<?php echo esc_html__( 'Identifies this store in Kontor. All three jobs below need one, and none of them runs until it is chosen. The product and stock syncs do not use it at all.', 'woo-kontor-sync-pro' ); ?>
+								</p>
+								<p class="description" id="wksync-shops-result" aria-live="polite"></p>
+							</td>
+						</tr>
+						<tr>
+							<th scope="row">
+								<label for="wksync-upload-user-id"><?php echo esc_html__( 'Upload user ID', 'woo-kontor-sync-pro' ); ?></label>
+							</th>
+							<td>
+								<?php
+								/*
+								 * Shown for reference only. It carries no name attribute, so it is
+								 * never submitted and sanitize() has nothing to validate — the value
+								 * lives in OrderSync::UPLOAD_USER_ID and cannot drift from what is
+								 * actually sent.
+								 */
+								?>
+								<input
+									type="text"
+									class="regular-text code"
+									id="wksync-upload-user-id"
+									value="<?php echo esc_attr( OrderSync::UPLOAD_USER_ID ); ?>"
+									readonly
+								/>
+								<p class="description"><?php echo esc_html__( 'Sent with every order upload as meta.userId. Fixed by agreement with Kontor and not editable here.', 'woo-kontor-sync-pro' ); ?></p>
+							</td>
+						</tr>
+						<tr>
+							<th scope="row">
+								<label for="wksync-order-push-mode"><?php echo esc_html__( 'Send orders', 'woo-kontor-sync-pro' ); ?></label>
+							</th>
+							<td>
+								<select id="wksync-order-push-mode" name="<?php echo esc_attr( self::OPTION_KEY ); ?>[<?php echo esc_attr( self::ORDER_PUSH_MODE ); ?>]">
+									<?php foreach ( self::order_push_modes() as $value => $label ) : ?>
+										<option value="<?php echo esc_attr( $value ); ?>" <?php selected( $push_mode, $value ); ?>>
+											<?php echo esc_html( $label ); ?>
+										</option>
+									<?php endforeach; ?>
+								</select>
+								<p class="description">
+									<?php echo esc_html__( 'Sending as they are paid reaches Kontor within a minute of checkout. Either way the sweep below catches whatever that moment missed, so this is a choice about the ordinary path rather than about reliability.', 'woo-kontor-sync-pro' ); ?>
+								</p>
+								<?php if ( self::PUSH_SWEEP === $push_mode && self::INTERVAL_NEVER === (int) $settings['order_sync_interval'] ) : ?>
+									<p class="description">
+										<strong><?php echo esc_html__( 'Nothing will send orders on its own.', 'woo-kontor-sync-pro' ); ?></strong>
+										<?php echo esc_html__( 'With the sweep below set to Never as well, an order reaches Kontor only when Run now is pressed.', 'woo-kontor-sync-pro' ); ?>
+									</p>
+								<?php endif; ?>
+							</td>
+						</tr>
+						<tr>
+							<th scope="row">
+								<label for="wksync-order-sync-interval"><?php echo esc_html__( 'Order sync', 'woo-kontor-sync-pro' ); ?></label>
+							</th>
+							<td>
+								<?php
+								$this->render_interval_select(
+									'wksync-order-sync-interval',
+									'order_sync_interval',
+									self::order_sync_intervals(),
+									(int) $settings['order_sync_interval']
+								);
+								?>
+								<p class="description"><?php echo esc_html__( 'A sweep for whatever the moment above missed — an order Kontor rejected, or one placed while the site could not reach it.', 'woo-kontor-sync-pro' ); ?></p>
+							</td>
+						</tr>
+						<tr>
+							<th scope="row">
+								<label for="wksync-delivery-sync-interval"><?php echo esc_html__( 'Delivery sync', 'woo-kontor-sync-pro' ); ?></label>
+							</th>
+							<td>
+								<?php
+								$this->render_interval_select(
+									'wksync-delivery-sync-interval',
+									'delivery_sync_interval',
+									self::delivery_sync_intervals(),
+									(int) $settings['delivery_sync_interval']
+								);
+								?>
+								<p class="description"><?php echo esc_html__( 'Pulls tracking details back from Kontor. An order Kontor reports as completed is completed here too, which emails the customer.', 'woo-kontor-sync-pro' ); ?></p>
+							</td>
+						</tr>
+						<tr>
+							<th scope="row">
+								<label for="wksync-invoice-sync-interval"><?php echo esc_html__( 'Invoice sync', 'woo-kontor-sync-pro' ); ?></label>
+							</th>
+							<td>
+								<?php
+								$this->render_interval_select(
+									'wksync-invoice-sync-interval',
+									'invoice_sync_interval',
+									self::invoice_sync_intervals(),
+									(int) $settings['invoice_sync_interval']
+								);
+								?>
+								<p class="description"><?php echo esc_html__( 'Downloads invoice PDFs from Kontor. Each invoice is stored privately, shown to the customer on their order, and attached to the order emails sent after it arrives.', 'woo-kontor-sync-pro' ); ?></p>
+							</td>
+						</tr>
+					</table>
+
 					<?php
-					printf(
-						/* translators: %s: link to the WooCommerce email settings screen. */
-						esc_html__( 'The delivery and invoice syncs can also email the customer when tracking details or an invoice arrive. Both are switched off until you turn them on under %s.', 'woo-kontor-sync-pro' ),
-						sprintf(
-							'<a href="%1$s">%2$s</a>',
-							esc_url( admin_url( 'admin.php?page=wc-settings&tab=email' ) ),
-							esc_html__( 'WooCommerce → Settings → Emails', 'woo-kontor-sync-pro' )
-						)
-					);
+					/*
+					 * The two mails these jobs can send are WooCommerce email types rather
+					 * than settings of this plugin's, so their switches, subjects and
+					 * headings all live where a shop manager already manages email. This
+					 * line is what stops that being the same as hiding them.
+					 */
 					?>
-				</p>
+					<p class="description">
+						<?php
+						printf(
+							/* translators: %s: link to the WooCommerce email settings screen. */
+							esc_html__( 'The delivery and invoice syncs can also email the customer when tracking details or an invoice arrive. Both are switched off until you turn them on under %s.', 'woo-kontor-sync-pro' ),
+							sprintf(
+								'<a href="%1$s">%2$s</a>',
+								esc_url( admin_url( 'admin.php?page=wc-settings&tab=email' ) ),
+								esc_html__( 'WooCommerce → Settings → Emails', 'woo-kontor-sync-pro' )
+							)
+						);
+						?>
+					</p>
+				</div>
 
 				<?php submit_button(); ?>
 			</form>
@@ -1731,9 +1910,16 @@ class Settings {
 	 * should be approached: overwrite_all's behaviour was never established against a
 	 * live account, so the first press should risk one order rather than the shop.
 	 *
+	 * Nothing at all on a shop that does not exchange orders with Kontor: there is no
+	 * order in the ERP for it to overwrite.
+	 *
 	 * @return void
 	 */
 	protected function render_force_push_section() {
+		if ( ! self::orders_enabled() ) {
+			return;
+		}
+
 		?>
 		<h2><?php echo esc_html__( 'Force push to Kontor', 'woo-kontor-sync-pro' ); ?></h2>
 
@@ -2156,6 +2342,7 @@ class Settings {
 	 */
 	protected function render_jobs_table() {
 		$images = Scheduler::pending_count( Scheduler::ACTION_SYNC_PRODUCT_IMAGES );
+		$orders = self::orders_enabled();
 		?>
 		<table class="widefat striped" id="wksync-jobs">
 			<thead>
@@ -2169,6 +2356,14 @@ class Settings {
 			<tbody>
 				<?php foreach ( Scheduler::get_jobs() as $key => $job ) : ?>
 					<?php
+					/*
+					 * The order-side jobs are listed only when the shop wants them. A row
+					 * whose Run now can do nothing but refuse is worse than no row.
+					 */
+					if ( ! empty( $job['needs_shop'] ) && ! $orders ) {
+						continue;
+					}
+
 					$status   = Status::get( $key );
 					$next_run = Scheduler::next_run( $key );
 					$percent  = Status::percentage( $status );

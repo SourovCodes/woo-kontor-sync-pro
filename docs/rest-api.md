@@ -158,6 +158,7 @@ happens to be due next week. Whichever action runs second finds the job already 
 | `wksync_not_configured` | **503** | This shop has no API base URL or key stored. Nothing to fix in the request. |
 | `wksync_unavailable` | **503** | WooCommerce or its scheduler is not available. |
 | `wksync_no_shop` | **503** | No Kontor shop selected. Cannot arise for these two jobs; documented because the code maps it. |
+| `wksync_orders_disabled` | **503** | The shop does not exchange orders with Kontor. Cannot arise for these two jobs either; the catalogue jobs run whatever that setting says. |
 
 Nothing is queued when a trigger is refused.
 
