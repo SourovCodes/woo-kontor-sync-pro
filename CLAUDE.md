@@ -393,6 +393,14 @@ of them wrong produces silently wrong data rather than an error:
       it was a single indexed join. Nothing about the rows coming back can tell the two apart, which
       is why the correctness test passed the whole time and why the guard
       (`test_every_reason_at_once_joins_the_meta_table_once`) counts joins in the SQL instead.
+    - **The same trap caught `StockSync::draft_batch()`, milder, and it is now hand-written SQL.**
+      Two unconstrained joins rather than five — ~777 intermediate rows per product instead of 17
+      million — so it returned, at 0.57s a batch on 4398 products against 0.027s now. It needs an OR
+      ("no stamp at all, or a stamp older than this run") and cannot avoid one, and WP_Meta_Query
+      drops `meta_key` from every non-`NOT EXISTS` `ON` clause the moment an OR appears anywhere in
+      the query, so `get_posts()` could not express it cheaply at all. **The rule to carry: a join
+      whose `ON` does not name `meta_key` matches every meta row the product has, and N of them cost
+      (rows per product)^N.** Join count alone is not the signal — `none` has five and is fine.
     - **`none` cannot be written the same way and is deliberately not.** `compare_key` with
       `NOT EXISTS` builds a `LEFT JOIN` with no `ON` clause at all, which the database refuses. The
       group it keeps costs nothing like `any` did: a `NOT EXISTS` clause is a `LEFT JOIN` tested for
