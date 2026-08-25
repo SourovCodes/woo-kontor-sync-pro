@@ -125,6 +125,24 @@ class HeldProducts {
 	 * One reason is a flat clause rather than a group of one — that is every case but
 	 * ANY and NONE, so the commonest filter costs the list one join instead of two.
 	 *
+	 * ANY is one clause over every key rather than a group of EXISTS clauses joined by
+	 * OR, and the difference is the difference between a page that loads and one that
+	 * never answers. WP_Meta_Query gives each clause in an OR group its own INNER JOIN
+	 * on the meta table, so five of them multiply out: every combination of five meta
+	 * rows on the same product, before the WHERE picks any of them. A product carries
+	 * a couple of dozen rows, so that is millions of combinations per product, and on
+	 * a catalogue of four thousand the query does not return at all. Written as one
+	 * `meta_key IN (…)` it is a single indexed join — measured on the development
+	 * site's 4386 articles, 829 rows in 5ms against a query that had to be killed.
+	 *
+	 * NONE cannot be written the same way, and it is not an oversight. `compare_key`
+	 * with `NOT EXISTS` builds a LEFT JOIN with no ON clause at all — the SQL is
+	 * malformed and the database refuses it — so the inverse stays a group of NOT
+	 * EXISTS clauses. That group costs nothing like the same: a NOT EXISTS clause is a
+	 * LEFT JOIN tested for NULL, which matches at most one row per key per product
+	 * rather than multiplying, and it measures at a tenth of a second on the same
+	 * catalogue.
+	 *
 	 * @param string $slug Reason slug, ANY, or NONE.
 	 * @return array Meta query clause.
 	 */
@@ -138,13 +156,21 @@ class HeldProducts {
 			);
 		}
 
-		// Any reason at all is a match; none of them means every one has to be absent.
-		$group = array( 'relation' => self::ANY === $slug ? 'OR' : 'AND' );
+		if ( self::ANY === $slug ) {
+			return array(
+				'key'         => array_values( $reasons ),
+				'compare_key' => 'IN',
+				'compare'     => 'EXISTS',
+			);
+		}
+
+		// None of them means every one has to be absent.
+		$group = array( 'relation' => 'AND' );
 
 		foreach ( $reasons as $meta_key ) {
 			$group[] = array(
 				'key'     => $meta_key,
-				'compare' => self::ANY === $slug ? 'EXISTS' : 'NOT EXISTS',
+				'compare' => 'NOT EXISTS',
 			);
 		}
 

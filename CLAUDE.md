@@ -385,6 +385,18 @@ of them wrong produces silently wrong data rather than an error:
     - **`clauses()` is shared by the filter and the counts**, so a view cannot promise a number the
       list it opens then disagrees with. A single reason is a flat clause rather than a group of
       one, which is every case but `any` and `none`.
+    - **`any` is one clause over every key — `compare_key` `IN` — never a group of `EXISTS` clauses
+      joined by `OR`.** WP_Meta_Query gives each clause in an OR group its own `INNER JOIN` on the
+      meta table, so five of them multiply out: every combination of five meta rows on the same
+      product, before the `WHERE` picks any of them. It shipped that way in 0.22.0 and below and the
+      view **never returned at all** on the development site's 4386 articles — 829 rows in 5ms once
+      it was a single indexed join. Nothing about the rows coming back can tell the two apart, which
+      is why the correctness test passed the whole time and why the guard
+      (`test_every_reason_at_once_joins_the_meta_table_once`) counts joins in the SQL instead.
+    - **`none` cannot be written the same way and is deliberately not.** `compare_key` with
+      `NOT EXISTS` builds a `LEFT JOIN` with no `ON` clause at all, which the database refuses. The
+      group it keeps costs nothing like `any` did: a `NOT EXISTS` clause is a `LEFT JOIN` tested for
+      `NULL`, matching at most one row per key per product rather than multiplying.
     - **Counted on the marker alone, never joined to the post status.** A product somebody published
       by hand still carries its marker and the next sync will draft it again; leaving it out of the
       count would hide the one case worth seeing.
