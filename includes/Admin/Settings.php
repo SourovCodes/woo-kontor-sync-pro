@@ -9,6 +9,7 @@ namespace WooKontorSync\Admin;
 
 use WooKontorSync\Api\Client;
 use WooKontorSync\Frontend\ProductMeta;
+use WooKontorSync\Sync\CategoryPush;
 use WooKontorSync\Sync\OrderSync;
 use WooKontorSync\Sync\ProductSync;
 use WooKontorSync\Sync\Scheduler;
@@ -65,6 +66,24 @@ class Settings {
 	const FORCE_PUSH_CONFIRMATION = 'OVERWRITE';
 
 	/**
+	 * Transient prefix holding a category push's result across the redirect.
+	 */
+	const CATEGORY_PUSH_RESULT = 'wksync_category_push_result_';
+
+	/**
+	 * The word that has to be typed to replace Kontor's category tree.
+	 *
+	 * Deliberately not FORCE_PUSH_CONFIRMATION's word. Two different destructive acts
+	 * deserve two different words, so muscle memory from the order screen cannot fire
+	 * this one — and this is the more destructive of the two, since a category left out
+	 * of the payload takes its product assignments in the ERP with it.
+	 *
+	 * Untranslated, for the reason the other one is: a confirmation is only a
+	 * confirmation if what has to be typed is exact.
+	 */
+	const CATEGORY_PUSH_CONFIRMATION = 'REPLACE';
+
+	/**
 	 * Interval value meaning "do not schedule this job at all".
 	 *
 	 * This is the default for both jobs: a fresh install has no API key, so nothing
@@ -108,6 +127,40 @@ class Settings {
 	 * @var string
 	 */
 	const TRASH_UNMANAGED = 'trash_unmanaged';
+
+	/**
+	 * Setting deciding whether Kontor owns this shop's product categories.
+	 *
+	 * Off by default, like every other setting here that changes what the shop does.
+	 * On, the category tree Kontor holds for the selected shop becomes WooCommerce
+	 * product categories, and each article's Categories field decides which of them its
+	 * product sits in. Categories added in WooCommerce are left alone on their products;
+	 * only the terms this plugin created are managed.
+	 *
+	 * It needs a shop, because the tree is per-shop and there is no such thing as
+	 * Kontor's categories without one. categories_enabled() is what asks both questions
+	 * together, so nothing can act on half the answer.
+	 *
+	 * Turning it on or off rewrites the whole catalogue on the next run: the Categories
+	 * field joins the change hash with it, so every article's hash moves. That is the
+	 * same intended cost as changing the shop type.
+	 */
+	const SYNC_CATEGORIES = 'sync_categories';
+
+	/**
+	 * Setting deciding whether an article with no category may be sold.
+	 *
+	 * Off by default. On, an article Kontor lists no category for is imported as a
+	 * draft, exactly as one it lists no image for is — the shop keeps the article,
+	 * priced and pictured, one status change away from sale.
+	 *
+	 * Not a small number: 2056 of the 4389 articles on the account this was measured
+	 * against carry no category for the shop in question.
+	 *
+	 * Meaningless without SYNC_CATEGORIES, since the question is answered against the
+	 * tree, so it is only ever asked when categories_enabled() is true.
+	 */
+	const REQUIRE_CATEGORY = 'require_category';
 
 	/**
 	 * Setting deciding whether the product page shows the recommended retail price.
@@ -226,6 +279,8 @@ class Settings {
 			'manufacturer_names'      => array(),
 			'image_base_url'          => '',
 			'require_main_image'      => false,
+			self::SYNC_CATEGORIES     => false,
+			self::REQUIRE_CATEGORY    => false,
 			self::ENFORCE_QUANTITIES  => false,
 			self::DRAFT_MISSING_STOCK => false,
 			self::TRASH_UNMANAGED     => false,
@@ -294,6 +349,53 @@ class Settings {
 		}
 
 		return ! empty( $settings[ self::SYNC_ORDERS ] );
+	}
+
+	/**
+	 * Whether Kontor owns this shop's product categories.
+	 *
+	 * Two questions with one answer, because acting on either alone is wrong. The
+	 * setting says the shop wants it; the shop ID is what makes it possible, since the
+	 * category tree is per-shop and the entity returns nothing at all without one.
+	 *
+	 * Everything reads this rather than the raw setting — the change hash, the
+	 * assignments and the withheld reason alike — so the three cannot disagree about
+	 * whether the feature is on. A ticked box with no shop chosen is reported on the
+	 * settings screen and in the log rather than silently doing nothing.
+	 *
+	 * Absent reads as off, unlike orders_enabled(): this setting grants a capability
+	 * rather than taking one away, so an installation that has never heard of it should
+	 * carry on behaving as it did.
+	 *
+	 * @param array|null $settings Optional settings override, mainly for tests.
+	 * @return bool True when the category tree may be imported and followed.
+	 */
+	public static function categories_enabled( $settings = null ) {
+		$settings = null === $settings ? self::get_settings() : $settings;
+
+		if ( empty( $settings[ self::SYNC_CATEGORIES ] ) ) {
+			return false;
+		}
+
+		$shop_id = isset( $settings['shop_id'] ) ? trim( (string) $settings['shop_id'] ) : '';
+
+		return '' !== $shop_id && self::is_shop_id( $shop_id );
+	}
+
+	/**
+	 * Whether an article with no category is held back as a draft.
+	 *
+	 * Only ever true alongside categories_enabled(): the question is answered against
+	 * the shop's tree, and without one there is nothing to answer it with. Asking it
+	 * anyway would draft every article in the shop.
+	 *
+	 * @param array|null $settings Optional settings override, mainly for tests.
+	 * @return bool True when a category is required for sale.
+	 */
+	public static function category_required( $settings = null ) {
+		$settings = null === $settings ? self::get_settings() : $settings;
+
+		return self::categories_enabled( $settings ) && ! empty( $settings[ self::REQUIRE_CATEGORY ] );
 	}
 
 	/**
@@ -419,6 +521,7 @@ class Settings {
 		add_action( 'admin_post_wksync_run_job', array( $this, 'handle_run_job' ) );
 		add_action( 'admin_post_wksync_check_updates', array( $this, 'handle_check_updates' ) );
 		add_action( 'admin_post_wksync_force_push', array( $this, 'handle_force_push' ) );
+		add_action( 'admin_post_wksync_category_push', array( $this, 'handle_category_push' ) );
 	}
 
 	/**
@@ -549,6 +652,8 @@ class Settings {
 			'manufacturer_names'      => $manufacturers['manufacturer_names'],
 			'image_base_url'          => isset( $input['image_base_url'] ) ? esc_url_raw( trim( $input['image_base_url'] ) ) : '',
 			'require_main_image'      => $this->pick_toggle( $input, 'require_main_image', $existing ),
+			self::SYNC_CATEGORIES     => $this->pick_toggle( $input, self::SYNC_CATEGORIES, $existing ),
+			self::REQUIRE_CATEGORY    => $this->pick_toggle( $input, self::REQUIRE_CATEGORY, $existing ),
 			self::ENFORCE_QUANTITIES  => $this->pick_toggle( $input, self::ENFORCE_QUANTITIES, $existing ),
 			self::DRAFT_MISSING_STOCK => $this->pick_toggle( $input, self::DRAFT_MISSING_STOCK, $existing ),
 			self::TRASH_UNMANAGED     => $this->pick_toggle( $input, self::TRASH_UNMANAGED, $existing ),
@@ -1240,6 +1345,104 @@ class Settings {
 	}
 
 	/**
+	 * Preview or perform a replacement of Kontor's category tree.
+	 *
+	 * Two things behind one form for a reason: the preview is the only way to see what a
+	 * replacing push would contain without performing one, and on a live account that is
+	 * the difference between checking the payload and finding out afterwards.
+	 *
+	 * Runs in this request rather than in the background, exactly as the order force push
+	 * does and for the same reason: the answer is the whole point, and a queued job would
+	 * put it in a log instead of in front of whoever pressed the button.
+	 *
+	 * @return void
+	 */
+	public function handle_category_push() {
+		if ( ! current_user_can( self::CAPABILITY ) ) {
+			wp_die( esc_html__( 'You do not have permission to do that.', 'woo-kontor-sync-pro' ) );
+		}
+
+		check_admin_referer( 'wksync_category_push' );
+
+		$mode = isset( $_POST['mode'] ) ? sanitize_key( wp_unslash( $_POST['mode'] ) ) : '';
+		$push = new CategoryPush();
+
+		if ( 'preview' === $mode ) {
+			$rows = $push->payload();
+
+			$this->store_category_push_result(
+				is_wp_error( $rows )
+					? array( 'error' => $rows->get_error_message() )
+					: array(
+						'preview' => true,
+						'rows'    => $rows,
+					)
+			);
+
+			$this->redirect_after_category_push();
+		}
+
+		$typed = isset( $_POST['confirmation'] )
+			? trim( sanitize_text_field( wp_unslash( $_POST['confirmation'] ) ) )
+			: '';
+
+		/*
+		 * Checked on the server rather than with a JavaScript confirm, which is a
+		 * courtesy to a browser in exactly the way a min attribute is: it can be turned
+		 * off, and this request can be made without ever loading the page.
+		 */
+		if ( self::CATEGORY_PUSH_CONFIRMATION !== $typed ) {
+			$this->store_category_push_result(
+				array(
+					'error' => sprintf(
+						/* translators: %s: the word that must be typed to confirm. */
+						__( 'Nothing was sent. Type %s to confirm replacing every category Kontor holds for this shop.', 'woo-kontor-sync-pro' ),
+						self::CATEGORY_PUSH_CONFIRMATION
+					),
+				)
+			);
+
+			$this->redirect_after_category_push();
+		}
+
+		if ( function_exists( 'wc_set_time_limit' ) ) {
+			wc_set_time_limit( 0 );
+		}
+
+		$this->store_category_push_result( $push->push() );
+		$this->redirect_after_category_push();
+	}
+
+	/**
+	 * Keep a category push's result for the screen that follows the redirect.
+	 *
+	 * @param array $result Result from CategoryPush, or a bare error.
+	 * @return void
+	 */
+	protected function store_category_push_result( array $result ) {
+		set_transient( self::CATEGORY_PUSH_RESULT . get_current_user_id(), $result, 5 * MINUTE_IN_SECONDS );
+	}
+
+	/**
+	 * Return to the settings screen after a category push and stop.
+	 *
+	 * @return void
+	 */
+	protected function redirect_after_category_push() {
+		wp_safe_redirect(
+			add_query_arg(
+				array(
+					'page'            => self::PAGE_SLUG,
+					'wksync_category' => '1',
+				),
+				admin_url( 'admin.php' )
+			)
+		);
+
+		exit;
+	}
+
+	/**
 	 * Report where every job has got to, for the progress bars.
 	 *
 	 * Deliberately cheap: the whole answer comes from one non-autoloaded option, plus
@@ -1341,9 +1544,11 @@ class Settings {
 			wp_die( esc_html__( 'You do not have permission to manage these settings.', 'woo-kontor-sync-pro' ) );
 		}
 
-		$settings  = self::get_settings();
-		$orders    = self::orders_enabled( $settings );
-		$push_mode = self::push_mode( $settings );
+		$settings   = self::get_settings();
+		$orders     = self::orders_enabled( $settings );
+		$push_mode  = self::push_mode( $settings );
+		$categories = ! empty( $settings[ self::SYNC_CATEGORIES ] );
+		$has_shop   = '' !== trim( (string) $settings['shop_id'] ) && self::is_shop_id( $settings['shop_id'] );
 		?>
 		<div class="wrap">
 			<h1><?php echo esc_html__( 'Kontor Sync', 'woo-kontor-sync-pro' ); ?></h1>
@@ -1418,6 +1623,47 @@ class Settings {
 								<?php echo esc_html__( 'Test connection', 'woo-kontor-sync-pro' ); ?>
 							</button>
 							<p class="description" id="wksync-test-result" aria-live="polite"></p>
+						</td>
+					</tr>
+					<?php
+					/*
+					 * The shop sits here rather than under Orders because two unrelated
+					 * features now need it: the order side, and the category import, whose
+					 * tree is per-shop. One field in one place beats the same field rendered
+					 * twice and able to disagree with itself.
+					 *
+					 * Hidden rather than left out when neither wants it, so a shop that only
+					 * imports the catalogue is still never asked to choose one — and so the
+					 * field goes on submitting, which is what keeps a stored shop through a
+					 * save made with the row closed.
+					 */
+					?>
+					<tr id="wksync-shop-row" <?php echo ( $orders || $categories ) ? '' : 'hidden'; ?>>
+						<th scope="row">
+							<label for="wksync-shop-id"><?php echo esc_html__( 'Shop', 'woo-kontor-sync-pro' ); ?></label>
+						</th>
+						<td>
+							<select id="wksync-shop-id" name="<?php echo esc_attr( self::OPTION_KEY ); ?>[shop_id]">
+								<option value=""><?php echo esc_html__( '— No shop selected —', 'woo-kontor-sync-pro' ); ?></option>
+								<?php if ( '' !== $settings['shop_id'] ) : ?>
+									<option value="<?php echo esc_attr( $settings['shop_id'] ); ?>" selected>
+										<?php echo esc_html( '' === $settings['shop_name'] ? $settings['shop_id'] : $settings['shop_name'] ); ?>
+									</option>
+								<?php endif; ?>
+							</select>
+							<button type="button" class="button" id="wksync-fetch-shops">
+								<?php echo esc_html__( 'Fetch shops', 'woo-kontor-sync-pro' ); ?>
+							</button>
+							<input
+								type="hidden"
+								id="wksync-shop-name"
+								name="<?php echo esc_attr( self::OPTION_KEY ); ?>[shop_name]"
+								value="<?php echo esc_attr( $settings['shop_name'] ); ?>"
+							/>
+							<p class="description">
+								<?php echo esc_html__( 'Identifies this store in Kontor. The order, delivery and invoice jobs all need one, and so does the category import, because Kontor holds a separate category tree per shop. The stock sync does not use it at all.', 'woo-kontor-sync-pro' ); ?>
+							</p>
+							<p class="description" id="wksync-shops-result" aria-live="polite"></p>
 						</td>
 					</tr>
 				</table>
@@ -1680,6 +1926,69 @@ class Settings {
 					</tr>
 				</table>
 
+				<h2><?php echo esc_html__( 'Categories', 'woo-kontor-sync-pro' ); ?></h2>
+				<table class="form-table" role="presentation">
+					<tr>
+						<th scope="row"><?php echo esc_html__( 'Categories from Kontor', 'woo-kontor-sync-pro' ); ?></th>
+						<td>
+							<input type="hidden" name="<?php echo esc_attr( self::OPTION_KEY ); ?>[<?php echo esc_attr( self::SYNC_CATEGORIES ); ?>]" value="0" />
+							<label for="wksync-sync-categories">
+								<input
+									type="checkbox"
+									id="wksync-sync-categories"
+									name="<?php echo esc_attr( self::OPTION_KEY ); ?>[<?php echo esc_attr( self::SYNC_CATEGORIES ); ?>]"
+									value="1"
+									<?php checked( $categories ); ?>
+								/>
+								<?php echo esc_html__( 'Let Kontor decide which categories a product is in', 'woo-kontor-sync-pro' ); ?>
+							</label>
+							<?php if ( $categories && ! $has_shop ) : ?>
+								<div class="notice notice-warning inline">
+									<p><?php echo esc_html__( 'Categories will not be imported until a shop is chosen above. Kontor holds a separate category tree per shop, and asks for one before it will list any.', 'woo-kontor-sync-pro' ); ?></p>
+								</div>
+							<?php endif; ?>
+							<p class="description">
+								<?php echo esc_html__( 'The category tree Kontor holds for the chosen shop becomes WooCommerce product categories, matched on Kontor\'s own category ID so that renaming or moving one in the ERP is followed here rather than duplicated. Each product is then filed as its article says.', 'woo-kontor-sync-pro' ); ?>
+							</p>
+							<p class="description">
+								<?php echo esc_html__( 'Categories you added in WooCommerce are left on their products untouched, and so is any category Kontor has stopped listing. Nothing here ever deletes a category.', 'woo-kontor-sync-pro' ); ?>
+							</p>
+							<p class="description">
+								<strong><?php echo esc_html__( 'Turning this on or off rewrites the whole catalogue on the next run.', 'woo-kontor-sync-pro' ); ?></strong>
+								<?php echo esc_html__( 'The category field joins the change check with it, so every article counts as changed once. That is the same cost as changing the shop type.', 'woo-kontor-sync-pro' ); ?>
+							</p>
+						</td>
+					</tr>
+				</table>
+
+				<div id="wksync-category-settings" <?php echo $categories ? '' : 'hidden'; ?>>
+					<table class="form-table" role="presentation">
+						<tr>
+							<th scope="row"><?php echo esc_html__( 'Articles with no category', 'woo-kontor-sync-pro' ); ?></th>
+							<td>
+								<input type="hidden" name="<?php echo esc_attr( self::OPTION_KEY ); ?>[<?php echo esc_attr( self::REQUIRE_CATEGORY ); ?>]" value="0" />
+								<label for="wksync-require-category">
+									<input
+										type="checkbox"
+										id="wksync-require-category"
+										name="<?php echo esc_attr( self::OPTION_KEY ); ?>[<?php echo esc_attr( self::REQUIRE_CATEGORY ); ?>]"
+										value="1"
+										<?php checked( ! empty( $settings[ self::REQUIRE_CATEGORY ] ) ); ?>
+									/>
+									<?php echo esc_html__( 'Hold them back as drafts', 'woo-kontor-sync-pro' ); ?>
+								</label>
+								<p class="description">
+									<?php echo esc_html__( 'An article Kontor files under no category is imported as a draft rather than put on sale, the same answer this plugin gives an article with no image. It keeps its price, its stock and its pictures, and a category added in Kontor publishes it on the next run.', 'woo-kontor-sync-pro' ); ?>
+								</p>
+								<p class="description">
+									<strong><?php echo esc_html__( 'This is usually a large number.', 'woo-kontor-sync-pro' ); ?></strong>
+									<?php echo esc_html__( 'On the account this was measured against, close to half the catalogue belonged to no category at all. Check the run summary before assuming something went wrong.', 'woo-kontor-sync-pro' ); ?>
+								</p>
+							</td>
+						</tr>
+					</table>
+				</div>
+
 				<h2><?php echo esc_html__( 'Product page', 'woo-kontor-sync-pro' ); ?></h2>
 				<p class="description">
 					<?php echo esc_html__( 'Both rows are added to the product meta block, beside the article number and the categories, and each is shown only on a product that has the figure.', 'woo-kontor-sync-pro' ); ?>
@@ -1781,7 +2090,7 @@ class Settings {
 								<?php echo esc_html__( 'Send orders to Kontor, and bring deliveries and invoices back', 'woo-kontor-sync-pro' ); ?>
 							</label>
 							<p class="description">
-								<?php echo esc_html__( 'Leave this off for a shop that only imports the catalogue. Nothing is sent at checkout, the three jobs below never run, and no Kontor shop has to be chosen. Turning it back on restores the schedules exactly as they were.', 'woo-kontor-sync-pro' ); ?>
+								<?php echo esc_html__( 'Leave this off for a shop that only imports the catalogue. Nothing is sent at checkout and the three jobs below never run. Turning it back on restores the schedules exactly as they were.', 'woo-kontor-sync-pro' ); ?>
 							</p>
 						</td>
 					</tr>
@@ -1797,34 +2106,6 @@ class Settings {
 				?>
 				<div id="wksync-order-settings" <?php echo $orders ? '' : 'hidden'; ?>>
 					<table class="form-table" role="presentation">
-						<tr>
-							<th scope="row">
-								<label for="wksync-shop-id"><?php echo esc_html__( 'Shop', 'woo-kontor-sync-pro' ); ?></label>
-							</th>
-							<td>
-								<select id="wksync-shop-id" name="<?php echo esc_attr( self::OPTION_KEY ); ?>[shop_id]">
-									<option value=""><?php echo esc_html__( '— No shop selected —', 'woo-kontor-sync-pro' ); ?></option>
-									<?php if ( '' !== $settings['shop_id'] ) : ?>
-										<option value="<?php echo esc_attr( $settings['shop_id'] ); ?>" selected>
-											<?php echo esc_html( '' === $settings['shop_name'] ? $settings['shop_id'] : $settings['shop_name'] ); ?>
-										</option>
-									<?php endif; ?>
-								</select>
-								<button type="button" class="button" id="wksync-fetch-shops">
-									<?php echo esc_html__( 'Fetch shops', 'woo-kontor-sync-pro' ); ?>
-								</button>
-								<input
-									type="hidden"
-									id="wksync-shop-name"
-									name="<?php echo esc_attr( self::OPTION_KEY ); ?>[shop_name]"
-									value="<?php echo esc_attr( $settings['shop_name'] ); ?>"
-								/>
-								<p class="description">
-									<?php echo esc_html__( 'Identifies this store in Kontor. All three jobs below need one, and none of them runs until it is chosen. The product and stock syncs do not use it at all.', 'woo-kontor-sync-pro' ); ?>
-								</p>
-								<p class="description" id="wksync-shops-result" aria-live="polite"></p>
-							</td>
-						</tr>
 						<tr>
 							<th scope="row">
 								<label for="wksync-upload-user-id"><?php echo esc_html__( 'Upload user ID', 'woo-kontor-sync-pro' ); ?></label>
@@ -1950,10 +2231,172 @@ class Settings {
 			<h2><?php echo esc_html__( 'Scheduled jobs', 'woo-kontor-sync-pro' ); ?></h2>
 			<?php $this->render_jobs_table(); ?>
 
+			<?php $this->render_category_push_section(); ?>
 			<?php $this->render_force_push_section(); ?>
 
 			<?php $this->render_updates_section(); ?>
 		</div>
+		<?php
+	}
+
+	/**
+	 * Offer to replace Kontor's category tree with this shop's.
+	 *
+	 * Two paths, and the preview comes first because it is how the other one should be
+	 * approached: nothing here was established against a live account, and the payload
+	 * is the whole of what a replacing push does.
+	 *
+	 * Nothing at all until a shop is chosen. Kontor holds a tree per shop, so without
+	 * one there is neither a tree to replace nor anywhere to send this.
+	 *
+	 * @return void
+	 */
+	protected function render_category_push_section() {
+		$settings = self::get_settings();
+		$shop_id  = trim( (string) $settings['shop_id'] );
+
+		// Nothing to replace, and nowhere to send it. The shop picker is the thing to go
+		// and use, and it is on the same screen.
+		if ( '' === $shop_id || ! self::is_shop_id( $shop_id ) ) {
+			return;
+		}
+
+		?>
+		<h2><?php echo esc_html__( 'Send categories to Kontor', 'woo-kontor-sync-pro' ); ?></h2>
+
+		<div class="notice notice-warning inline">
+			<p>
+				<?php echo esc_html__( 'This replaces the entire category tree Kontor holds for this shop with the product categories in WooCommerce. It is not an import in reverse and it is not additive.', 'woo-kontor-sync-pro' ); ?>
+			</p>
+			<p>
+				<strong><?php echo esc_html__( 'A category that is not in what gets sent is deleted in Kontor, and the product assignments on it go with it.', 'woo-kontor-sync-pro' ); ?></strong>
+				<?php echo esc_html__( 'A category that came from Kontor is sent back under Kontor\'s own ID, which is what keeps its assignments attached. One created here is sent under a new ID and starts empty.', 'woo-kontor-sync-pro' ); ?>
+			</p>
+			<p>
+				<strong><?php echo esc_html__( 'Kontor\'s exact behaviour here has not been established against a live account.', 'woo-kontor-sync-pro' ); ?></strong>
+				<?php echo esc_html__( 'Read the preview first. It shows exactly what would be sent and sends nothing. This runs in this request rather than in the background, so leave the page open until it answers.', 'woo-kontor-sync-pro' ); ?>
+			</p>
+		</div>
+
+		<?php $this->render_category_push_result(); ?>
+
+		<form action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" method="post">
+			<input type="hidden" name="action" value="wksync_category_push"/>
+			<?php wp_nonce_field( 'wksync_category_push' ); ?>
+
+			<table class="form-table" role="presentation">
+				<tr>
+					<th scope="row"><?php echo esc_html__( 'Preview', 'woo-kontor-sync-pro' ); ?></th>
+					<td>
+						<button type="submit" class="button" name="mode" value="preview">
+							<?php echo esc_html__( 'Preview payload', 'woo-kontor-sync-pro' ); ?>
+						</button>
+						<p class="description">
+							<?php echo esc_html__( 'Builds the request and shows it. Nothing reaches Kontor.', 'woo-kontor-sync-pro' ); ?>
+						</p>
+					</td>
+				</tr>
+				<tr>
+					<th scope="row">
+						<label for="wksync-category-confirm"><?php echo esc_html__( 'Replace the tree in Kontor', 'woo-kontor-sync-pro' ); ?></label>
+					</th>
+					<td>
+						<input type="text" class="regular-text" id="wksync-category-confirm" name="confirmation" value="" autocomplete="off"/>
+						<button type="submit" class="button" name="mode" value="push">
+							<?php echo esc_html__( 'Send categories', 'woo-kontor-sync-pro' ); ?>
+						</button>
+						<p class="description">
+							<?php
+							printf(
+								/* translators: %s: the word that must be typed to confirm. */
+								esc_html__( 'Type %s to confirm. Checked here rather than in the browser, because this request can be made without ever loading the page.', 'woo-kontor-sync-pro' ),
+								'<code>' . esc_html( self::CATEGORY_PUSH_CONFIRMATION ) . '</code>'
+							);
+							?>
+						</p>
+					</td>
+				</tr>
+			</table>
+		</form>
+		<?php
+	}
+
+	/**
+	 * Show what a category preview or push produced.
+	 *
+	 * The rows are printed in full rather than counted. A replacing push is judged by
+	 * what is in the payload and not by how much of it there is, which is the whole
+	 * reason the preview exists.
+	 *
+	 * @return void
+	 */
+	protected function render_category_push_result() {
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only display flag set by our own redirect; the push itself was nonce-checked.
+		if ( ! isset( $_GET['wksync_category'] ) ) {
+			return;
+		}
+
+		$key    = self::CATEGORY_PUSH_RESULT . get_current_user_id();
+		$result = get_transient( $key );
+
+		if ( ! is_array( $result ) ) {
+			return;
+		}
+
+		// Read once. A reload would otherwise keep reporting a push that is long over.
+		delete_transient( $key );
+
+		if ( ! empty( $result['error'] ) ) {
+			printf(
+				'<div class="notice notice-error"><p>%s</p></div>',
+				esc_html( $result['error'] )
+			);
+		}
+
+		if ( empty( $result['rows'] ) ) {
+			return;
+		}
+
+		$preview = ! empty( $result['preview'] );
+		?>
+		<div class="notice <?php echo esc_attr( $preview ? 'notice-info' : 'notice-success' ); ?>">
+			<p>
+				<?php
+				printf(
+					$preview
+						/* translators: %d: number of categories that would be sent. */
+						? esc_html__( '%d categories would be sent. Nothing has been sent.', 'woo-kontor-sync-pro' )
+						/* translators: %d: number of categories sent. */
+						: esc_html__( '%d categories sent to Kontor.', 'woo-kontor-sync-pro' ),
+					count( $result['rows'] )
+				);
+				?>
+			</p>
+		</div>
+
+		<table class="widefat striped">
+			<thead>
+				<tr>
+					<th scope="col"><?php echo esc_html__( 'Category ID', 'woo-kontor-sync-pro' ); ?></th>
+					<th scope="col"><?php echo esc_html__( 'Parent ID', 'woo-kontor-sync-pro' ); ?></th>
+					<th scope="col"><?php echo esc_html__( 'Name', 'woo-kontor-sync-pro' ); ?></th>
+				</tr>
+			</thead>
+			<tbody>
+				<?php foreach ( $result['rows'] as $row ) : ?>
+					<tr>
+						<td><code><?php echo esc_html( (string) $row['katid'] ); ?></code></td>
+						<td><?php echo '' === (string) $row['katidparent'] ? '—' : '<code>' . esc_html( (string) $row['katidparent'] ) . '</code>'; ?></td>
+						<td><?php echo esc_html( (string) $row['katname'] ); ?></td>
+					</tr>
+				<?php endforeach; ?>
+			</tbody>
+		</table>
+
+		<?php if ( ! empty( $result['raw'] ) ) : ?>
+			<h3><?php echo esc_html__( 'What Kontor replied', 'woo-kontor-sync-pro' ); ?></h3>
+			<pre class="wksync-force-response"><?php echo esc_html( $this->encode_force_response( $result['raw'] ) ); ?></pre>
+		<?php endif; ?>
 		<?php
 	}
 

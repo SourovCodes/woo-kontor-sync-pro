@@ -17,11 +17,11 @@ defined( 'ABSPATH' ) || exit;
 /**
  * Names and finds the products the syncs are holding back.
  *
- * Four things can take a product out of the shop here — Kontor switching an article
- * off for the webshop, Kontor listing it without a picture, Kontor dropping it from
- * the catalogue altogether, and a shop that asked for articles with no stock record to
- * be hidden — and each records its own marker so that one reason going away cannot
- * republish a product another reason still applies to. Every one of those keys is
+ * Five things can take a product out of the shop here — Kontor switching an article
+ * off for the webshop, Kontor listing it without a picture, Kontor filing it under no
+ * category, Kontor dropping it from the catalogue altogether, and a shop that asked for
+ * articles with no stock record to be hidden — and each records its own marker so that
+ * one reason going away cannot republish a product another reason still applies to. Every one of those keys is
  * underscore-prefixed and therefore protected, which is what keeps this plugin's
  * storage out of the Custom Fields panel, and it is also what left a shop manager
  * looking at eight hundred drafts with nothing anywhere in wp-admin to say why.
@@ -99,6 +99,7 @@ class HeldProducts {
 		return array(
 			'inactive'     => ProductSync::META_INACTIVE_DRAFTED,
 			'no_image'     => ProductSync::META_NO_IMAGE_DRAFTED,
+			'no_category'  => ProductSync::META_NO_CATEGORY_DRAFTED,
 			'delisted'     => ProductSync::META_SYNC_DRAFTED,
 			'no_stock'     => StockSync::META_STOCK_DRAFTED,
 			'legacy_stock' => ProductSync::META_LEGACY_STOCK_DRAFTED,
@@ -147,6 +148,7 @@ class HeldProducts {
 		$labels = array(
 			'inactive'      => __( 'Switched off in Kontor', 'woo-kontor-sync-pro' ),
 			'no_image'      => __( 'No image in Kontor', 'woo-kontor-sync-pro' ),
+			'no_category'   => __( 'No category in Kontor', 'woo-kontor-sync-pro' ),
 			'delisted'      => __( 'No longer in Kontor’s catalogue', 'woo-kontor-sync-pro' ),
 			'no_stock'      => __( 'No stock record in Kontor', 'woo-kontor-sync-pro' ),
 			'legacy_stock'  => __( 'Held back by an earlier stock sync', 'woo-kontor-sync-pro' ),
@@ -169,8 +171,9 @@ class HeldProducts {
 	 * ANY is one clause over every key rather than a group of EXISTS clauses joined by
 	 * OR, and the difference is the difference between a page that loads and one that
 	 * never answers. WP_Meta_Query gives each clause in an OR group its own INNER JOIN
-	 * on the meta table, so five of them multiply out: every combination of five meta
-	 * rows on the same product, before the WHERE picks any of them. A product carries
+	 * on the meta table, so one clause per key multiplies out: every combination of a
+	 * meta row per key on the same product, before the WHERE picks any of them. It was
+	 * five keys when this was found and it is six now, which is worse. A product carries
 	 * a couple of dozen rows, so that is millions of combinations per product, and on
 	 * a catalogue of four thousand the query does not return at all. Written as one
 	 * `meta_key IN (…)` it is a single indexed join — measured on the development

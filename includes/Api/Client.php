@@ -188,6 +188,24 @@ class Client {
 	}
 
 	/**
+	 * Fetch the category tree Kontor holds for one shop.
+	 *
+	 * The filter is not optional and not a narrowing: without a shop this entity
+	 * returns zero rows, which is what had it recorded here for a long time as an
+	 * entity that returns nothing at all. Sent a shop, it answers with that shop's
+	 * whole tree — 3, 101, 141 and 554 rows on the four shops sampled.
+	 *
+	 * Takes no paging, like stock, shops and manufacturers: the largest tree on the
+	 * account came back whole in one reply, in two milliseconds.
+	 *
+	 * @param string $shop_id Kontor shop GUID.
+	 * @return array|WP_Error Array with "data" and "meta" keys, or WP_Error on failure.
+	 */
+	public function fetch_categories( $shop_id ) {
+		return $this->search( 'categories', array( 'filter' => array( 'shopid' => (string) $shop_id ) ) );
+	}
+
+	/**
 	 * Fetch stock levels for every article.
 	 *
 	 * The stock entity takes no paging and no filter, and returns one row per
@@ -322,6 +340,58 @@ class Client {
 		 */
 		$key = md5(
 			(string) $shop_id . '|' . implode( ',', $numbers ) . '|' . ( $overwrite_all ? 'overwrite' : 'insert' )
+		);
+
+		return $this->request( 'POST', 'upsert', $body, $key, self::SHAPE_ENVELOPE );
+	}
+
+	/**
+	 * Replace the category tree Kontor holds for one shop.
+	 *
+	 * The same /upsert endpoint the orders go to, selected by a "name" of categories
+	 * rather than orders, and the only other write this plugin performs.
+	 *
+	 * With $overwrite_all true — which is the mode this is used in — Kontor replaces the
+	 * shop's entire tree with the payload. A category the payload leaves out is not
+	 * merely absent afterwards: the product assignments hanging off it go with it. That
+	 * is why nothing here batches, and why the caller refuses rather than truncates when
+	 * a tree is too large to send. See CategoryPush.
+	 *
+	 * Its behaviour has never been established against a live account. Everything else
+	 * known about this API was found by probing it; this was not, so the reply is kept
+	 * whole rather than summarised.
+	 *
+	 * @param array  $categories    Rows of katid, katidparent and katname.
+	 * @param string $shop_id       Kontor shop GUID.
+	 * @param string $user_id       Value for the required meta.userId.
+	 * @param bool   $overwrite_all Whether Kontor should replace the shop's whole tree.
+	 * @return array|WP_Error Array with "data", "meta" and "raw" keys, or WP_Error on failure.
+	 */
+	public function push_categories( array $categories, $shop_id, $user_id, $overwrite_all = true ) {
+		$body = array(
+			'name'   => 'categories',
+			'meta'   => array( 'userId' => (string) $user_id ),
+			'params' => array(
+				'shopid'        => (string) $shop_id,
+				'overwrite_all' => (bool) $overwrite_all,
+				'categories'    => array_values( $categories ),
+			),
+		);
+
+		$katids = array();
+
+		foreach ( $categories as $category ) {
+			$katids[] = isset( $category['katid'] ) ? (string) $category['katid'] : '';
+		}
+
+		/*
+		 * The overwrite flag is part of the key for the reason it is on the order push:
+		 * without it a replacing push would carry the same key as an earlier additive one
+		 * over the same tree, and anything deduplicating at the transport layer would
+		 * answer it with the earlier reply rather than performing the replacement.
+		 */
+		$key = md5(
+			(string) $shop_id . '|' . implode( ',', $katids ) . '|' . ( $overwrite_all ? 'overwrite' : 'insert' )
 		);
 
 		return $this->request( 'POST', 'upsert', $body, $key, self::SHAPE_ENVELOPE );

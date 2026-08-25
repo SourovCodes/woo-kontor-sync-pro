@@ -99,16 +99,50 @@
 		}
 
 		/*
-		 * The order settings are rendered whatever the toggle says and hidden when it
-		 * is off, so ticking it reveals them straight away rather than after a save.
-		 * The server decides the rendered state; this only keeps up with the box.
+		 * The order and category settings are rendered whatever their toggles say and
+		 * hidden when they are off, so ticking one reveals the rest straight away rather
+		 * than after a save. The server decides the rendered state; this only keeps up
+		 * with the boxes.
 		 */
 		var ordersToggle = document.getElementById( 'wksync-sync-orders' );
 		var ordersPanel = document.getElementById( 'wksync-order-settings' );
+		var categoriesToggle = document.getElementById( 'wksync-sync-categories' );
+		var categoriesPanel = document.getElementById( 'wksync-category-settings' );
+		var shopRow = document.getElementById( 'wksync-shop-row' );
 
-		if ( ordersToggle && ordersPanel ) {
+		/*
+		 * The shop is wanted by two unrelated features now, so it follows whichever of
+		 * them is on rather than belonging to either. A shop that does neither is still
+		 * never asked to choose one.
+		 */
+		function syncShopRow() {
+			if ( ! shopRow ) {
+				return;
+			}
+
+			shopRow.hidden = ! (
+				( ordersToggle && ordersToggle.checked ) ||
+				( categoriesToggle && categoriesToggle.checked )
+			);
+		}
+
+		if ( ordersToggle ) {
 			ordersToggle.addEventListener( 'change', function () {
-				ordersPanel.hidden = ! ordersToggle.checked;
+				if ( ordersPanel ) {
+					ordersPanel.hidden = ! ordersToggle.checked;
+				}
+
+				syncShopRow();
+			} );
+		}
+
+		if ( categoriesToggle ) {
+			categoriesToggle.addEventListener( 'change', function () {
+				if ( categoriesPanel ) {
+					categoriesPanel.hidden = ! categoriesToggle.checked;
+				}
+
+				syncShopRow();
 			} );
 		}
 
