@@ -490,6 +490,35 @@ of them wrong produces silently wrong data rather than an error:
   `ProductSync::META_IMAGE_SOURCE`. The same photograph is shared across articles often enough that
   downloading per product would multiply the media library. That meta doubles as the marker for
   "this plugin downloaded this file".
+  - **A shop's own image is adopted where it is provably the same file.** A shop moving onto this
+    sync has usually been filled from the same place: on the account this was built against, **6682
+    of the 7242** images Kontor lists for the catalogue were already in the media library under
+    exactly the name Kontor gives them, and every one sampled was byte for byte identical to what
+    the host serves. Downloading them again would spend hours re-fetching files the shop has, write
+    some **2.7GB** of duplicates, and detach the originals into orphans.
+    - **Only images already on that product**, matched on filename. A filename is not a globally
+      unique thing, and adopting a stranger's file because it happened to be called `image1.jpg`
+      would put somebody else's photograph on a product.
+    - **A matching name is never enough.** Each candidate is checked with a HEAD and adopted only
+      when the host reports exactly the length the file on disk has. A different length, a non-200
+      or a host that will not answer all fall through to a download, which is the safe outcome every
+      time.
+    - **The HEADs run concurrently**, at the download width. One costs about **660ms** against that
+      host — only three times less than fetching the file — so serially, verifying a catalogue's
+      worth would take longer than downloading it and the exercise would be pointless. Measured
+      live: 15 candidates verified and adopted in 2.1s.
+    - **Length, not content.** Fetching the body to compare it *is* the download, so it would save
+      nothing. Identical name plus identical byte count, on this very product, is as far as this can
+      honestly go.
+    - **The match is case-insensitive, the URL is not.** The shop's copy need not have kept the
+      feed's capitalisation; the host is nginx and answers 404 to the wrong case, so the URL is
+      always built from the feed's spelling.
+    - **Adopted images are stamped `META_IMAGE_SOURCE`, which makes them ours** — shared with other
+      articles rather than downloaded again, and swept by `discard_unused_images()` once no product
+      uses them. That is exactly the treatment the identical file would have had if this had
+      downloaded it.
+    - **It only ever helps the first run.** After that every image is stamped and
+      `attachment_for_source()` answers first. `woo_kontor_sync_adopt_existing_images` turns it off.
   - **The lookup is hand-written SQL, and the reason is measurement.** Through `get_posts()` it took
     **26.4ms** against the development site's library and **0.44ms** written out — sixty times, all
     of it `WP_Query`'s own setup rather than the database, which answers from the `meta_key` index
