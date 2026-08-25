@@ -55,6 +55,55 @@ class SpyProductSync extends ProductSync {
 	}
 
 	/**
+	 * Lengths to report for a HEAD, keyed by URL. A URL absent from this is one the
+	 * host would not answer about.
+	 *
+	 * @var array<string,int>
+	 */
+	public $head_lengths = array();
+
+	/**
+	 * The URL batches the sync asked HEAD about.
+	 *
+	 * @var array[]
+	 */
+	public $head_batches = array();
+
+	/**
+	 * Answer a HEAD batch from the script rather than the network.
+	 *
+	 * @param string[] $urls URLs to ask about.
+	 * @return array<string,int> URL to the length the host reports.
+	 */
+	protected function head_batch( array $urls ) {
+		$this->head_batches[] = $urls;
+
+		$lengths = array();
+
+		foreach ( $urls as $url ) {
+			if ( isset( $this->head_lengths[ $url ] ) ) {
+				$lengths[ $url ] = (int) $this->head_lengths[ $url ];
+			}
+		}
+
+		return $lengths;
+	}
+
+	/**
+	 * Run the image resolution, so a test can see what was adopted and what was fetched.
+	 *
+	 * @param string[] $urls     Image URLs in gallery order.
+	 * @param int      $product  Product to attach them to.
+	 * @param string   $sku      Article number.
+	 * @param string   $name     Product name.
+	 * @param int[]    $existing Attachments the product already carries.
+	 * @return int[] Attachment IDs.
+	 */
+	public function run_resolve( array $urls, $product, $sku = 'sku', $name = '', array $existing = array() ) {
+		return $this->resolve_images( $urls, $product, $sku, $name, $existing );
+	}
+
+	/**
 	 * Run the batching, so a test can see how the URLs were split.
 	 *
 	 * @param string[] $urls URLs to fetch.

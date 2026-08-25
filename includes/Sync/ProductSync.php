@@ -1690,7 +1690,7 @@ class ProductSync {
 			$urls[] = trailingslashit( $base ) . ltrim( (string) $file, '/' );
 		}
 
-		$attachment_ids = $this->resolve_images( $urls, (int) $product_id, (string) $product->get_sku(), (string) $product->get_name() );
+		$attachment_ids = $this->resolve_images( $urls, (int) $product_id, (string) $product->get_sku(), (string) $product->get_name(), $previous );
 
 		if ( empty( $attachment_ids ) ) {
 			return;
@@ -1737,11 +1737,14 @@ class ProductSync {
 	 * @param int      $product_id Product to attach them to.
 	 * @param string   $sku        Article number, for the log.
 	 * @param string   $name       Product name, used as the alt text.
+	 * @param int[]    $existing   Attachments the product already carries.
 	 * @return int[] Attachment IDs.
 	 */
-	protected function resolve_images( array $urls, $product_id, $sku, $name = '' ) {
+	protected function resolve_images( array $urls, $product_id, $sku, $name = '', array $existing = array() ) {
 		$attachments = array();
 		$pending     = array();
+		$candidates  = array();
+		$by_filename = $this->images_by_filename( $existing );
 
 		foreach ( $urls as $url ) {
 			$attachment_id = $this->attachment_for_source( $url );
@@ -1761,6 +1764,33 @@ class ProductSync {
 				continue;
 			}
 
+			/*
+			 * A file of the same name already on this product. Very likely the same
+			 * photograph, fetched from this host by whatever filled the shop before the
+			 * sync arrived — but "very likely" is not enough to put a picture in front
+			 * of a customer, so it is only a candidate until the host agrees.
+			 */
+			$key = strtolower( basename( (string) wp_parse_url( $url, PHP_URL_PATH ) ) );
+
+			if ( isset( $by_filename[ $key ] ) ) {
+				$candidates[ $url ] = $by_filename[ $key ];
+
+				continue;
+			}
+
+			$pending[ $url ] = $url;
+		}
+
+		foreach ( $this->adopt( $candidates, $sku ) as $url => $attachment_id ) {
+			if ( $attachment_id ) {
+				$attachments[ $url ] = $attachment_id;
+
+				$this->describe( $attachment_id, $name );
+
+				continue;
+			}
+
+			// The host disagreed, or would not say. Fetch it like any other.
 			$pending[ $url ] = $url;
 		}
 
@@ -2051,6 +2081,195 @@ class ProductSync {
 		$this->describe( (int) $attachment_id, $name );
 
 		return (int) $attachment_id;
+	}
+
+	/**
+	 * Ask the image host how big each of these files is.
+	 *
+	 * A HEAD costs about 660ms against the host this was built against, which is only
+	 * three times less than fetching the file — so the batch runs concurrently for the
+	 * same reason the downloads do, and at the same width. Serially, verifying a
+	 * catalogue's worth of candidates would take longer than downloading them and the
+	 * whole exercise would be pointless.
+	 *
+	 * Anything that cannot be answered is simply absent from the result, which the
+	 * caller reads as "download it" — the safe outcome in every case.
+	 *
+	 * @param string[] $urls URLs to ask about.
+	 * @return array<string,int> URL to the length the host reports.
+	 */
+	protected function head_batch( array $urls ) {
+		$lengths  = array();
+		$requests = array();
+
+		foreach ( $urls as $url ) {
+			// The same two controls the downloads keep: a site that blocks outbound
+			// requests, and anything intercepting them, must not be worked around here.
+			if ( null !== $this->refuse_request( $url ) ) {
+				continue;
+			}
+
+			$requests[ $url ] = array(
+				'url'  => $url,
+				'type' => Requests::HEAD,
+			);
+		}
+
+		if ( empty( $requests ) ) {
+			return $lengths;
+		}
+
+		try {
+			$responses = Requests::request_multiple( $requests, $this->request_options() );
+		} catch ( Exception $exception ) {
+			return $lengths;
+		}
+
+		foreach ( $responses as $url => $response ) {
+			if ( $response instanceof Exception || ! isset( $response->status_code ) || 200 !== (int) $response->status_code ) {
+				continue;
+			}
+
+			if ( isset( $response->headers['content-length'] ) ) {
+				$lengths[ $url ] = (int) $response->headers['content-length'];
+			}
+		}
+
+		return $lengths;
+	}
+
+	/**
+	 * The product's current images, keyed by filename.
+	 *
+	 * Lowercased, because the match is a question about which file this is and the
+	 * shop's copy need not have kept the feed's capitalisation. The URL itself is
+	 * always built from the feed's spelling — the image host is nginx and answers 404
+	 * to the wrong case.
+	 *
+	 * An attachment whose file is missing from disk is left out: there is nothing to
+	 * compare against the host, and nothing worth keeping either.
+	 *
+	 * @param int[] $attachment_ids Attachments the product carries.
+	 * @return array<string,int> Lowercased filename to attachment ID.
+	 */
+	protected function images_by_filename( array $attachment_ids ) {
+		$found = array();
+
+		foreach ( $attachment_ids as $attachment_id ) {
+			$relative = (string) get_post_meta( (int) $attachment_id, '_wp_attached_file', true );
+
+			if ( '' === $relative ) {
+				continue;
+			}
+
+			$path = get_attached_file( (int) $attachment_id );
+
+			if ( ! $path || ! file_exists( $path ) ) {
+				continue;
+			}
+
+			$found[ strtolower( basename( $relative ) ) ] = (int) $attachment_id;
+		}
+
+		return $found;
+	}
+
+	/**
+	 * Adopt the product's own images where the host confirms they are the same file.
+	 *
+	 * A shop moving onto this sync has usually been filled from the same place: on the
+	 * account this was built against, 6682 of the 7242 images Kontor lists for the
+	 * catalogue were already in the media library under exactly the name Kontor gives
+	 * them, and every one sampled was byte for byte identical to what the host serves.
+	 * Downloading them again would spend hours re-fetching files the shop already has,
+	 * write some 2.7GB of duplicates, and detach the originals into orphans.
+	 *
+	 * A matching name is not proof, so each candidate is checked with a HEAD request
+	 * and adopted only when the host reports exactly the length the file on disk has.
+	 * Anything else — a different length, a non-200, a host that will not answer —
+	 * falls through to being downloaded, which is always the safe outcome. The check
+	 * is not free (about 660ms a request against that host) so it is done in parallel
+	 * like the downloads; serially it would cost more than it saves.
+	 *
+	 * Length rather than content: fetching the body to compare it *is* the download,
+	 * so it would save nothing at all. A file of identical name and identical byte
+	 * count, already on this very product, is as far as this can honestly go.
+	 *
+	 * Adopted images are stamped with META_IMAGE_SOURCE, which makes them ours: shared
+	 * with other articles instead of downloaded again, and swept by
+	 * discard_unused_images() once no product uses them. That is the same treatment
+	 * the identical file would have got had this downloaded it, which is the point.
+	 *
+	 * @param array<string,int> $candidates URL to the attachment that may already be it.
+	 * @param string            $sku        Article number, for the log.
+	 * @return array<string,int> URL to attachment ID, or 0 where it must be downloaded.
+	 */
+	protected function adopt( array $candidates, $sku ) {
+		$results = array();
+
+		if ( empty( $candidates ) ) {
+			return $results;
+		}
+
+		/**
+		 * Filters whether a product's own images may be adopted by filename.
+		 *
+		 * @since 0.26.0
+		 *
+		 * @param bool   $adopt Whether to check the shop's existing images.
+		 * @param string $sku   Article number being imported.
+		 */
+		if ( ! apply_filters( 'woo_kontor_sync_adopt_existing_images', true, $sku ) ) {
+			return array_map( '__return_zero', $candidates );
+		}
+
+		$sizes = array();
+
+		foreach ( $candidates as $url => $attachment_id ) {
+			$results[ $url ] = 0;
+
+			$path = get_attached_file( $attachment_id );
+
+			if ( ! $path || ! file_exists( $path ) ) {
+				continue;
+			}
+
+			$sizes[ $url ] = (int) filesize( $path );
+		}
+
+		if ( empty( $sizes ) ) {
+			return $results;
+		}
+
+		$lengths = $this->head_batch( array_keys( $sizes ) );
+		$adopted = 0;
+
+		foreach ( $sizes as $url => $local ) {
+			$remote = isset( $lengths[ $url ] ) ? (int) $lengths[ $url ] : 0;
+
+			if ( $remote < 1 || $remote !== $local ) {
+				continue;
+			}
+
+			$results[ $url ] = (int) $candidates[ $url ];
+
+			update_post_meta( (int) $candidates[ $url ], self::META_IMAGE_SOURCE, $url );
+
+			++$adopted;
+		}
+
+		if ( $adopted > 0 ) {
+			$this->log(
+				'info',
+				sprintf(
+					'Adopted %1$d of the shop\'s own images for article %2$s: same filename, same size on the host.',
+					$adopted,
+					$sku
+				)
+			);
+		}
+
+		return $results;
 	}
 
 	/**
