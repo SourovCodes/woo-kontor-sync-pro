@@ -133,6 +133,10 @@ class StatusReport {
 		$rows[ __( 'Images queued', 'woo-kontor-sync-pro' ) ]      = number_format_i18n( $images );
 		$rows[ __( 'Products held back', 'woo-kontor-sync-pro' ) ] = number_format_i18n( HeldProducts::total() );
 
+		if ( Settings::orders_enabled( $settings ) ) {
+			$rows[ __( 'Orders no longer being sent', 'woo-kontor-sync-pro' ) ] = number_format_i18n( StuckOrders::total() );
+		}
+
 		return $rows;
 	}
 

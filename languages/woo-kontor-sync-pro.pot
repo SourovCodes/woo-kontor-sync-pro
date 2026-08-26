@@ -9,7 +9,7 @@ msgstr ""
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"POT-Creation-Date: 2026-08-26T16:30:59+00:00\n"
+"POT-Creation-Date: 2026-08-26T16:37:39+00:00\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "X-Generator: WP-CLI 2.12.0\n"
 "X-Domain: woo-kontor-sync-pro\n"
@@ -124,28 +124,36 @@ msgstr ""
 msgid "You do not have permission to do that."
 msgstr ""
 
-#: includes/Admin/OrderActions.php:83
+#: includes/Admin/OrderActions.php:91
 msgid "Email the invoice to the customer again"
 msgstr ""
 
-#: includes/Admin/OrderActions.php:87
+#: includes/Admin/OrderActions.php:95
 msgid "Email the tracking details to the customer again"
 msgstr ""
 
-#: includes/Admin/OrderActions.php:103
+#: includes/Admin/OrderActions.php:105
+msgid "Send this order to Kontor again"
+msgstr ""
+
+#: includes/Admin/OrderActions.php:121
 msgid "Kontor invoice email sent to the customer."
 msgstr ""
 
-#: includes/Admin/OrderActions.php:104
+#: includes/Admin/OrderActions.php:122
 msgid "The Kontor invoice email could not be sent."
 msgstr ""
 
-#: includes/Admin/OrderActions.php:118
+#: includes/Admin/OrderActions.php:136
 msgid "Kontor tracking email sent to the customer."
 msgstr ""
 
-#: includes/Admin/OrderActions.php:119
+#: includes/Admin/OrderActions.php:137
 msgid "The Kontor tracking email could not be sent."
+msgstr ""
+
+#: includes/Admin/OrderActions.php:161
+msgid "Queued to be sent to Kontor again."
 msgstr ""
 
 #: includes/Admin/OrderPanel.php:82
@@ -210,22 +218,28 @@ msgstr ""
 msgid "Carrier"
 msgstr ""
 
-#: includes/Admin/OrderPanel.php:270
+#. translators: %d: number of attempts made.
+#: includes/Admin/OrderPanel.php:273
+#, php-format
+msgid "Refused %d times, so the sweep has stopped sending it. Use \"Send this order to Kontor again\" in the order actions box once the reason above is dealt with."
+msgstr ""
+
+#: includes/Admin/OrderPanel.php:291
 #: includes/Frontend/Invoices.php:63
 #: includes/Frontend/Invoices.php:112
 #: includes/Frontend/Invoices.php:132
 msgid "Invoices"
 msgstr ""
 
-#: includes/Admin/OrderPanel.php:275
+#: includes/Admin/OrderPanel.php:296
 msgid "None downloaded yet"
 msgstr ""
 
-#: includes/Admin/OrderPanel.php:281
+#: includes/Admin/OrderPanel.php:302
 msgid "Run the invoice sync"
 msgstr ""
 
-#: includes/Admin/OrderPanel.php:295
+#: includes/Admin/OrderPanel.php:316
 #: includes/Frontend/Invoices.php:71
 msgid "Download PDF"
 msgstr ""
@@ -1092,67 +1106,79 @@ msgid "Run now"
 msgstr ""
 
 #. translators: %s: number of products.
-#: includes/Admin/Settings.php:2966
+#: includes/Admin/Settings.php:2967
 #, php-format
 msgid "%s product is currently held back as a draft."
 msgid_plural "%s products are currently held back as drafts."
 msgstr[0] ""
 msgstr[1] ""
 
-#: includes/Admin/Settings.php:2976
+#: includes/Admin/Settings.php:2977
 msgid "Show them, with the reason for each."
 msgstr ""
 
-#: includes/Admin/Settings.php:2988
+#. translators: %s: number of orders.
+#: includes/Admin/Settings.php:3009
+#, php-format
+msgid "%s order was refused by Kontor too often and is no longer being sent."
+msgid_plural "%s orders were refused by Kontor too often and are no longer being sent."
+msgstr[0] ""
+msgstr[1] ""
+
+#: includes/Admin/Settings.php:3019
+msgid "Show them. Each order carries the reason, and an action to send it again."
+msgstr ""
+
+#: includes/Admin/Settings.php:3031
 msgid "Never run"
 msgstr ""
 
 #. translators: %s: how long ago the run started.
-#: includes/Admin/Settings.php:2993
+#: includes/Admin/Settings.php:3036
 #, php-format
 msgid "Running, started %s ago"
 msgstr ""
 
 #. translators: 1: timestamp, 2: failure reason.
-#: includes/Admin/Settings.php:3000
+#: includes/Admin/Settings.php:3043
 #, php-format
 msgid "Failed at %1$s — %2$s"
 msgstr ""
 
 #. translators: 1: timestamp, 2: run summary.
-#: includes/Admin/Settings.php:3004
+#: includes/Admin/Settings.php:3047
 #, php-format
 msgid "Succeeded at %1$s — %2$s"
 msgstr ""
 
-#: includes/Admin/Settings.php:3026
+#: includes/Admin/Settings.php:3069
 msgid "Working…"
 msgstr ""
 
 #. translators: 1: records handled so far, 2: records in total.
-#: includes/Admin/Settings.php:3033
+#: includes/Admin/Settings.php:3076
 #, php-format
 msgid "%1$s of %2$s"
 msgstr ""
 
 #. translators: %s: number of products whose images are still queued.
-#: includes/Admin/Settings.php:3060
+#: includes/Admin/Settings.php:3103
 #, php-format
 msgid "Images for %s product still to download."
 msgid_plural "Images for %s products still to download."
 msgstr[0] ""
 msgstr[1] ""
 
-#: includes/Admin/Settings.php:3079
+#: includes/Admin/Settings.php:3122
 msgid "Not scheduled"
 msgstr ""
 
-#: includes/Admin/Settings.php:3107
+#: includes/Admin/Settings.php:3150
 msgid "The job could not be queued. It may already be running, or WooCommerce may be inactive."
 msgstr ""
 
 #. translators: %s: job name.
-#: includes/Admin/Settings.php:3119
+#: includes/Admin/Settings.php:3162
 #, php-format
 msgid "%s queued. It runs on the next queue pass, within a minute or so."
 msgstr ""
@@ -1288,59 +1314,63 @@ msgstr ""
 msgid "Products held back"
 msgstr ""
 
-#: includes/Admin/StatusReport.php:160
+#: includes/Admin/StatusReport.php:137
+msgid "Orders no longer being sent"
+msgstr ""
+
+#: includes/Admin/StatusReport.php:164
 msgid "Off — this shop does not exchange orders with Kontor."
 msgstr ""
 
-#: includes/Admin/StatusReport.php:168
+#: includes/Admin/StatusReport.php:172
 msgid "Never"
 msgstr ""
 
 #. translators: %s: an interval, for example "15 minutes".
-#: includes/Admin/StatusReport.php:171
+#: includes/Admin/StatusReport.php:175
 #, php-format
 msgid "Every %s"
 msgstr ""
 
-#: includes/Admin/StatusReport.php:176
+#: includes/Admin/StatusReport.php:180
 msgid "NOT QUEUED"
 msgstr ""
 
-#: includes/Admin/StatusReport.php:196
+#: includes/Admin/StatusReport.php:200
 msgid "never run"
 msgstr ""
 
 #. translators: %s: how long ago the run started.
-#: includes/Admin/StatusReport.php:209
+#: includes/Admin/StatusReport.php:213
 #, php-format
 msgid "running, started %s ago"
 msgstr ""
 
 #. translators: %s: how long ago the run started.
-#: includes/Admin/StatusReport.php:216
+#: includes/Admin/StatusReport.php:220
 #, php-format
 msgid "stranded, started %s ago and never finished"
 msgstr ""
 
 #. translators: 1: state, either succeeded or failed, 2: timestamp, 3: the run summary.
-#: includes/Admin/StatusReport.php:223
+#: includes/Admin/StatusReport.php:227
 #, php-format
 msgid "%1$s at %2$s: %3$s"
 msgstr ""
 
-#: includes/Admin/StatusReport.php:225
+#: includes/Admin/StatusReport.php:229
 msgid "failed"
 msgstr ""
 
-#: includes/Admin/StatusReport.php:226
+#: includes/Admin/StatusReport.php:230
 msgid "succeeded"
 msgstr ""
 
-#: includes/Admin/StatusReport.php:260
+#: includes/Admin/StatusReport.php:264
 msgid "Yes"
 msgstr ""
 
-#: includes/Admin/StatusReport.php:260
+#: includes/Admin/StatusReport.php:264
 msgid "No"
 msgstr ""
 
@@ -1730,41 +1760,59 @@ msgstr ""
 msgid "%1$d invoices downloaded, %2$d failed, %3$d not found locally."
 msgstr ""
 
-#: includes/Sync/OrderSync.php:420
+#: includes/Sync/OrderSync.php:455
 msgid "Force-pushed to Kontor with overwrite enabled."
 msgstr ""
 
 #. translators: %s: Kontor's internal order number.
-#: includes/Sync/OrderSync.php:423
+#: includes/Sync/OrderSync.php:458
 #, php-format
 msgid "Force-pushed to Kontor with overwrite enabled, as %s."
 msgstr ""
 
-#: includes/Sync/OrderSync.php:480
-#: includes/Sync/OrderSync.php:830
+#: includes/Sync/OrderSync.php:515
+#: includes/Sync/OrderSync.php:913
 msgid "Kontor accepted the batch but said nothing about this order."
 msgstr ""
 
-#: includes/Sync/OrderSync.php:547
+#: includes/Sync/OrderSync.php:582
 msgid "No orders were waiting to be sent."
 msgstr ""
 
-#: includes/Sync/OrderSync.php:602
+#: includes/Sync/OrderSync.php:637
 msgid "The list of orders to send expired before they could be sent."
 msgstr ""
 
 #. translators: 1: orders accepted, 2: orders already present, 3: orders rejected.
-#: includes/Sync/OrderSync.php:668
+#: includes/Sync/OrderSync.php:701
 #, php-format
 msgid "%1$d sent, %2$d already in Kontor, %3$d rejected."
 msgstr ""
 
-#: includes/Sync/OrderSync.php:875
+#. translators: %d: number of orders set aside.
+#: includes/Sync/OrderSync.php:718
+#, php-format
+msgid "%d order was refused too often and will not be sent again automatically."
+msgid_plural "%d orders were refused too often and will not be sent again automatically."
+msgstr[0] ""
+msgstr[1] ""
+
+#. translators: 1: number of attempts made, 2: the reason the last one failed.
+#: includes/Sync/OrderSync.php:959
+#, php-format
+msgid "Kontor refused this order %1$d times, so it will not be sent again automatically. Last reason: %2$s"
+msgstr ""
+
+#: includes/Sync/OrderSync.php:961
+msgid "no reason given"
+msgstr ""
+
+#: includes/Sync/OrderSync.php:1033
 msgid "Already present in Kontor; not sent again."
 msgstr ""
 
 #. translators: %s: Kontor's internal order number.
-#: includes/Sync/OrderSync.php:878
+#: includes/Sync/OrderSync.php:1036
 #, php-format
 msgid "Sent to Kontor as %s."
 msgstr ""

@@ -62,6 +62,41 @@ class OrderSync {
 	const META_PUSH_ERROR = '_wksync_push_error';
 
 	/**
+	 * Meta counting the times Kontor has refused this order.
+	 */
+	const META_PUSH_ATTEMPTS = '_wksync_push_attempts';
+
+	/**
+	 * Meta marking an order the sweep has stopped trying to send.
+	 *
+	 * A separate marker rather than a comparison against the count above, and the
+	 * reason is the shape of the query rather than tidiness. pending_orders() would
+	 * otherwise need "no count at all, or a count below the limit", and WP_Meta_Query
+	 * drops meta_key from every ON clause the moment an OR appears anywhere in the
+	 * query — the same trap that made HeldProducts' "any" view never return. Two
+	 * NOT EXISTS clauses joined by AND each match at most one row per order.
+	 */
+	const META_PUSH_GIVEN_UP = '_wksync_push_given_up';
+
+	/**
+	 * How many refusals an order is given before the sweep sets it aside.
+	 *
+	 * **Without this the sweep starves.** pending_orders() asks for orders that have
+	 * never been sent, oldest first, capped at SWEEP_LIMIT — and an order Kontor
+	 * refuses for a reason in its own data is never sent, so it stays in that set for
+	 * ever *and sorts to the front of it*. Two hundred such orders and no order placed
+	 * afterwards ever reaches the warehouse again, silently, with each sweep dutifully
+	 * re-sending the same rejections.
+	 *
+	 * Five is generous on purpose: the sweep runs hourly at its shortest, so an order
+	 * is tried across five hours before anybody has to look at it, and the refusals
+	 * this counts are the ones Kontor made about that specific order. A batch that
+	 * failed in transit counts against nothing — that says nothing about any order in
+	 * it, and a week of network trouble must not set the whole queue aside.
+	 */
+	const MAX_PUSH_ATTEMPTS = 5;
+
+	/**
 	 * The value sent as the required meta.userId.
 	 *
 	 * Kontor requires the field on every upload and does not validate it; this is the
@@ -661,16 +696,36 @@ class OrderSync {
 
 		$counts = Status::get( self::JOB )['counts'];
 
-		Status::finish(
-			self::JOB,
-			sprintf(
-				/* translators: 1: orders accepted, 2: orders already present, 3: orders rejected. */
-				__( '%1$d sent, %2$d already in Kontor, %3$d rejected.', 'woo-kontor-sync-pro' ),
-				isset( $counts['sent'] ) ? (int) $counts['sent'] : 0,
-				isset( $counts['duplicate'] ) ? (int) $counts['duplicate'] : 0,
-				isset( $counts['failed'] ) ? (int) $counts['failed'] : 0
-			)
+		$message = sprintf(
+			/* translators: 1: orders accepted, 2: orders already present, 3: orders rejected. */
+			__( '%1$d sent, %2$d already in Kontor, %3$d rejected.', 'woo-kontor-sync-pro' ),
+			isset( $counts['sent'] ) ? (int) $counts['sent'] : 0,
+			isset( $counts['duplicate'] ) ? (int) $counts['duplicate'] : 0,
+			isset( $counts['failed'] ) ? (int) $counts['failed'] : 0
 		);
+
+		$set_aside = isset( $counts['set_aside'] ) ? (int) $counts['set_aside'] : 0;
+
+		/*
+		 * Only said when it happened, so a shop whose orders all go through reads the
+		 * sentence it has always read. When it does happen it is the one number here
+		 * that will not resolve itself: those orders are out of the queue until
+		 * somebody puts them back.
+		 */
+		if ( $set_aside > 0 ) {
+			$message .= ' ' . sprintf(
+				/* translators: %d: number of orders set aside. */
+				_n(
+					'%d order was refused too often and will not be sent again automatically.',
+					'%d orders were refused too often and will not be sent again automatically.',
+					$set_aside,
+					'woo-kontor-sync-pro'
+				),
+				$set_aside
+			);
+		}
+
+		Status::finish( self::JOB, $message );
 	}
 
 	/**
@@ -698,6 +753,16 @@ class OrderSync {
 						'key'     => self::META_PUSHED_AT,
 						'compare' => 'NOT EXISTS',
 					),
+
+					/*
+					 * An order Kontor keeps refusing is out of the way rather than at the
+					 * front of the queue for ever. Two NOT EXISTS clauses and no OR between
+					 * them, so each join still names its own key.
+					 */
+					array(
+						'key'     => self::META_PUSH_GIVEN_UP,
+						'compare' => 'NOT EXISTS',
+					),
 				),
 			)
 		);
@@ -719,7 +784,23 @@ class OrderSync {
 			try {
 				$mapped = $this->build_payload( $order );
 			} catch ( Exception $exception ) {
-				Status::progress( self::JOB, array( 'failed' => 1 ) );
+				/*
+				 * Recorded on the order rather than only in the log. Nothing was written
+				 * here before, so an order this plugin could not map was refused by its own
+				 * code on every sweep for ever, with no meta anywhere to say why — the same
+				 * starvation as a Kontor rejection and harder to find, because Kontor never
+				 * saw the order at all.
+				 */
+				$aside = $this->record_failure( $order, $exception->getMessage() );
+
+				Status::progress(
+					self::JOB,
+					array(
+						'failed'    => 1,
+						'set_aside' => $aside ? 1 : 0,
+					)
+				);
+
 				$this->log( 'error', sprintf( 'Order %d could not be mapped: %s', $order->get_id(), $exception->getMessage() ) );
 
 				continue;
@@ -769,6 +850,7 @@ class OrderSync {
 			'sent'      => 0,
 			'duplicate' => 0,
 			'failed'    => 0,
+			'set_aside' => 0,
 		);
 
 		$reported = array();
@@ -809,8 +891,9 @@ class OrderSync {
 				continue;
 			}
 
-			$order->update_meta_data( self::META_PUSH_ERROR, $message );
-			$order->save();
+			if ( $this->record_failure( $order, $message ) ) {
+				++$counts['set_aside'];
+			}
 
 			++$counts['failed'];
 
@@ -825,11 +908,14 @@ class OrderSync {
 				continue;
 			}
 
-			$order->update_meta_data(
-				self::META_PUSH_ERROR,
+			$silent = $this->record_failure(
+				$order,
 				__( 'Kontor accepted the batch but said nothing about this order.', 'woo-kontor-sync-pro' )
 			);
-			$order->save();
+
+			if ( $silent ) {
+				++$counts['set_aside'];
+			}
 
 			++$counts['failed'];
 
@@ -840,6 +926,73 @@ class OrderSync {
 		}
 
 		Status::progress( self::JOB, $counts );
+	}
+
+	/**
+	 * Record that an attempt to send this order failed, and set it aside at the limit.
+	 *
+	 * Only called for a refusal about *this order* — one Kontor named in a result row,
+	 * one it silently said nothing about, or one this plugin could not map at all. A
+	 * batch that failed in transit deliberately does not come through here: it says
+	 * nothing about any order in it, and counting it would set the whole queue aside
+	 * over a bad week on somebody's network.
+	 *
+	 * @param WC_Order $order   Order that was refused.
+	 * @param string   $message Reason to record against it.
+	 * @return bool True when this attempt was the one that set the order aside.
+	 */
+	protected function record_failure( $order, $message ) {
+		$attempts = (int) $order->get_meta( self::META_PUSH_ATTEMPTS ) + 1;
+		$given_up = $attempts >= self::MAX_PUSH_ATTEMPTS && '' === (string) $order->get_meta( self::META_PUSH_GIVEN_UP );
+
+		$order->update_meta_data( self::META_PUSH_ERROR, $message );
+		$order->update_meta_data( self::META_PUSH_ATTEMPTS, $attempts );
+
+		if ( $given_up ) {
+			$order->update_meta_data( self::META_PUSH_GIVEN_UP, 1 );
+
+			// The note is the only thing that reaches somebody reading the order itself,
+			// and it says what happened rather than only that something did.
+			$order->add_order_note(
+				sprintf(
+					/* translators: 1: number of attempts made, 2: the reason the last one failed. */
+					__( 'Kontor refused this order %1$d times, so it will not be sent again automatically. Last reason: %2$s', 'woo-kontor-sync-pro' ),
+					$attempts,
+					'' === $message ? __( 'no reason given', 'woo-kontor-sync-pro' ) : $message
+				)
+			);
+		}
+
+		$order->save();
+
+		return $given_up;
+	}
+
+	/**
+	 * Let the sweep try this order again.
+	 *
+	 * The way back for an order somebody has since fixed. Clearing the count as well
+	 * as the marker is deliberate: a fixed order deserves the full allowance rather
+	 * than one attempt before it is set aside again.
+	 *
+	 * @param WC_Order $order Order to put back in the queue.
+	 * @return void
+	 */
+	public static function allow_retry( $order ) {
+		$order->delete_meta_data( self::META_PUSH_GIVEN_UP );
+		$order->delete_meta_data( self::META_PUSH_ATTEMPTS );
+		$order->delete_meta_data( self::META_PUSH_ERROR );
+		$order->save();
+	}
+
+	/**
+	 * Whether the sweep has stopped trying to send this order.
+	 *
+	 * @param WC_Order $order Order to ask about.
+	 * @return bool True when the order has been set aside.
+	 */
+	public static function is_set_aside( $order ) {
+		return '' !== (string) $order->get_meta( self::META_PUSH_GIVEN_UP );
 	}
 
 	/**
@@ -865,6 +1018,11 @@ class OrderSync {
 		$order->update_meta_data( self::META_PUSHED_AT, time() );
 		$order->update_meta_data( self::META_ORDER_NUMBER, $number );
 		$order->delete_meta_data( self::META_PUSH_ERROR );
+
+		// The refusals before this one are history now, and leaving the count behind
+		// would have the order screen say it was set aside while it is plainly in Kontor.
+		$order->delete_meta_data( self::META_PUSH_ATTEMPTS );
+		$order->delete_meta_data( self::META_PUSH_GIVEN_UP );
 
 		if ( '' !== $auftrnr ) {
 			$order->update_meta_data( self::META_KONTOR_ORDER, $auftrnr );

@@ -2932,6 +2932,7 @@ class Settings {
 		</table>
 		<?php
 		$this->render_held_products();
+		$this->render_stuck_orders();
 	}
 
 	/**
@@ -2974,6 +2975,53 @@ class Settings {
 			),
 			esc_url( HeldProducts::url() ),
 			esc_html__( 'Show them, with the reason for each.', 'woo-kontor-sync-pro' )
+		);
+	}
+
+	/**
+	 * Point at the orders the sweep has stopped trying to send.
+	 *
+	 * The one number on this screen that will not resolve itself. Those orders are out
+	 * of the sweep's queue by definition, so nothing will pick them up again until
+	 * somebody opens one and presses the entry in the order actions box.
+	 *
+	 * Gated on edit_others_shop_orders rather than this screen's own capability, for
+	 * the reason the held-products line is gated on edit_products: a role able to run
+	 * every sync here is not necessarily one able to open an order. That is also the
+	 * capability WooCommerce gates its own orders menu on, so the link cannot offer a
+	 * screen the reader would be refused — and it is a primitive capability, unlike
+	 * `edit_shop_order`, which maps through `map_meta_cap` and is a misuse of the
+	 * capability system when asked without naming an order.
+	 *
+	 * @return void
+	 */
+	protected function render_stuck_orders() {
+		if ( ! self::orders_enabled() || ! current_user_can( 'edit_others_shop_orders' ) ) {
+			return;
+		}
+
+		$stuck = StuckOrders::total();
+
+		if ( $stuck < 1 ) {
+			return;
+		}
+
+		printf(
+			'<p class="description">%1$s <a href="%2$s">%3$s</a></p>',
+			esc_html(
+				sprintf(
+					/* translators: %s: number of orders. */
+					_n(
+						'%s order was refused by Kontor too often and is no longer being sent.',
+						'%s orders were refused by Kontor too often and are no longer being sent.',
+						$stuck,
+						'woo-kontor-sync-pro'
+					),
+					number_format_i18n( $stuck )
+				)
+			),
+			esc_url( StuckOrders::url() ),
+			esc_html__( 'Show them. Each order carries the reason, and an action to send it again.', 'woo-kontor-sync-pro' )
 		);
 	}
 

@@ -15,6 +15,7 @@ use WooKontorSync\Admin\ProductFields;
 use WooKontorSync\Admin\Settings;
 use WooKontorSync\Admin\SiteHealth;
 use WooKontorSync\Admin\StatusReport;
+use WooKontorSync\Admin\StuckOrders;
 use WooKontorSync\Emails\Emails;
 use WooKontorSync\Frontend\Invoices;
 use WooKontorSync\Frontend\ProductMeta;
@@ -179,6 +180,10 @@ final class Plugin {
 			( new Notices() )->register();
 			( new StatusReport() )->register();
 			( new SiteHealth() )->register();
+
+			// The orders the sweep has given up on. Their marker is protected meta, so
+			// without this the count in the run summary names orders nothing can find.
+			( new StuckOrders() )->register();
 		}
 
 		/**

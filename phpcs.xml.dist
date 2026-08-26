@@ -98,6 +98,7 @@
 			<property name="custom_capabilities" type="array">
 				<element value="edit_shop_order"/>
 				<element value="edit_shop_orders"/>
+				<element value="edit_others_shop_orders"/>
 				<element value="edit_products"/>
 			</property>
 		</properties>

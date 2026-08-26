@@ -915,6 +915,39 @@ of them wrong produces silently wrong data rather than an error:
 - **An order the upsert reply says nothing about is counted as failed.** Nothing is written on it, so
   the next sweep sends it again; leaving it out of the counts instead would report a batch of
   twenty-five as "five sent" and give nobody a reason to look.
+- **An order Kontor keeps refusing is set aside, or the sweep starves.** `pending_orders()` asks for
+  orders that have never reached Kontor, oldest first, capped at `SWEEP_LIMIT` — and an order
+  refused for a reason in its own data never reaches Kontor, so it stayed in that set for ever *and
+  sorted to the front of it*. Two hundred of those and no order placed afterwards would ever be sent
+  again, silently, with every sweep dutifully re-sending the same rejections.
+  `OrderSync::MAX_PUSH_ATTEMPTS` (5) is the allowance, counted in
+  `META_PUSH_ATTEMPTS` (`_wksync_push_attempts`).
+  - **Only a refusal about *this order* counts** — one Kontor named in a result row, one it said
+    nothing about, or one `build_payload()` could not map. **A batch that failed in transit counts
+    against nothing**: it says nothing about any order in it, and counting it would set the whole
+    queue aside over a week of somebody else's network trouble.
+  - **An order this plugin cannot map is now recorded on the order**, which it was not before: such
+    an order was refused by our own code on every sweep for ever with no meta anywhere to say why —
+    the same starvation as a Kontor rejection and harder to find, because Kontor never saw it.
+  - **`META_PUSH_GIVEN_UP` (`_wksync_push_given_up`) is a separate marker rather than a comparison
+    against the count**, and the reason is the shape of the query. `pending_orders()` would
+    otherwise need "no count at all, or a count below the limit", and `WP_Meta_Query` drops
+    `meta_key` from every `ON` clause the moment an OR appears — the trap that made `HeldProducts`'
+    `any` view never return. Two `NOT EXISTS` clauses joined by AND each match one row per order.
+  - **A successful push clears both**, or the order screen would say an order was set aside while it
+    is plainly in Kontor.
+  - **The way back is `Admin\OrderActions`' third entry**, which clears the markers and queues the
+    single-order push. Without it the marker is a one-way door: those orders are out of
+    `pending_orders()` by definition, so no sweep would pick one up however thoroughly it was fixed.
+    Clearing the count as well as the marker is deliberate — a fixed order deserves the full
+    allowance rather than one attempt before it is set aside again.
+  - **`Admin\StuckOrders` is where the count becomes a list.** The marker is `_wksync_`-prefixed and
+    therefore protected, so the run summary would otherwise name orders nothing in wp-admin could
+    find. Deliberately smaller than `Admin\HeldProducts`: one condition, so one link and no views
+    apparatus. The meta query is appended rather than assigned, for the reason `HeldProducts`'
+    is — WooCommerce's own screen puts clauses on the same query.
+  - **The run summary mentions it only when it happened**, so a shop whose orders all go through
+    reads the sentence it has always read. It is the one number there that will not resolve itself.
 - **Invoices are a two-step download, and the second step is not under the base URL.** The
   `invoices` entity lists what exists — `id`, `Belegnr`, `Datum`, `Auftrnr` and the `ordernumber`
   this plugin sent — honouring only `filter.shopid`, exactly like `orders`. Fetching a document is

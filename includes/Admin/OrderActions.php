@@ -11,6 +11,8 @@ use WC_Order;
 use WooKontorSync\Emails\Emails;
 use WooKontorSync\Sync\DeliverySync;
 use WooKontorSync\Sync\InvoiceSync;
+use WooKontorSync\Sync\OrderSync;
+use WooKontorSync\Sync\Scheduler;
 
 defined( 'ABSPATH' ) || exit;
 
@@ -51,6 +53,11 @@ class OrderActions {
 	const SEND_TRACKING = 'wksync_send_tracking_email';
 
 	/**
+	 * Action key for putting a set-aside order back in the queue.
+	 */
+	const RETRY_PUSH = 'wksync_retry_push';
+
+	/**
 	 * Register the dropdown entries and their handlers.
 	 *
 	 * @return void
@@ -59,6 +66,7 @@ class OrderActions {
 		add_filter( 'woocommerce_order_actions', array( $this, 'add_actions' ), 10, 2 );
 		add_action( 'woocommerce_order_action_' . self::SEND_INVOICE, array( $this, 'send_invoice' ) );
 		add_action( 'woocommerce_order_action_' . self::SEND_TRACKING, array( $this, 'send_tracking' ) );
+		add_action( 'woocommerce_order_action_' . self::RETRY_PUSH, array( $this, 'retry_push' ) );
 	}
 
 	/**
@@ -85,6 +93,16 @@ class OrderActions {
 
 		if ( '' !== trim( (string) $order->get_meta( DeliverySync::META_TRACKING ) ) ) {
 			$actions[ self::SEND_TRACKING ] = __( 'Email the tracking details to the customer again', 'woo-kontor-sync-pro' );
+		}
+
+		/*
+		 * The way back for an order the sweep has given up on. Without it the marker is
+		 * a one-way door: those orders are out of pending_orders() by definition, so no
+		 * sweep will ever pick them up again however thoroughly the order is fixed.
+		 * Offered only where there is something to undo.
+		 */
+		if ( OrderSync::is_set_aside( $order ) ) {
+			$actions[ self::RETRY_PUSH ] = __( 'Send this order to Kontor again', 'woo-kontor-sync-pro' );
 		}
 
 		return $actions;
@@ -118,6 +136,29 @@ class OrderActions {
 			__( 'Kontor tracking email sent to the customer.', 'woo-kontor-sync-pro' ),
 			__( 'The Kontor tracking email could not be sent.', 'woo-kontor-sync-pro' )
 		);
+	}
+
+	/**
+	 * Put a set-aside order back in the sweep's queue.
+	 *
+	 * Only clears the markers; it does not send anything itself. The upload belongs in
+	 * a queued action like every other one, and pushing from inside an order save would
+	 * hold the screen open on a round trip to Kontor for no benefit — this order is
+	 * hours old already.
+	 *
+	 * @param mixed $order Order to put back.
+	 * @return void
+	 */
+	public function retry_push( $order ) {
+		if ( ! $order instanceof WC_Order || ! current_user_can( 'edit_shop_order', $order->get_id() ) ) {
+			return;
+		}
+
+		OrderSync::allow_retry( $order );
+
+		Scheduler::chain( Scheduler::ACTION_SYNC_ORDER, array( 'order_id' => $order->get_id() ) );
+
+		$order->add_order_note( __( 'Queued to be sent to Kontor again.', 'woo-kontor-sync-pro' ) );
 	}
 
 	/**
