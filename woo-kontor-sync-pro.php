@@ -4,7 +4,7 @@
  * Plugin URI:           https://github.com/SourovCodes/woo-kontor-sync-pro
  * Update URI:           https://github.com/SourovCodes/woo-kontor-sync-pro
  * Description:          Synchronises WooCommerce products, orders and customers with the Kontor ERP.
- * Version:              0.28.0
+ * Version:              0.29.0
  * Requires at least:    7.0
  * Requires PHP:         8.2
  * Requires Plugins:     woocommerce
@@ -23,7 +23,7 @@ namespace WooKontorSync;
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'WKSYNC_VERSION', '0.28.0' );
+define( 'WKSYNC_VERSION', '0.29.0' );
 define( 'WKSYNC_PLUGIN_FILE', __FILE__ );
 define( 'WKSYNC_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'WKSYNC_PLUGIN_URL', plugin_dir_url( __FILE__ ) );

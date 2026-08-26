@@ -253,6 +253,54 @@ class ProductSync {
 	const FINALISE_BATCH = 200;
 
 	/**
+	 * Largest number of pages one catalogue walk may request.
+	 *
+	 * The walk ends when a page comes back empty, which is the only answer that comes
+	 * from the catalogue itself rather than from a number describing it. A pager that
+	 * ignored `skip` would then never end, so there is a ceiling — and reaching it
+	 * fails the run rather than finalising it, because a walk that did not finish has
+	 * no business deciding which articles Kontor has stopped listing.
+	 *
+	 * Sized well clear of anything real: the account this was built against lists 4386
+	 * articles, or 22 pages.
+	 */
+	const MAX_PAGES = 1000;
+
+	/**
+	 * How long to wait before asking for a page again, per attempt.
+	 *
+	 * A page that fails takes the whole run with it, and the product sync runs as
+	 * seldom as once a month — so a blip lasting seconds can cost weeks of a stale
+	 * catalogue, with one line on a settings screen to say so. The waits are long
+	 * because the Client has already spent its own three attempts and its own backoff
+	 * on this request: whatever is wrong has lasted at least several seconds, so
+	 * coming straight back would only spend the retries faster.
+	 *
+	 * The list is also the retry count. Their sum has to stay comfortably inside
+	 * Status::STALE_AFTER, or a run would be declared dead while it was still waiting
+	 * to try again.
+	 *
+	 * @var int[]
+	 */
+	const PAGE_RETRY_DELAYS = array( 5 * MINUTE_IN_SECONDS, 15 * MINUTE_IN_SECONDS, HOUR_IN_SECONDS );
+
+	/**
+	 * Option recording how large the catalogue was, and any shrink awaiting a second opinion.
+	 */
+	const CATALOGUE_OPTION = 'woo_kontor_sync_catalogue';
+
+	/**
+	 * How much of the catalogue may disappear between runs before the drafting stops.
+	 *
+	 * Preflight proves the credentials authenticate; it does not prove the catalogue
+	 * came back whole. A run that reads three hundred of four thousand articles — a
+	 * filter that saved wrong, a bad afternoon at the other end — is indistinguishable
+	 * from one where Kontor genuinely stopped listing them, and finalise() would draft
+	 * the difference on either reading.
+	 */
+	const CATALOGUE_SHRINK_LIMIT = 0.3;
+
+	/**
 	 * Seconds to wait for one image download.
 	 *
 	 * WordPress defaults to 300, and media_sideload_image() offers no way to shorten
@@ -363,8 +411,9 @@ class ProductSync {
 		Scheduler::chain(
 			Scheduler::ACTION_SYNC_PRODUCTS_PAGE,
 			array(
-				'skip' => 0,
-				'run'  => $run,
+				'skip'    => 0,
+				'run'     => $run,
+				'attempt' => 1,
 			)
 		);
 	}
@@ -372,13 +421,42 @@ class ProductSync {
 	/**
 	 * Import one page of articles, then queue the next.
 	 *
-	 * @param int $skip Number of records already requested.
-	 * @param int $run  Run identifier.
+	 * **The walk ends when a page comes back empty, and on nothing else.** It used to
+	 * end when `skip` reached the `totalCount` the first page reported, which made a
+	 * number describing the catalogue the authority on where the catalogue stopped. An
+	 * absent totalCount reads as zero, so a single missing field would have ended the
+	 * walk after one page and handed finalise() the rest of the shop to draft. The
+	 * count is still read, for the progress bar, where being wrong costs nothing.
+	 *
+	 * A short page is therefore not the end either: `skip` advances by the rows
+	 * actually returned, so a page that comes back under-full is simply followed by
+	 * another. The cost of all this is one extra request per run, to be told there is
+	 * nothing left.
+	 *
+	 * @param int $skip    Number of records already requested.
+	 * @param int $run     Run identifier.
+	 * @param int $attempt Which attempt at this page this is, counting from one.
 	 * @return void
 	 */
-	public function import_page( $skip, $run ) {
+	public function import_page( $skip, $run, $attempt = 1 ) {
 		if ( ! Status::is_current_run( self::JOB, $run ) ) {
 			$this->log( 'info', sprintf( 'Discarding product page at offset %d: run %d has been superseded.', $skip, $run ) );
+
+			return;
+		}
+
+		/*
+		 * A walk this long has stopped being a walk. Nothing Kontor has ever returned
+		 * comes near the ceiling, so reaching it means the pager is not advancing —
+		 * and the run is failed rather than finalised, because finalise() would read
+		 * the articles never reached as ones Kontor has dropped.
+		 */
+		if ( (int) $skip >= self::MAX_PAGES * Client::PRODUCT_PAGE_SIZE ) {
+			Status::fail(
+				self::JOB,
+				__( 'The catalogue did not end. The run was stopped rather than draft the articles it never reached.', 'woo-kontor-sync-pro' )
+			);
+			$this->log( 'error', sprintf( 'Product sync stopped at offset %d: the catalogue never ended.', $skip ) );
 
 			return;
 		}
@@ -396,11 +474,7 @@ class ProductSync {
 			$tree = $categories->map();
 
 			if ( is_wp_error( $tree ) ) {
-				Status::fail( self::JOB, $tree->get_error_message() );
-				$this->log(
-					'error',
-					sprintf( 'Product sync aborted at offset %1$d: the category tree could not be read: %2$s', $skip, $tree->get_error_message() )
-				);
+				$this->retry_page( $skip, $run, $attempt, $tree, 'the category tree could not be read' );
 
 				return;
 			}
@@ -409,8 +483,7 @@ class ProductSync {
 		$response = $this->client->fetch_products( $skip, Client::PRODUCT_PAGE_SIZE, $this->request_shoptype(), $this->manufacturers() );
 
 		if ( is_wp_error( $response ) ) {
-			Status::fail( self::JOB, $response->get_error_message() );
-			$this->log( 'error', sprintf( 'Product sync aborted at offset %d: %s', $skip, $response->get_error_message() ) );
+			$this->retry_page( $skip, $run, $attempt, $response, 'the page could not be read' );
 
 			return;
 		}
@@ -467,13 +540,19 @@ class ProductSync {
 
 		$processed = $skip + count( $rows );
 
-		// An empty page means the catalogue ended earlier than totalCount implied.
-		if ( ! empty( $rows ) && $processed < $total ) {
+		/*
+		 * An empty page is the catalogue saying it has ended. Anything else — a full
+		 * page, a short one, one totalCount did not lead us to expect — is followed by
+		 * another request, because the only thing that can be trusted to say where the
+		 * articles stop is the articles stopping.
+		 */
+		if ( ! empty( $rows ) ) {
 			Scheduler::chain(
 				Scheduler::ACTION_SYNC_PRODUCTS_PAGE,
 				array(
-					'skip' => $processed,
-					'run'  => $run,
+					'skip'    => $processed,
+					'run'     => $run,
+					'attempt' => 1,
 				)
 			);
 
@@ -481,6 +560,246 @@ class ProductSync {
 		}
 
 		Scheduler::chain( Scheduler::ACTION_SYNC_PRODUCTS_FINALISE, array( 'run' => $run ) );
+	}
+
+	/**
+	 * Ask for a page again later, or give up on the run.
+	 *
+	 * A page that fails takes the run with it, and there is no partial success to fall
+	 * back on: the pages already imported are correct, but the ones after this will not
+	 * be read until the job next runs, which on the product sync can be a month away.
+	 * So a failure that might not last is waited out rather than reported.
+	 *
+	 * **Only a failure the Client called transient is retried.** It has already spent
+	 * its own three attempts on those; a refusal it called final is a bad key or a bad
+	 * request, and asking again in five minutes would only be a slower way of writing
+	 * the same message an hour later.
+	 *
+	 * The run stays in the "running" state throughout, which is what stops a schedule
+	 * starting a second walk over the top of this one while it waits.
+	 *
+	 * @param int       $skip    Offset of the page that failed.
+	 * @param int       $run     Run identifier.
+	 * @param int       $attempt Which attempt this was, counting from one.
+	 * @param \WP_Error $error   What went wrong.
+	 * @param string    $what    Short description of the step that failed, for the log.
+	 * @return void
+	 */
+	protected function retry_page( $skip, $run, $attempt, $error, $what ) {
+		$attempt   = max( 1, (int) $attempt );
+		$delays    = self::PAGE_RETRY_DELAYS;
+		$transient = 'retry' === Client::detail( $error, 'disposition', 'fail' );
+
+		if ( $transient && $attempt <= count( $delays ) ) {
+			$delay = (int) $delays[ $attempt - 1 ];
+
+			$this->log(
+				'warning',
+				sprintf(
+					'Product sync will retry offset %1$d in %2$d seconds (attempt %3$d of %4$d): %5$s: %6$s',
+					$skip,
+					$delay,
+					$attempt,
+					count( $delays ) + 1,
+					$what,
+					$error->get_error_message()
+				)
+			);
+
+			Scheduler::chain_later(
+				Scheduler::ACTION_SYNC_PRODUCTS_PAGE,
+				array(
+					'skip'    => (int) $skip,
+					'run'     => (int) $run,
+					'attempt' => $attempt + 1,
+				),
+				$delay
+			);
+
+			return;
+		}
+
+		$message = $attempt > 1
+			? sprintf(
+				/* translators: 1: number of attempts made, 2: the reason the last one failed. */
+				__( 'Gave up after %1$d attempts: %2$s', 'woo-kontor-sync-pro' ),
+				$attempt,
+				$error->get_error_message()
+			)
+			: $error->get_error_message();
+
+		Status::fail( self::JOB, $message );
+		$this->log(
+			'error',
+			sprintf( 'Product sync aborted at offset %1$d on attempt %2$d: %3$s: %4$s', $skip, $attempt, $what, $error->get_error_message() )
+		);
+	}
+
+	/**
+	 * Whether this run read enough of the catalogue to be allowed to draft from it.
+	 *
+	 * Preflight settles whether Kontor answers at all. It cannot settle whether what
+	 * came back was the whole catalogue, and finalise() cannot tell the two apart: an
+	 * article missing because Kontor stopped listing it and an article missing because
+	 * the feed came back short look exactly alike from here, and both are drafted. On
+	 * the account this was built against that is four thousand products going dark on
+	 * a bad afternoon at the other end, with one sentence on a settings screen to say
+	 * so.
+	 *
+	 * So a run that read markedly fewer articles than the last one to finish is stopped
+	 * — **once**. The count that stopped it is recorded, and a later run that reads
+	 * about the same number again is allowed through: two runs, two requests, two
+	 * independent readings agreeing. A catalogue Kontor really has cut in half costs one
+	 * run's delay and then goes through on its own, and a blip costs nothing at all
+	 * because the run after it sees the full catalogue and never asks the question.
+	 *
+	 * That is deliberately not a setting. Something a shop manager has to find, read
+	 * and switch off would be switched off during the incident it exists for, and a
+	 * confirmation on a screen would be answered by nobody at four in the morning,
+	 * which is when the sync runs.
+	 *
+	 * The first run of all has nothing to compare against and is always allowed:
+	 * without a stored size there is no shrink, and a shop with no products yet has
+	 * nothing to lose either way.
+	 *
+	 * @return bool True when the run may go on to draft.
+	 */
+	protected function catalogue_is_credible() {
+		$seen  = (int) Status::get( self::JOB )['processed'];
+		$state = self::catalogue_state();
+		$last  = (int) $state['size'];
+
+		/**
+		 * Filters how much of the catalogue may disappear between runs unchallenged.
+		 *
+		 * A proportion between 0 and 1. Raising it to 1 lets any shrink through, which
+		 * is the way to switch this off on a shop whose catalogue legitimately swings.
+		 *
+		 * @since 0.29.0
+		 *
+		 * @param float $limit Proportion of the catalogue that may vanish.
+		 * @param int   $seen  Articles this run read.
+		 * @param int   $last  Articles the last completed run read.
+		 */
+		$limit = (float) apply_filters( 'woo_kontor_sync_catalogue_shrink_limit', self::CATALOGUE_SHRINK_LIMIT, $seen, $last );
+		$limit = max( 0.0, min( 1.0, $limit ) );
+
+		if ( $last < 1 || $seen >= (int) floor( $last * ( 1 - $limit ) ) ) {
+			return true;
+		}
+
+		// A shrink this run has already been seen once, at about this size. Two readings
+		// agreeing is the confirmation, and the drafting goes ahead.
+		$braked = (int) $state['braked'];
+
+		if ( $braked > 0 && $seen >= (int) floor( $braked * ( 1 - $limit ) ) ) {
+			$this->log(
+				'warning',
+				sprintf( 'Catalogue shrink confirmed by a second run: %1$d articles, down from %2$d. Drafting goes ahead.', $seen, $last )
+			);
+
+			/*
+			 * Settled here rather than left to complete(). The drafting is chained a batch
+			 * at a time and every batch comes back through this method, so the confirmed
+			 * size has to be the one they read — otherwise each of them re-derives the
+			 * confirmation and says so in the log, once per two hundred products drafted.
+			 * A run that dies after this point is no worse off: the size it recorded is
+			 * the one two runs already agreed on.
+			 */
+			self::remember_catalogue( $seen, 0 );
+
+			return true;
+		}
+
+		self::remember_catalogue( $last, $seen );
+
+		Status::fail(
+			self::JOB,
+			sprintf(
+				/* translators: 1: articles this run read, 2: articles the last completed run read. */
+				__( 'Kontor listed %1$d articles, down from %2$d. Nothing was drafted: run the sync again, and if the catalogue really has shrunk the next run will go ahead.', 'woo-kontor-sync-pro' ),
+				$seen,
+				$last
+			)
+		);
+
+		$this->log(
+			'error',
+			sprintf( 'Product sync stopped before drafting: %1$d articles read, down from %2$d.', $seen, $last )
+		);
+
+		return false;
+	}
+
+	/**
+	 * What the last completed run read, and any shrink waiting for a second opinion.
+	 *
+	 * Its own option rather than a corner of the settings: it is a measurement the
+	 * plugin took, not a choice anybody made, and it must not be rewritten by a save
+	 * of the settings screen.
+	 *
+	 * @return array Array with "size" and "braked" keys.
+	 */
+	protected static function catalogue_state() {
+		$stored = get_option( self::CATALOGUE_OPTION, array() );
+
+		if ( ! is_array( $stored ) ) {
+			$stored = array();
+		}
+
+		return array(
+			'size'   => isset( $stored['size'] ) ? (int) $stored['size'] : 0,
+			'braked' => isset( $stored['braked'] ) ? (int) $stored['braked'] : 0,
+		);
+	}
+
+	/**
+	 * Record the catalogue size, and any shrink held back for confirmation.
+	 *
+	 * @param int $size   Articles the last run to get as far as drafting read.
+	 * @param int $braked Articles read by a run that was stopped; 0 when none is pending.
+	 * @return void
+	 */
+	protected static function remember_catalogue( $size, $braked ) {
+		update_option(
+			self::CATALOGUE_OPTION,
+			array(
+				'size'   => max( 0, (int) $size ),
+				'braked' => max( 0, (int) $braked ),
+			),
+			false
+		);
+	}
+
+	/**
+	 * Forget the catalogue size when the manufacturer filter changes.
+	 *
+	 * Narrowing the filter is the one thing a shop can do that legitimately takes a
+	 * fifth of the catalogue away in a single run — it is documented as drafting the
+	 * excluded articles, and widening it again republishes them. Left alone, the
+	 * measurement from before the change would stop the very run the change was made
+	 * to produce, and the shop manager would be told to run it twice for no reason.
+	 *
+	 * Nothing else needs this. The shop type does not change which articles come back,
+	 * only their prices, and the image and category requirements change what happens
+	 * to an article rather than whether Kontor lists it.
+	 *
+	 * @param mixed $before_save Settings before the save.
+	 * @param mixed $after_save  Settings after the save.
+	 * @return void
+	 */
+	public static function forget_catalogue_size( $before_save, $after_save ) {
+		$before = is_array( $before_save ) && isset( $before_save['manufacturer_ids'] ) ? (array) $before_save['manufacturer_ids'] : array();
+		$after  = is_array( $after_save ) && isset( $after_save['manufacturer_ids'] ) ? (array) $after_save['manufacturer_ids'] : array();
+
+		sort( $before );
+		sort( $after );
+
+		if ( $before === $after ) {
+			return;
+		}
+
+		delete_option( self::CATALOGUE_OPTION );
 	}
 
 	/**
@@ -497,6 +816,12 @@ class ProductSync {
 		if ( ! Status::is_current_run( self::JOB, $run ) ) {
 			$this->log( 'info', sprintf( 'Discarding finalise pass: run %d has been superseded.', $run ) );
 
+			return;
+		}
+
+		// Nothing is drafted on the strength of a catalogue that came back a fraction of
+		// the size of the last one until a second run has said the same thing.
+		if ( ! $this->catalogue_is_credible() ) {
 			return;
 		}
 
@@ -710,7 +1035,15 @@ class ProductSync {
 	 * @return void
 	 */
 	protected function complete() {
-		$counts = Status::get( self::JOB )['counts'];
+		$status = Status::get( self::JOB );
+		$counts = $status['counts'];
+
+		/*
+		 * The run got as far as drafting, so what it read is what the catalogue is. Any
+		 * shrink held back for a second opinion is cleared with it — whatever was
+		 * waiting to be confirmed has been overtaken by this.
+		 */
+		self::remember_catalogue( (int) $status['processed'], 0 );
 
 		$message = sprintf(
 			/* translators: 1: created count, 2: updated count, 3: unchanged count, 4: drafted count. */

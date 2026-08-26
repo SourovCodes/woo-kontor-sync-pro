@@ -18,6 +18,7 @@ if ( function_exists( 'as_unschedule_all_actions' ) ) {
 delete_option( 'woo_kontor_sync_settings' );
 delete_option( 'woo_kontor_sync_version' );
 delete_option( 'woo_kontor_sync_job_status' );
+delete_option( 'woo_kontor_sync_catalogue' );
 
 /*
  * The two customer emails' own settings, which WooCommerce stores per email id.

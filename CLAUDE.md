@@ -695,6 +695,26 @@ of them wrong produces silently wrong data rather than an error:
   saving 500 products took around 78 seconds, long enough to risk being cut short on a slow host.
   Raise this and the failure mode is a truncated pass, not an API error. That budget only holds
   because images are downloaded elsewhere; do not put them back in the page action.
+- **The walk ends on an empty page, and on nothing else.** Up to 0.28.0 it ended when `skip` reached
+  the `totalCount` the first page reported, which made a number *describing* the catalogue the
+  authority on where the catalogue stopped. An absent `totalCount` reads as `0`, so one missing
+  field would have ended the walk after a single page and handed `finalise()` the other 4186
+  articles as ones Kontor had dropped — the whole shop dark, from a field nobody promised. The count
+  is still read on the first page for the progress bar, where being wrong costs nothing. A short
+  page is not the end either, for the reason in the cap above: `skip` advances by the rows actually
+  returned. The cost of all this is one extra request per run, to be told there is nothing left.
+  - **`ProductSync::MAX_PAGES` (1000) is what keeps that terminating**, since a pager that ignored
+    `skip` would otherwise walk for ever. Reaching it **fails the run rather than finalising it** —
+    a walk that did not finish has no business deciding which articles Kontor has stopped listing.
+- **A page that fails transiently is waited out, not the end of the run.** `retry_page()` queues the
+  same page again through `Scheduler::chain_later()` on `ProductSync::PAGE_RETRY_DELAYS`
+  (5 minutes, 15, then an hour) before giving up. The product sync runs as seldom as once a month,
+  so a blip lasting seconds used to cost weeks of a stale catalogue with one line on a settings
+  screen to say so. **Only a failure the Client called transient is retried** — it has already spent
+  its own three attempts and its own backoff on those, while a refusal it called final is a bad key
+  or a bad request, and asking again in five minutes is a slower way of writing the same message an
+  hour later. The run stays `running` across the wait, which is what stops a schedule starting a
+  second walk over the top of it; the delays sum to well inside `Status::STALE_AFTER`.
 - **The `stock` entity takes no paging and no filter.** One request returns a level for every
   article (~2945 rows in ~65ms). Sending paging to it is not an error, just pointless.
   - **It is narrower than the catalogue, and as of 0.13.0 the difference is a non-event.** Measured
@@ -1032,6 +1052,38 @@ unpublishes what the catalogue no longer carries, chained across actions rather 
 last page — the walk is unbounded, which is the one thing that would put a chunk action over a slow
 host's execution limit. The stock sync used to do the same for its own feed and no longer does; see
 the `stock` entity above for why, and for the marker left behind to undo it.
+
+**Nothing is drafted on the strength of a catalogue that came back a fraction of its usual size.**
+`Preflight` settles whether Kontor answers at all; it cannot settle whether what came back was the
+whole catalogue, and `finalise()` cannot tell the two apart — an article missing because Kontor
+stopped listing it and an article missing because the feed came back short look identical from
+there, and both are drafted. So `catalogue_is_credible()` stops a run that read markedly fewer
+articles than the last one to finish, and `ProductSync::CATALOGUE_OPTION`
+(`woo_kontor_sync_catalogue`) is where the measurement lives — its own option, because it is
+something the plugin measured rather than something anybody chose, and a save of the settings screen
+must not rewrite it.
+
+- **It stops the run once, and a second run is what confirms the shrink.** The count that tripped it
+  is recorded, and a later run reading about the same number again goes ahead: two runs, two
+  requests, two independent readings agreeing. A catalogue Kontor really has cut in half costs one
+  run's delay and then proceeds on its own, and a blip costs nothing at all, because the run after
+  it sees the full catalogue and never asks the question. A run that shrank *further* is held back
+  again rather than believed.
+- **Deliberately not a setting and not a confirmation prompt.** Something a shop manager has to
+  find, read and switch off would be switched off during the incident it exists for, and a dialog
+  would be answered by nobody at four in the morning, which is when the sync runs.
+  `woo_kontor_sync_catalogue_shrink_limit` is the developer's way out; at `1` any shrink passes.
+- **`CATALOGUE_SHRINK_LIMIT` is 0.3**, measured against the article count rather than the product
+  count, so the reasons that hold articles *back* — `Ws_aktiv`, the image and category requirements
+  — do not enter into it. They change what happens to an article, not whether Kontor listed it.
+- **Narrowing the manufacturer filter clears the measurement**, in
+  `ProductSync::forget_catalogue_size()` on `update_option_`. It is the one thing a shop can do that
+  legitimately takes a fifth of the catalogue away in a single run — it is documented above as
+  drafting the excluded articles — so left alone, the old measurement would stop the very run the
+  change was made to produce. Nothing else needs it: the shop type does not change which articles
+  come back, only their prices.
+- **The first run of all is never held back.** With no stored size there is no shrink to measure,
+  and a shop with nothing imported yet has nothing to lose either way.
 
 **One job removes products, and only where a shop has asked for it.**
 `Settings::TRASH_UNMANAGED` (`trash_unmanaged`, off by default) chains

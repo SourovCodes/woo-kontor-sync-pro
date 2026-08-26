@@ -284,7 +284,7 @@ class Scheduler {
 	 */
 	public function register() {
 		add_action( self::ACTION_SYNC_PRODUCTS, array( $this, 'handle_products' ) );
-		add_action( self::ACTION_SYNC_PRODUCTS_PAGE, array( $this, 'handle_products_page' ), 10, 2 );
+		add_action( self::ACTION_SYNC_PRODUCTS_PAGE, array( $this, 'handle_products_page' ), 10, 3 );
 		add_action( self::ACTION_SYNC_PRODUCT_IMAGES, array( $this, 'handle_product_images' ), 10, 3 );
 		add_action( self::ACTION_SYNC_PRODUCTS_FINALISE, array( $this, 'handle_products_finalise' ), 10, 1 );
 		add_action( self::ACTION_SYNC_PRODUCTS_TRASH, array( $this, 'handle_products_trash' ), 10, 1 );
@@ -328,6 +328,10 @@ class Scheduler {
 
 		// A saved key says nothing about whether the previous one worked.
 		add_action( 'update_option_' . Settings::OPTION_KEY, array( Preflight::class, 'forget_connection' ) );
+
+		// Narrowing the manufacturer filter is a legitimate way to shrink the catalogue,
+		// so the measurement the drafting brake compares against stops applying.
+		add_action( 'update_option_' . Settings::OPTION_KEY, array( ProductSync::class, 'forget_catalogue_size' ), 10, 2 );
 	}
 
 	/**
@@ -596,12 +600,18 @@ class Scheduler {
 	/**
 	 * Import one page of products.
 	 *
-	 * @param int $skip Number of records already imported.
-	 * @param int $run  Run identifier, used to spot products Kontor no longer lists.
+	 * The attempt number is carried so a page whose request failed transiently can be
+	 * queued again rather than taking the whole run with it. An action queued by a
+	 * version that did not carry it arrives without the argument and defaults to the
+	 * first attempt, which is what it was.
+	 *
+	 * @param int $skip    Number of records already imported.
+	 * @param int $run     Run identifier, used to spot products Kontor no longer lists.
+	 * @param int $attempt Which attempt at this page this is, counting from one.
 	 * @return void
 	 */
-	public function handle_products_page( $skip = 0, $run = 0 ) {
-		( new ProductSync() )->import_page( absint( $skip ), absint( $run ) );
+	public function handle_products_page( $skip = 0, $run = 0, $attempt = 1 ) {
+		( new ProductSync() )->import_page( absint( $skip ), absint( $run ), absint( $attempt ) );
 	}
 
 	/**
@@ -890,6 +900,37 @@ class Scheduler {
 	}
 
 	/**
+	 * Queue a follow-up action for the current run, after a wait.
+	 *
+	 * The chain is otherwise built out of async actions, which are claimed on the very
+	 * next queue pass. That is right for every step that has work waiting for it and
+	 * wrong for the one case this exists for: a step retrying something that just
+	 * failed, where coming straight back is how three attempts are spent inside a
+	 * minute on a host that needs longer than that.
+	 *
+	 * @param string $hook     Action hook to queue.
+	 * @param array  $args     Arguments to pass along.
+	 * @param int    $delay    Seconds to wait before the action may be claimed.
+	 * @param int    $priority Claim priority, lower first. Defaults to Action Scheduler's own.
+	 * @return void
+	 */
+	public static function chain_later( $hook, array $args, $delay, $priority = self::PRIORITY_DEFAULT ) {
+		if ( ! self::is_available() ) {
+			return;
+		}
+
+		$delay = max( 0, (int) $delay );
+
+		if ( 0 === $delay ) {
+			self::chain( $hook, $args, $priority );
+
+			return;
+		}
+
+		as_schedule_single_action( time() + $delay, $hook, $args, self::GROUP, false, (int) $priority );
+	}
+
+	/**
 	 * Cancel everything this plugin has queued.
 	 *
 	 * The guard means "the queue matches the settings", which stops being true the
@@ -1040,6 +1081,7 @@ class Scheduler {
 		return function_exists( 'as_enqueue_async_action' )
 			&& function_exists( 'as_next_scheduled_action' )
 			&& function_exists( 'as_schedule_recurring_action' )
+			&& function_exists( 'as_schedule_single_action' )
 			&& function_exists( 'as_unschedule_all_actions' );
 	}
 }

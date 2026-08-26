@@ -201,12 +201,12 @@ msgstr[0] "%s Hersteller gefunden."
 msgstr[1] "%s Hersteller gefunden."
 
 #: includes/Admin/Settings.php:1533
-#: includes/Sync/Scheduler.php:450
+#: includes/Sync/Scheduler.php:454
 msgid "The job could not be queued. Check that WooCommerce is active."
 msgstr "Der Job konnte nicht eingereiht werden. Prüfen Sie, ob WooCommerce aktiv ist."
 
 #: includes/Admin/Settings.php:1534
-#: includes/Sync/Scheduler.php:457
+#: includes/Sync/Scheduler.php:461
 msgid "That job is already running."
 msgstr "Dieser Job läuft bereits."
 
@@ -525,7 +525,7 @@ msgid "No Kontor shop has been selected. Choose one on the settings screen befor
 msgstr "Es wurde kein Kontor-Shop ausgewählt. Wählen Sie auf der Einstellungsseite einen aus, bevor Sie Bestellungen synchronisieren."
 
 #. translators: 1: created count, 2: updated count, 3: unchanged count, 4: drafted count.
-#: includes/Sync/ProductSync.php:717
+#: includes/Sync/ProductSync.php:1050
 #, php-format
 msgid "%1$d created, %2$d updated, %3$d unchanged, %4$d drafted."
 msgstr "%1$d erstellt, %2$d aktualisiert, %3$d unverändert, %4$d auf Entwurf gesetzt."
@@ -744,32 +744,32 @@ msgstr "Versionshinweise auf GitHub"
 msgid "Interrupted: the plugin was deactivated while this run was in progress."
 msgstr "Abgebrochen: Das Plugin wurde deaktiviert, während dieser Durchlauf lief."
 
-#: includes/Sync/Scheduler.php:767
+#: includes/Sync/Scheduler.php:777
 msgid "an unknown error"
 msgstr "ein unbekannter Fehler"
 
 #. translators: %s: error message.
-#: includes/Sync/Scheduler.php:772
+#: includes/Sync/Scheduler.php:782
 #, php-format
 msgid "The run stopped because a background task failed: %s"
 msgstr "Der Durchlauf wurde abgebrochen, weil eine Hintergrundaufgabe fehlgeschlagen ist: %s"
 
-#: includes/Sync/Scheduler.php:785
+#: includes/Sync/Scheduler.php:795
 msgid "The run stopped because a background task took too long and was abandoned."
 msgstr "Der Durchlauf wurde abgebrochen, weil eine Hintergrundaufgabe zu lange gedauert hat und aufgegeben wurde."
 
-#: includes/Sync/Scheduler.php:797
+#: includes/Sync/Scheduler.php:807
 msgid "a fatal error"
 msgstr "ein schwerwiegender Fehler"
 
 #. translators: %s: error message.
-#: includes/Sync/Scheduler.php:802
+#: includes/Sync/Scheduler.php:812
 #, php-format
 msgid "The run stopped because a background task ended unexpectedly: %s"
 msgstr "Der Durchlauf wurde abgebrochen, weil eine Hintergrundaufgabe unerwartet beendet wurde: %s"
 
 #. translators: 1: articles with no article number, 2: articles whose article number matched more than one product.
-#: includes/Sync/ProductSync.php:816
+#: includes/Sync/ProductSync.php:1149
 #, php-format
 msgid "Passed over %1$d with no article number and %2$d matching more than one product; see the log."
 msgstr "%1$d ohne Artikelnummer und %2$d mit mehr als einem passenden Produkt übersprungen; siehe Log."
@@ -964,13 +964,13 @@ msgid "%1$d drafted for having no stock record, %2$d republished."
 msgstr "%1$d mangels Bestandssatz auf Entwurf gesetzt, %2$d erneut veröffentlicht."
 
 #. translators: %d: number of articles Kontor listed no image for.
-#: includes/Sync/ProductSync.php:735
+#: includes/Sync/ProductSync.php:1068
 #, php-format
 msgid "Held %d back as drafts for having no image."
 msgstr "%d mangels Bild als Entwurf zurückgehalten."
 
 #. translators: %d: number of articles Kontor has switched off for the webshop.
-#: includes/Sync/ProductSync.php:767
+#: includes/Sync/ProductSync.php:1100
 #, php-format
 msgid "Held %d back as drafts, switched off for the webshop in Kontor."
 msgstr "%d als Entwurf zurückgehalten, im Kontor für den Webshop deaktiviert."
@@ -1491,7 +1491,7 @@ msgid "A product whose article Kontor lists but is holding back — switched off
 msgstr "Ein Produkt, dessen Artikel Kontor führt, aber zurückhält — für den Webshop abgeschaltet oder ohne Bild —, wird hierdurch nie in den Papierkorb verschoben. Es stand im Katalog, und genau das ist die Frage, um die es hier geht."
 
 #. translators: %d: number of products moved to the trash for not being in Kontor's catalogue.
-#: includes/Sync/ProductSync.php:782
+#: includes/Sync/ProductSync.php:1115
 #, php-format
 msgid "Moved %d to the trash that Kontor does not list."
 msgstr "%d Produkte, die Kontor nicht führt, in den Papierkorb verschoben."
@@ -1501,7 +1501,7 @@ msgid "Kontor holds it back; not imported here"
 msgstr "Von Kontor zurückgehalten; hier nicht importiert"
 
 #. translators: %d: number of the shop's own products whose article Kontor is holding back.
-#: includes/Sync/ProductSync.php:800
+#: includes/Sync/ProductSync.php:1133
 #, php-format
 msgid "Left %d alone that Kontor is holding back but this plugin did not import."
 msgstr "%d Produkte unverändert gelassen, die Kontor zurückhält, dieses Plugin aber nicht importiert hat."
@@ -1682,7 +1682,23 @@ msgid "No Kontor shop has been selected. Choose one before sending categories."
 msgstr "Es wurde kein Kontor-Shop ausgewählt. Wählen Sie einen aus, bevor Sie Kategorien senden."
 
 #. translators: %d: number of articles Kontor files under no category.
-#: includes/Sync/ProductSync.php:751
+#: includes/Sync/ProductSync.php:1084
 #, php-format
 msgid "Held %d back as drafts for belonging to no category."
 msgstr "%d als Entwürfe zurückgehalten, weil sie zu keiner Kategorie gehören."
+
+#: includes/Sync/ProductSync.php:457
+msgid "The catalogue did not end. The run was stopped rather than draft the articles it never reached."
+msgstr "Der Katalog nahm kein Ende. Der Lauf wurde gestoppt, statt die nie gelesenen Artikel zu entwerfen."
+
+#. translators: 1: number of attempts made, 2: the reason the last one failed.
+#: includes/Sync/ProductSync.php:625
+#, php-format
+msgid "Gave up after %1$d attempts: %2$s"
+msgstr "Nach %1$d Versuchen aufgegeben: %2$s"
+
+#. translators: 1: articles this run read, 2: articles the last completed run read.
+#: includes/Sync/ProductSync.php:720
+#, php-format
+msgid "Kontor listed %1$d articles, down from %2$d. Nothing was drafted: run the sync again, and if the catalogue really has shrunk the next run will go ahead."
+msgstr "Kontor listete %1$d Artikel auf, zuvor %2$d. Es wurde nichts auf Entwurf gesetzt: Starten Sie die Synchronisierung erneut — ist der Katalog wirklich kleiner geworden, führt der nächste Lauf sie durch."
