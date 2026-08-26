@@ -29,8 +29,21 @@ delete_option( 'woo_kontor_sync_catalogue' );
 delete_option( 'woocommerce_wksync_customer_invoice_settings' );
 delete_option( 'woocommerce_wksync_customer_tracking_settings' );
 
-// Drop any cached stock payload left behind by an interrupted run.
-delete_expired_transients();
+/*
+ * The payload any interrupted run was working through. One option per job, named for
+ * it, so they are deleted by name rather than left to a transient sweep that only ever
+ * caught the expired ones.
+ */
+foreach ( array( 'products', 'stock', 'orders', 'delivery', 'invoices' ) as $wksync_job ) {
+	delete_option( 'woo_kontor_sync_payload_' . $wksync_job );
+}
+
+// Anything this plugin cached rather than stored: the connection test, the schedule
+// reconciliation guard, the schedule times and the health check behind the notice.
+delete_transient( 'wksync_connection_verified' );
+delete_transient( 'wksync_schedule_checked' );
+delete_transient( 'wksync_next_runs' );
+delete_transient( 'wksync_schedule_health' );
 
 /*
  * The _wksync_* meta recording each object's Kontor ID is deliberately left in

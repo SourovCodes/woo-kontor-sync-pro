@@ -46,16 +46,6 @@ class DeliverySync {
 	const CHUNK_SIZE = 50;
 
 	/**
-	 * Prefix for the transient holding a run's payload.
-	 */
-	const TRANSIENT_PREFIX = 'wksync_delivery_run_';
-
-	/**
-	 * How long a run's cached payload stays available.
-	 */
-	const TRANSIENT_TTL = 6 * HOUR_IN_SECONDS;
-
-	/**
 	 * Meta holding the status Kontor last reported.
 	 */
 	const META_STATUS = '_wksync_delivery_status';
@@ -169,7 +159,18 @@ class DeliverySync {
 		}
 
 		Status::measure( self::JOB, count( $rows ) );
-		set_transient( self::TRANSIENT_PREFIX . $run, $rows, self::TRANSIENT_TTL );
+
+		/*
+		 * Settled before a single chunk is queued: a payload that could not be stored
+		 * means every chunk after this finds nothing, and saying so here — once — beats
+		 * saying it from inside the first chunk, where the honest reason is gone.
+		 */
+		if ( ! Payload::put( self::JOB, $rows ) ) {
+			Status::fail( self::JOB, __( 'The delivery rows could not be stored for the run to work through.', 'woo-kontor-sync-pro' ) );
+			$this->log( 'error', 'Delivery sync aborted: the payload could not be stored.' );
+
+			return;
+		}
 
 		Scheduler::chain(
 			Scheduler::ACTION_SYNC_DELIVERY_CHUNK,
@@ -194,10 +195,11 @@ class DeliverySync {
 			return;
 		}
 
-		$rows = get_transient( self::TRANSIENT_PREFIX . $run );
+		$rows = Payload::get( self::JOB );
 
-		if ( ! is_array( $rows ) ) {
-			Status::fail( self::JOB, __( 'The cached delivery payload expired before it could be applied.', 'woo-kontor-sync-pro' ) );
+		if ( null === $rows ) {
+			Status::fail( self::JOB, __( 'The stored delivery rows could not be read, so the run was stopped part-way.', 'woo-kontor-sync-pro' ) );
+			$this->log( 'error', sprintf( 'Delivery sync aborted at offset %d: the stored payload could not be read.', $offset ) );
 
 			return;
 		}
@@ -205,7 +207,7 @@ class DeliverySync {
 		$chunk = array_slice( $rows, $offset, self::CHUNK_SIZE, true );
 
 		if ( empty( $chunk ) ) {
-			$this->complete( $run );
+			$this->complete();
 
 			return;
 		}
@@ -216,7 +218,7 @@ class DeliverySync {
 		$next = $offset + count( $chunk );
 
 		if ( $next >= count( $rows ) ) {
-			$this->complete( $run );
+			$this->complete();
 
 			return;
 		}
@@ -497,13 +499,15 @@ class DeliverySync {
 	}
 
 	/**
-	 * Close out a run and drop its cached payload.
+	 * Close out a run and drop the payload it was working through.
 	 *
-	 * @param int $run Run identifier.
+	 * It takes no run identifier: the payload is keyed on the job, and whichever pass
+	 * gets here has already checked that this run is the current one.
+	 *
 	 * @return void
 	 */
-	protected function complete( $run ) {
-		delete_transient( self::TRANSIENT_PREFIX . $run );
+	protected function complete() {
+		Payload::forget( self::JOB );
 
 		$counts = Status::get( self::JOB )['counts'];
 

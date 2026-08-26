@@ -129,21 +129,6 @@ class OrderSync {
 	const FORCE_LIMIT = 100;
 
 	/**
-	 * Transient prefix holding the order IDs a run is working through.
-	 *
-	 * The list is fixed when the sweep starts rather than re-queried per batch:
-	 * pending_orders() asks for orders that have never been sent, and a rejected order
-	 * still has not been sent, so re-querying would hand the same failures back for
-	 * ever instead of finishing.
-	 */
-	const TRANSIENT_PREFIX = 'wksync_orders_run_';
-
-	/**
-	 * How long that list survives, in seconds.
-	 */
-	const TRANSIENT_TTL = 6 * HOUR_IN_SECONDS;
-
-	/**
 	 * Plugin settings.
 	 *
 	 * @var array
@@ -585,7 +570,7 @@ class OrderSync {
 		}
 
 		/*
-		 * The IDs are cached rather than re-queried per batch. pending_orders() asks for
+		 * The IDs are stored rather than re-queried per batch. pending_orders() asks for
 		 * orders this plugin has never sent, and a batch that failed still has not been
 		 * sent — so re-querying would hand the same rejected orders back for ever.
 		 */
@@ -596,7 +581,17 @@ class OrderSync {
 			$orders
 		);
 
-		set_transient( self::TRANSIENT_PREFIX . $run, $ids, self::TRANSIENT_TTL );
+		/*
+		 * Settled before a single chunk is queued: a payload that could not be stored
+		 * means every chunk after this finds nothing, and saying so here — once — beats
+		 * saying it from inside the first chunk, where the honest reason is gone.
+		 */
+		if ( ! Payload::put( self::JOB, $ids ) ) {
+			Status::fail( self::JOB, __( 'The list of orders to send could not be stored for the sweep to work through.', 'woo-kontor-sync-pro' ) );
+			$this->log( 'error', 'Order sweep aborted: the list of orders could not be stored.' );
+
+			return;
+		}
 
 		Status::measure( self::JOB, count( $ids ) );
 
@@ -631,10 +626,11 @@ class OrderSync {
 			return;
 		}
 
-		$ids = get_transient( self::TRANSIENT_PREFIX . $run );
+		$ids = Payload::get( self::JOB );
 
-		if ( ! is_array( $ids ) ) {
-			Status::fail( self::JOB, __( 'The list of orders to send expired before they could be sent.', 'woo-kontor-sync-pro' ) );
+		if ( null === $ids ) {
+			Status::fail( self::JOB, __( 'The stored list of orders to send could not be read, so the sweep was stopped part-way.', 'woo-kontor-sync-pro' ) );
+			$this->log( 'error', sprintf( 'Order sweep aborted at offset %d: the stored list could not be read.', $offset ) );
 
 			return;
 		}
@@ -642,7 +638,7 @@ class OrderSync {
 		$batch = array_slice( $ids, $offset, self::BATCH_SIZE );
 
 		if ( empty( $batch ) ) {
-			$this->complete( $run );
+			$this->complete();
 
 			return;
 		}
@@ -671,7 +667,7 @@ class OrderSync {
 		$next = $offset + count( $batch );
 
 		if ( $next >= count( $ids ) ) {
-			$this->complete( $run );
+			$this->complete();
 
 			return;
 		}
@@ -688,11 +684,13 @@ class OrderSync {
 	/**
 	 * Close the run and report what the sweep achieved.
 	 *
-	 * @param int $run Run identifier.
+	 * It takes no run identifier: the payload is keyed on the job, and whichever batch
+	 * gets here has already checked that this run is the current one.
+	 *
 	 * @return void
 	 */
-	protected function complete( $run ) {
-		delete_transient( self::TRANSIENT_PREFIX . $run );
+	protected function complete() {
+		Payload::forget( self::JOB );
 
 		$counts = Status::get( self::JOB )['counts'];
 

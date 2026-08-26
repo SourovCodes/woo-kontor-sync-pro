@@ -50,16 +50,6 @@ class InvoiceSync {
 	const CHUNK_SIZE = 10;
 
 	/**
-	 * Prefix for the transient holding a run's payload.
-	 */
-	const TRANSIENT_PREFIX = 'wksync_invoice_run_';
-
-	/**
-	 * How long a run's cached payload stays available.
-	 */
-	const TRANSIENT_TTL = 6 * HOUR_IN_SECONDS;
-
-	/**
 	 * Meta holding every invoice downloaded for an order.
 	 *
 	 * A list of arrays with "id", "number", "date" and "file" keys, oldest first.
@@ -228,7 +218,18 @@ class InvoiceSync {
 		}
 
 		Status::measure( self::JOB, count( $rows ) );
-		set_transient( self::TRANSIENT_PREFIX . $run, $rows, self::TRANSIENT_TTL );
+
+		/*
+		 * Settled before a single chunk is queued: a payload that could not be stored
+		 * means every chunk after this finds nothing, and saying so here — once — beats
+		 * saying it from inside the first chunk, where the honest reason is gone.
+		 */
+		if ( ! Payload::put( self::JOB, $rows ) ) {
+			Status::fail( self::JOB, __( 'The invoice listing could not be stored for the run to work through.', 'woo-kontor-sync-pro' ) );
+			$this->log( 'error', 'Invoice sync aborted: the payload could not be stored.' );
+
+			return;
+		}
 
 		Scheduler::chain(
 			Scheduler::ACTION_SYNC_INVOICES_CHUNK,
@@ -253,10 +254,11 @@ class InvoiceSync {
 			return;
 		}
 
-		$rows = get_transient( self::TRANSIENT_PREFIX . $run );
+		$rows = Payload::get( self::JOB );
 
-		if ( ! is_array( $rows ) ) {
-			Status::fail( self::JOB, __( 'The cached invoice listing expired before it could be applied.', 'woo-kontor-sync-pro' ) );
+		if ( null === $rows ) {
+			Status::fail( self::JOB, __( 'The stored invoice listing could not be read, so the run was stopped part-way.', 'woo-kontor-sync-pro' ) );
+			$this->log( 'error', sprintf( 'Invoice sync aborted at offset %d: the stored payload could not be read.', $offset ) );
 
 			return;
 		}
@@ -264,7 +266,7 @@ class InvoiceSync {
 		$chunk = array_slice( $rows, $offset, self::CHUNK_SIZE );
 
 		if ( empty( $chunk ) ) {
-			$this->complete( $run );
+			$this->complete();
 
 			return;
 		}
@@ -275,7 +277,7 @@ class InvoiceSync {
 		$next = $offset + count( $chunk );
 
 		if ( $next >= count( $rows ) ) {
-			$this->complete( $run );
+			$this->complete();
 
 			return;
 		}
@@ -523,13 +525,15 @@ class InvoiceSync {
 	}
 
 	/**
-	 * Close out a run and drop its cached listing.
+	 * Close out a run and drop the listing it was working through.
 	 *
-	 * @param int $run Run identifier.
+	 * It takes no run identifier: the payload is keyed on the job, and whichever chunk
+	 * gets here has already checked that this run is the current one.
+	 *
 	 * @return void
 	 */
-	protected function complete( $run ) {
-		delete_transient( self::TRANSIENT_PREFIX . $run );
+	protected function complete() {
+		Payload::forget( self::JOB );
 
 		$counts = Status::get( self::JOB )['counts'];
 

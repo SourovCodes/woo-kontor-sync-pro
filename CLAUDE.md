@@ -1188,6 +1188,34 @@ calling it queues real work: it is not a way to test whether a job would be allo
   retry semantics, no concurrency control, and no admin visibility.
 - **Chain long runs across actions.** A job that walks thousands of records queues a follow-up
   action per page or chunk rather than looping in one request. See `ProductSync::import_page()`.
+- **What a chunked run is working through lives in an option, never a transient.** Four jobs fetch
+  everything in one request and apply it a chunk per action — the stock levels, the delivery rows,
+  the invoice listing, the order IDs a sweep fixed at the start — and `Sync\Payload` is where that
+  sits between actions.
+  - **A transient is not storage on a site with a persistent object cache.** Redis and Memcached
+    hold it *instead of* the database, so it can be evicted under memory pressure at any moment —
+    and neither the eviction nor the failure that follows says anything: `set_transient()` returns
+    true, the chunks are queued, and the first one finds nothing. On the stock sync that is a
+    failure every fifteen minutes, for ever, reported as the payload having *expired*, which is the
+    one thing that had not happened. A non-autoloaded option is cache-*backed* rather than
+    cache-*only*, so a flush costs a read instead of the value.
+    - **Eviction is the realistic failure, not the size limit.** Measured on the development site,
+      a stock payload of 3000 rows serialises to **68KB** — memcached's default megabyte slab is
+      some forty thousand rows away, so no feed on this account comes near it. What does not depend
+      on size is the cache deciding it needs the memory back, which it may do at any point in the
+      hours a run can span.
+  - **The key is the job, not the run.** A per-run key needed a TTL to clean up after a run that
+    died and left a row behind for every one that did. Only one run of a job can be in flight —
+    `start()` refuses otherwise — and every chunked action checks `Status::is_current_run()` before
+    it reads, so a superseded action never gets as far as asking. One row per job, overwritten by
+    the next run. `complete()` therefore takes no run identifier on any of the four.
+  - **The write is read back, once per run.** `update_option()` returns false both for a write that
+    failed and for one that stored a value identical to what was there, which is exactly what a job
+    re-running over an unchanged feed does — so its return cannot answer this. One extra read per
+    *run* turns a job that would fail on every chunk for ever into one accurate failure at the
+    start, before a single chunk is queued.
+  - **`Deactivator` and `uninstall.php` drop them by name.** The uninstall used to call
+    `delete_expired_transients()`, which by definition never caught the ones that mattered.
   **All five jobs chain**, including the order sweep: `OrderSync::start()` fixes the list of pending
   orders, caches the IDs in a transient and queues `ACTION_SYNC_ORDERS_BATCH`, and
   `send_batch()` sends one batch per action. It used to send every batch inside the action that

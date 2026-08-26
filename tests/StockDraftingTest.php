@@ -10,6 +10,7 @@ namespace WooKontorSync\Tests;
 use WC_Product_Simple;
 use WooKontorSync\Admin\Settings;
 use WooKontorSync\Sync\ProductSync;
+use WooKontorSync\Sync\Payload;
 use WooKontorSync\Sync\Status;
 use WooKontorSync\Sync\StockSync;
 use WP_UnitTestCase;
@@ -492,8 +493,8 @@ class StockDraftingTest extends WP_UnitTestCase {
 		$sync = $this->sync_without_drafting();
 		$run  = Status::start( StockSync::JOB );
 
-		// The chunk action reads the run's payload back out of its transient.
-		set_transient( StockSync::TRANSIENT_PREFIX . $run, array( 'IN-STOCK' => 4 ), HOUR_IN_SECONDS );
+		// The chunk action reads the payload the run stored for it.
+		Payload::put( StockSync::JOB, array( 'IN-STOCK' => 4 ) );
 
 		$sync->apply_chunk( 0, $run );
 
@@ -549,7 +550,7 @@ class StockDraftingTest extends WP_UnitTestCase {
 
 		$run = Status::start( StockSync::JOB );
 
-		set_transient( StockSync::TRANSIENT_PREFIX . $run, array( 'IN-STOCK' => 4 ), HOUR_IN_SECONDS );
+		Payload::put( StockSync::JOB, array( 'IN-STOCK' => 4 ) );
 
 		$this->sync_without_drafting()->apply_chunk( 0, $run );
 
