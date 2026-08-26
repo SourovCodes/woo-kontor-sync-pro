@@ -1160,6 +1160,33 @@ calling it queues real work: it is not a way to test whether a job would be allo
     the removed stock finalising pass, still listened for, answered by
     `StockSync::close_legacy_run()`, which closes the run and drafts nothing. Removing a chained
     action means keeping its hook until no shop can still be upgrading across the change.
+- **Whether a job is scheduled is `Scheduler::has_recurring()`, never
+  `as_next_scheduled_action()`.** That function collapses three different states into two return
+  values: a timestamp for a scheduled action, but a bare `true` both for an action already
+  executing *and* for a pending async one — which is exactly what Run now queues. So a manual run
+  waiting in the queue reads as a schedule, `sync_schedules()` skips the job, and the interval
+  silently stops applying. On a shop whose queue runs behind, that window is not milliseconds: a
+  Run now sat behind 2723 actions on toysonline.ch for the best part of an hour, and the
+  fifteen-minute stock schedule it displaced was never put back — the settings screen meanwhile
+  reporting a next run of **1 January 1970**, which is `(int) true`.
+  - **Only the schedule attached to the action tells them apart**, so `recurring_action()` fetches
+    the hook's pending and in-progress actions and asks each one `is_recurring()`. There is no
+    cheaper question: the kind of an action is not in the queue's index.
+  - **In-progress actions have to count as scheduled.** Action Scheduler queues the next occurrence
+    *after* the current one finishes (`ActionScheduler_Abstract_QueueRunner::process_action()` calls
+    `schedule_next_instance()` at the very end), so for the whole length of a run a recurring job
+    has no pending action at all. Reading that as unscheduled queues a second recurring action
+    beside the first, and the shop then syncs twice as often for ever.
+  - **`RECURRING_LOOKUP` (20) bounds the scan**, because an async action carries the moment it was
+    saved as its scheduled date and therefore sorts *ahead* of a recurring action due later. One
+    schedule plus however many times somebody pressed the button is the whole of what can be there.
+  - **`next_run()` reports the schedule alone** and answers 0 for a job whose only queued action is
+    a manual run — which is what `docs/rest-api.md` already promised for `next_run_gmt`, and what
+    `queued` is there to answer instead.
+  - **Never no longer cancels a pending manual run.** The cancel used to be reached by the same
+    truthy test; now it fires only when a recurring action actually exists. A reconciliation
+    deciding a job has no interval says nothing about whether somebody still wants the run they
+    asked for.
 - **`Scheduler::SCHEDULE_GUARD` means "the queue matches the settings"**, which is why
   `unschedule_all()` deletes it: it stops being true the moment the queue is emptied, and leaving
   it set makes `ensure_recurring_actions()` return early for the rest of the hour. A plugin

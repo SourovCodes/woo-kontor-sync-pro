@@ -86,7 +86,7 @@ Both `GET` routes return this shape; so does the `progress` in a trigger's answe
 | `processed` | integer | Records handled so far. |
 | `counts` | object | What happened to each record, by outcome. Always an object, `{}` when there is nothing. |
 | `message` | string | The run's summary, or why it failed. Translated. |
-| `next_run_gmt` | string / null | When the schedule next runs this job. `null` when no schedule is set. |
+| `next_run_gmt` | string / null | When the schedule next runs this job. `null` when no schedule is set — a run triggered by hand does not set it; watch `queued` for that. |
 
 Four of these need more than a row:
 

@@ -1463,14 +1463,17 @@ class Settings {
 		foreach ( array_keys( Scheduler::get_jobs() ) as $key ) {
 			$status = Status::get( $key );
 
+			// Asked once and reused: it is a query, and this runs every five seconds.
+			$next_run = Scheduler::next_run( $key );
+
 			$jobs[ $key ] = array(
 				'state'    => (string) $status['state'],
 				'running'  => 'running' === $status['state'],
 				'percent'  => Status::percentage( $status ),
 				'summary'  => $this->describe_status( $status ),
 				'detail'   => $this->describe_position( $status ),
-				'nextRun'  => Scheduler::next_run( $key ),
-				'nextText' => $this->describe_next_run( Scheduler::next_run( $key ) ),
+				'nextRun'  => $next_run,
+				'nextText' => $this->describe_next_run( $next_run ),
 			);
 		}
 
