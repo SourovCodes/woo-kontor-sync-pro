@@ -161,6 +161,17 @@ class Scheduler {
 	const SCHEDULE_GUARD = 'wksync_schedule_checked';
 
 	/**
+	 * How far down a job's queued actions to look for its recurring one.
+	 *
+	 * A job hook carries at most one recurring action plus however many Run now has
+	 * queued, and an async action is stored with the moment it was saved as its
+	 * scheduled date — so on a backed-up queue the manual runs all sort ahead of a
+	 * recurring action due later. Twenty is far more than anyone presses, and the
+	 * scan happens once an hour rather than per request.
+	 */
+	const RECURRING_LOOKUP = 20;
+
+	/**
 	 * The jobs this plugin runs, keyed by the slug used in the admin UI.
 	 *
 	 * @return array Job definitions.
@@ -329,6 +340,12 @@ class Scheduler {
 	 * alone rather than cleared, so switching orders back on restores each schedule
 	 * instead of asking for it again.
 	 *
+	 * What decides whether a job needs its recurring action queued is
+	 * `has_recurring()`, never `as_next_scheduled_action()`. A pending Run now is an
+	 * action for the same hook and reads as truthy there, so on any shop whose queue
+	 * runs behind, a manual run would stand in for the schedule and the interval
+	 * would silently stop.
+	 *
 	 * @return void
 	 */
 	public function sync_schedules() {
@@ -336,8 +353,8 @@ class Scheduler {
 		$orders   = Settings::orders_enabled( $settings );
 
 		foreach ( self::get_jobs() as $job ) {
-			$interval = absint( $settings[ $job['setting'] ] );
-			$next     = as_next_scheduled_action( $job['action'], array(), self::GROUP );
+			$interval  = absint( $settings[ $job['setting'] ] );
+			$scheduled = self::has_recurring( $job['action'] );
 
 			if ( ! empty( $job['needs_shop'] ) && ! $orders ) {
 				$interval = Settings::INTERVAL_NEVER;
@@ -345,14 +362,14 @@ class Scheduler {
 
 			// "Never" means no recurring action at all; the job stays manual.
 			if ( Settings::INTERVAL_NEVER === $interval ) {
-				if ( $next ) {
+				if ( $scheduled ) {
 					as_unschedule_all_actions( $job['action'], array(), self::GROUP );
 				}
 
 				continue;
 			}
 
-			if ( $next ) {
+			if ( $scheduled ) {
 				continue;
 			}
 
@@ -437,10 +454,86 @@ class Scheduler {
 	}
 
 	/**
+	 * The recurring action queued for one job hook, if there is one.
+	 *
+	 * `as_next_scheduled_action()` cannot answer this. It reports on whichever action
+	 * comes first whatever kind it is, and it collapses two very different answers
+	 * into one: a timestamp for something scheduled, but a bare `true` both for an
+	 * action already executing *and* for a pending async one, which is what Run now
+	 * queues. So a manual run waiting in a backed-up queue reads exactly like a
+	 * schedule, and sync_schedules() leaves the job alone in the belief that its
+	 * recurring action is already there. Measured on a live shop: a Run now sat
+	 * behind 2723 actions for the best part of an hour, and the fifteen-minute stock
+	 * schedule it had displaced was never put back.
+	 *
+	 * Only the schedule attached to the action can tell them apart, so the actions
+	 * are fetched and asked. In-progress ones count: Action Scheduler queues the next
+	 * occurrence *after* the current one finishes, so for the length of a run a
+	 * recurring job has no pending action at all, and treating that as unscheduled
+	 * would queue a second recurring action alongside the first.
+	 *
+	 * @param string $hook Action hook.
+	 * @return \ActionScheduler_Action|null The recurring action, or null when none is queued.
+	 */
+	private static function recurring_action( $hook ) {
+		if ( ! class_exists( '\ActionScheduler' ) || ! class_exists( '\ActionScheduler_Store' ) ) {
+			return null;
+		}
+
+		$store = \ActionScheduler::store();
+
+		$ids = $store->query_actions(
+			array(
+				'hook'     => $hook,
+				'group'    => self::GROUP,
+				'status'   => array(
+					\ActionScheduler_Store::STATUS_PENDING,
+					\ActionScheduler_Store::STATUS_RUNNING,
+				),
+				'orderby'  => 'date',
+				'order'    => 'ASC',
+				'per_page' => self::RECURRING_LOOKUP,
+			)
+		);
+
+		foreach ( (array) $ids as $id ) {
+			$action = $store->fetch_action( $id );
+
+			if ( ! $action instanceof \ActionScheduler_Action ) {
+				continue;
+			}
+
+			$schedule = $action->get_schedule();
+
+			if ( $schedule && $schedule->is_recurring() ) {
+				return $action;
+			}
+		}
+
+		return null;
+	}
+
+	/**
+	 * Whether a job's recurring action is queued.
+	 *
+	 * @param string $hook Action hook.
+	 * @return bool True when the schedule is in the queue.
+	 */
+	public static function has_recurring( $hook ) {
+		return null !== self::recurring_action( $hook );
+	}
+
+	/**
 	 * When the given job is next due.
 	 *
+	 * Reports on the schedule alone. A job with no interval whose Run now is still
+	 * waiting is not scheduled, and saying "next run" of a manual one would be a
+	 * date that never repeats; the REST API documents this field as null when no
+	 * schedule is set, and `queued_count()` is what answers whether anything is
+	 * waiting.
+	 *
 	 * @param string $job Job key from get_jobs().
-	 * @return int Unix timestamp, or 0 when nothing is queued.
+	 * @return int Unix timestamp, or 0 when no schedule is queued.
 	 */
 	public static function next_run( $job ) {
 		$jobs = self::get_jobs();
@@ -449,7 +542,15 @@ class Scheduler {
 			return 0;
 		}
 
-		return (int) as_next_scheduled_action( $jobs[ $job ]['action'], array(), self::GROUP );
+		$action = self::recurring_action( $jobs[ $job ]['action'] );
+
+		if ( null === $action ) {
+			return 0;
+		}
+
+		$date = $action->get_schedule()->get_date();
+
+		return $date ? (int) $date->format( 'U' ) : 0;
 	}
 
 	/**
