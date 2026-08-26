@@ -8,10 +8,13 @@
 namespace WooKontorSync;
 
 use WooKontorSync\Admin\HeldProducts;
+use WooKontorSync\Admin\Notices;
 use WooKontorSync\Admin\OrderActions;
 use WooKontorSync\Admin\OrderPanel;
 use WooKontorSync\Admin\ProductFields;
 use WooKontorSync\Admin\Settings;
+use WooKontorSync\Admin\SiteHealth;
+use WooKontorSync\Admin\StatusReport;
 use WooKontorSync\Emails\Emails;
 use WooKontorSync\Frontend\Invoices;
 use WooKontorSync\Frontend\ProductMeta;
@@ -168,6 +171,14 @@ final class Plugin {
 			// rather than OrderPanel's, because these change something and that one
 			// deliberately cannot.
 			( new OrderActions() )->register();
+
+			// The three places a broken sync is visible from somewhere other than the
+			// Kontor Sync screen. Everything else here has to be visited: a shop whose
+			// product sync had failed every night for a week looked entirely normal from
+			// the dashboard, the orders list and the products list.
+			( new Notices() )->register();
+			( new StatusReport() )->register();
+			( new SiteHealth() )->register();
 		}
 
 		/**

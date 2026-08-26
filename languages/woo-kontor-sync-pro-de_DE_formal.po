@@ -118,6 +118,8 @@ msgstr "Einmal täglich"
 #: includes/Admin/Settings.php:553
 #: includes/Admin/Settings.php:554
 #: includes/Admin/Settings.php:1558
+#: includes/Admin/SiteHealth.php:176
+#: includes/Admin/StatusReport.php:53
 msgid "Kontor Sync"
 msgstr "Kontor-Sync"
 
@@ -158,6 +160,7 @@ msgstr "Die Herstellerliste konnte nicht abgerufen werden."
 msgid "Manufacturers loaded. Tick the ones to import, then save the settings."
 msgstr "Hersteller geladen. Haken Sie die zu importierenden an und speichern Sie die Einstellungen."
 
+#: includes/Admin/Notices.php:250
 #: includes/Admin/Settings.php:969
 #: includes/Admin/Settings.php:1015
 #: includes/Admin/Settings.php:1064
@@ -201,12 +204,12 @@ msgstr[0] "%s Hersteller gefunden."
 msgstr[1] "%s Hersteller gefunden."
 
 #: includes/Admin/Settings.php:1533
-#: includes/Sync/Scheduler.php:454
+#: includes/Sync/Scheduler.php:459
 msgid "The job could not be queued. Check that WooCommerce is active."
 msgstr "Der Job konnte nicht eingereiht werden. Prüfen Sie, ob WooCommerce aktiv ist."
 
 #: includes/Admin/Settings.php:1534
-#: includes/Sync/Scheduler.php:461
+#: includes/Sync/Scheduler.php:466
 msgid "That job is already running."
 msgstr "Dieser Job läuft bereits."
 
@@ -227,6 +230,7 @@ msgid "Connection"
 msgstr "Verbindung"
 
 #: includes/Admin/Settings.php:1570
+#: includes/Admin/StatusReport.php:83
 msgid "API base URL"
 msgstr "API-Basis-URL"
 
@@ -235,6 +239,7 @@ msgid "The search endpoint is appended to this, so omit the trailing \"/search\"
 msgstr "Der Such-Endpunkt wird angehängt, lassen Sie das abschließende „/search“ also weg."
 
 #: includes/Admin/Settings.php:1585
+#: includes/Admin/StatusReport.php:91
 msgid "API key"
 msgstr "API-Schlüssel"
 
@@ -247,6 +252,7 @@ msgid "A key is stored. Leave this field blank to keep it."
 msgstr "Ein Schlüssel ist gespeichert. Lassen Sie dieses Feld leer, um ihn zu behalten."
 
 #: includes/Admin/Settings.php:1609
+#: includes/Admin/StatusReport.php:94
 msgid "Shop type"
 msgstr "Shop-Typ"
 
@@ -323,22 +329,23 @@ msgid "Kontor returns image filenames rather than URLs. Set the folder they live
 msgstr "Kontor liefert Bilddateinamen statt URLs. Geben Sie den Ordner an, in dem sie liegen, um Produktbilder zu importieren, oder lassen Sie das Feld leer, um Bilder zu überspringen."
 
 #: includes/Admin/Settings.php:1903
-#: includes/Sync/Scheduler.php:201
+#: includes/Sync/Scheduler.php:202
 msgid "Product sync"
 msgstr "Produktsynchronisation"
 
 #: includes/Admin/Settings.php:1918
-#: includes/Sync/Scheduler.php:209
+#: includes/Sync/Scheduler.php:210
 msgid "Stock sync"
 msgstr "Bestandssynchronisation"
 
 #: includes/Admin/Settings.php:2161
-#: includes/Sync/Scheduler.php:217
+#: includes/Admin/StatusReport.php:105
+#: includes/Sync/Scheduler.php:218
 msgid "Order sync"
 msgstr "Bestellsynchronisation"
 
 #: includes/Admin/Settings.php:2177
-#: includes/Sync/Scheduler.php:226
+#: includes/Sync/Scheduler.php:227
 msgid "Delivery sync"
 msgstr "Liefersynchronisation"
 
@@ -374,7 +381,7 @@ msgstr "Letztes Ergebnis"
 msgid "Actions"
 msgstr "Aktionen"
 
-#: includes/Admin/Settings.php:3064
+#: includes/Admin/Settings.php:3079
 msgid "Not scheduled"
 msgstr "Nicht geplant"
 
@@ -382,34 +389,34 @@ msgstr "Nicht geplant"
 msgid "Run now"
 msgstr "Jetzt ausführen"
 
-#: includes/Admin/Settings.php:2973
+#: includes/Admin/Settings.php:2988
 msgid "Never run"
 msgstr "Nie ausgeführt"
 
 #. translators: %s: how long ago the run started.
-#: includes/Admin/Settings.php:2978
+#: includes/Admin/Settings.php:2993
 #, php-format
 msgid "Running, started %s ago"
 msgstr "Läuft, vor %s gestartet"
 
 #. translators: 1: timestamp, 2: failure reason.
-#: includes/Admin/Settings.php:2985
+#: includes/Admin/Settings.php:3000
 #, php-format
 msgid "Failed at %1$s — %2$s"
 msgstr "Fehlgeschlagen am %1$s — %2$s"
 
 #. translators: 1: timestamp, 2: run summary.
-#: includes/Admin/Settings.php:2989
+#: includes/Admin/Settings.php:3004
 #, php-format
 msgid "Succeeded at %1$s — %2$s"
 msgstr "Erfolgreich am %1$s — %2$s"
 
-#: includes/Admin/Settings.php:3092
+#: includes/Admin/Settings.php:3107
 msgid "The job could not be queued. It may already be running, or WooCommerce may be inactive."
 msgstr "Der Job konnte nicht eingereiht werden. Möglicherweise läuft er bereits oder WooCommerce ist nicht aktiv."
 
 #. translators: %s: job name.
-#: includes/Admin/Settings.php:3104
+#: includes/Admin/Settings.php:3119
 #, php-format
 msgid "%s queued. It runs on the next queue pass, within a minute or so."
 msgstr "%s eingereiht. Der Job läuft beim nächsten Warteschlangendurchlauf, also in etwa einer Minute."
@@ -530,26 +537,26 @@ msgstr "Es wurde kein Kontor-Shop ausgewählt. Wählen Sie auf der Einstellungss
 msgid "%1$d created, %2$d updated, %3$d unchanged, %4$d drafted."
 msgstr "%1$d erstellt, %2$d aktualisiert, %3$d unverändert, %4$d auf Entwurf gesetzt."
 
-#: includes/Sync/Scheduler.php:202
+#: includes/Sync/Scheduler.php:203
 msgid "Imports articles, titles, descriptions and prices from Kontor."
 msgstr "Importiert Artikel, Titel, Beschreibungen und Preise aus Kontor."
 
-#: includes/Sync/Scheduler.php:203
-#: includes/Sync/Scheduler.php:211
-#: includes/Sync/Scheduler.php:228
-#: includes/Sync/Scheduler.php:237
+#: includes/Sync/Scheduler.php:204
+#: includes/Sync/Scheduler.php:212
+#: includes/Sync/Scheduler.php:229
+#: includes/Sync/Scheduler.php:238
 msgid "From Kontor"
 msgstr "Aus Kontor"
 
-#: includes/Sync/Scheduler.php:218
+#: includes/Sync/Scheduler.php:219
 msgid "Sends paid orders to Kontor. Orders are normally sent as they are paid; this sweep catches any that were missed."
 msgstr "Sendet bezahlte Bestellungen an Kontor. Bestellungen werden normalerweise gesendet, sobald sie bezahlt sind, dieser Durchlauf erfasst übersehene."
 
-#: includes/Sync/Scheduler.php:219
+#: includes/Sync/Scheduler.php:220
 msgid "To Kontor"
 msgstr "An Kontor"
 
-#: includes/Sync/Scheduler.php:227
+#: includes/Sync/Scheduler.php:228
 msgid "Brings order status and tracking details back from Kontor. Completing an order emails the customer."
 msgstr "Holt Bestellstatus und Sendungsdaten aus Kontor zurück. Das Abschließen einer Bestellung sendet dem Kunden eine E-Mail."
 
@@ -580,7 +587,7 @@ msgid "Enable High-Performance Order Storage"
 msgstr "High-Performance Order Storage aktivieren"
 
 #: includes/Admin/Settings.php:2193
-#: includes/Sync/Scheduler.php:235
+#: includes/Sync/Scheduler.php:236
 msgid "Invoice sync"
 msgstr "Rechnungssynchronisation"
 
@@ -694,7 +701,7 @@ msgstr "Rechnung %s von Kontor heruntergeladen."
 msgid "%1$d invoices downloaded, %2$d failed, %3$d not found locally."
 msgstr "%1$d Rechnungen heruntergeladen, %2$d fehlgeschlagen, %3$d lokal nicht gefunden."
 
-#: includes/Sync/Scheduler.php:236
+#: includes/Sync/Scheduler.php:237
 msgid "Downloads invoice PDFs from Kontor and files them against their orders."
 msgstr "Lädt Rechnungs-PDFs von Kontor herunter und ordnet sie ihren Bestellungen zu."
 
@@ -744,26 +751,26 @@ msgstr "Versionshinweise auf GitHub"
 msgid "Interrupted: the plugin was deactivated while this run was in progress."
 msgstr "Abgebrochen: Das Plugin wurde deaktiviert, während dieser Durchlauf lief."
 
-#: includes/Sync/Scheduler.php:777
+#: includes/Sync/Scheduler.php:782
 msgid "an unknown error"
 msgstr "ein unbekannter Fehler"
 
 #. translators: %s: error message.
-#: includes/Sync/Scheduler.php:782
+#: includes/Sync/Scheduler.php:787
 #, php-format
 msgid "The run stopped because a background task failed: %s"
 msgstr "Der Durchlauf wurde abgebrochen, weil eine Hintergrundaufgabe fehlgeschlagen ist: %s"
 
-#: includes/Sync/Scheduler.php:795
+#: includes/Sync/Scheduler.php:800
 msgid "The run stopped because a background task took too long and was abandoned."
 msgstr "Der Durchlauf wurde abgebrochen, weil eine Hintergrundaufgabe zu lange gedauert hat und aufgegeben wurde."
 
-#: includes/Sync/Scheduler.php:807
+#: includes/Sync/Scheduler.php:812
 msgid "a fatal error"
 msgstr "ein schwerwiegender Fehler"
 
 #. translators: %s: error message.
-#: includes/Sync/Scheduler.php:812
+#: includes/Sync/Scheduler.php:817
 #, php-format
 msgid "The run stopped because a background task ended unexpectedly: %s"
 msgstr "Der Durchlauf wurde abgebrochen, weil eine Hintergrundaufgabe unerwartet beendet wurde: %s"
@@ -817,18 +824,18 @@ msgstr "Version %s ist verfügbar. Sie kann auf der Plugin-Seite installiert wer
 msgid "The release could not be checked. GitHub or WordPress.org could not be reached; try again in a moment."
 msgstr "Die Veröffentlichung konnte nicht geprüft werden. GitHub oder WordPress.org war nicht erreichbar; bitte in einem Moment erneut versuchen."
 
-#: includes/Admin/Settings.php:3011
+#: includes/Admin/Settings.php:3026
 msgid "Working…"
 msgstr "Wird ausgeführt…"
 
 #. translators: 1: records handled so far, 2: records in total.
-#: includes/Admin/Settings.php:3018
+#: includes/Admin/Settings.php:3033
 #, php-format
 msgid "%1$s of %2$s"
 msgstr "%1$s von %2$s"
 
 #. translators: %s: number of products whose images are still queued.
-#: includes/Admin/Settings.php:3045
+#: includes/Admin/Settings.php:3060
 #, php-format
 msgid "Images for %s product still to download."
 msgid_plural "Images for %s products still to download."
@@ -953,7 +960,7 @@ msgstr "Im Konto, gegen das dies entwickelt wurde, führt der Katalog 4386 Artik
 msgid "Clearing it again republishes what it drafted, on the next stock sync — unless the product sync is holding the product back for its own reason."
 msgstr "Wird der Haken wieder entfernt, veröffentlicht die nächste Bestandssynchronisation die auf Entwurf gesetzten Produkte erneut – sofern die Produktsynchronisation das Produkt nicht aus eigenem Grund zurückhält."
 
-#: includes/Sync/Scheduler.php:210
+#: includes/Sync/Scheduler.php:211
 msgid "Updates stock levels for every article Kontor reports. An article the stock feed does not carry keeps the level it already had, unless the settings ask for those articles to be drafted."
 msgstr "Aktualisiert die Lagerbestände für jeden von Kontor gemeldeten Artikel. Ein Artikel, den der Bestandsfeed nicht enthält, behält den Bestand, den er bereits hatte – es sei denn, die Einstellungen verlangen, solche Artikel auf Entwurf zu setzen."
 
@@ -1387,14 +1394,14 @@ msgid "Held back by an earlier stock sync"
 msgstr "Von einer früheren Bestandssynchronisation zurückgehalten"
 
 #. translators: %s: number of products.
-#: includes/Admin/Settings.php:2951
+#: includes/Admin/Settings.php:2966
 #, php-format
 msgid "%s product is currently held back as a draft."
 msgid_plural "%s products are currently held back as drafts."
 msgstr[0] "%s Produkt wird derzeit als Entwurf zurückgehalten."
 msgstr[1] "%s Produkte werden derzeit als Entwürfe zurückgehalten."
 
-#: includes/Admin/Settings.php:2961
+#: includes/Admin/Settings.php:2976
 msgid "Show them, with the reason for each."
 msgstr "Anzeigen, mit dem jeweiligen Grund."
 
@@ -1702,3 +1709,235 @@ msgstr "Nach %1$d Versuchen aufgegeben: %2$s"
 #, php-format
 msgid "Kontor listed %1$d articles, down from %2$d. Nothing was drafted: run the sync again, and if the catalogue really has shrunk the next run will go ahead."
 msgstr "Kontor listete %1$d Artikel auf, zuvor %2$d. Es wurde nichts auf Entwurf gesetzt: Starten Sie die Synchronisierung erneut — ist der Katalog wirklich kleiner geworden, führt der nächste Lauf sie durch."
+
+#: includes/Admin/Health.php:107
+msgid "The run stopped without saying why, and nothing closed it."
+msgstr "Der Lauf endete ohne Angabe eines Grundes, und nichts hat ihn abgeschlossen."
+
+#: includes/Admin/Health.php:118
+msgid "An interval is set but nothing is queued to run it."
+msgstr "Ein Intervall ist eingestellt, aber es ist nichts eingeplant, das es ausführt."
+
+#: includes/Admin/Notices.php:93
+msgid "Kontor Sync needs attention."
+msgstr "Kontor Sync benötigt Aufmerksamkeit."
+
+#: includes/Admin/Notices.php:102
+#: includes/Admin/SiteHealth.php:183
+msgid "Open Kontor Sync"
+msgstr "Kontor Sync öffnen"
+
+#: includes/Admin/Notices.php:106
+#: includes/Admin/Settings.php:2925
+#: includes/Admin/SiteHealth.php:185
+msgid "View the log"
+msgstr "Protokoll ansehen"
+
+#: includes/Admin/Notices.php:110
+msgid "Dismiss"
+msgstr "Ausblenden"
+
+#. translators: %s: job name.
+#: includes/Admin/Notices.php:128
+#, php-format
+msgid "%s has an interval set but nothing queued to run it, so it is not running at all."
+msgstr "Für %s ist ein Intervall eingestellt, aber nichts eingeplant, das es ausführt — die Aufgabe läuft also überhaupt nicht."
+
+#. translators: %s: job name.
+#: includes/Admin/Notices.php:135
+#, php-format
+msgid "%s stopped part-way through and nothing recorded why."
+msgstr "%s brach mittendrin ab, und der Grund wurde nirgends festgehalten."
+
+#. translators: 1: job name, 2: the reason it failed.
+#: includes/Admin/Notices.php:142
+#, php-format
+msgid "%1$s failed: %2$s"
+msgstr "%1$s ist fehlgeschlagen: %2$s"
+
+#: includes/Admin/SiteHealth.php:49
+msgid "Kontor Sync configuration"
+msgstr "Kontor-Sync-Konfiguration"
+
+#: includes/Admin/SiteHealth.php:54
+msgid "Kontor Sync jobs"
+msgstr "Kontor-Sync-Aufgaben"
+
+#: includes/Admin/SiteHealth.php:75
+msgid "the API base URL"
+msgstr "die API-Basis-URL"
+
+#: includes/Admin/SiteHealth.php:79
+msgid "the API key"
+msgstr "der API-Schlüssel"
+
+#: includes/Admin/SiteHealth.php:90
+msgid "the Kontor shop"
+msgstr "der Kontor-Shop"
+
+#: includes/Admin/SiteHealth.php:97
+msgid "Kontor Sync is configured"
+msgstr "Kontor Sync ist konfiguriert"
+
+#: includes/Admin/SiteHealth.php:98
+msgid "The API base URL and key are set, and every feature that needs a Kontor shop has one."
+msgstr "API-Basis-URL und Schlüssel sind gesetzt, und jede Funktion, die einen Kontor-Shop benötigt, hat einen."
+
+#: includes/Admin/SiteHealth.php:105
+msgid "Kontor Sync is not fully configured"
+msgstr "Kontor Sync ist nicht vollständig konfiguriert"
+
+#. translators: %s: a list of settings, for example "the API key and the Kontor shop".
+#: includes/Admin/SiteHealth.php:108
+#, php-format
+msgid "Nothing will sync until these are filled in: %s."
+msgstr "Es wird nichts synchronisiert, solange Folgendes fehlt: %s."
+
+#: includes/Admin/SiteHealth.php:133
+msgid "The Kontor syncs are running"
+msgstr "Die Kontor-Synchronisierungen laufen"
+
+#: includes/Admin/SiteHealth.php:134
+msgid "Every job with an interval is queued, and none of them reported a failure on its last run."
+msgstr "Jede Aufgabe mit einem Intervall ist eingeplant, und keine hat beim letzten Lauf einen Fehler gemeldet."
+
+#: includes/Admin/SiteHealth.php:147
+msgid "A Kontor sync is not working"
+msgstr "Eine Kontor-Synchronisierung funktioniert nicht"
+
+#: includes/Admin/SiteHealth.php:150
+msgid "These jobs need attention. Until they run, the shop is working from whatever Kontor last told it."
+msgstr "Diese Aufgaben benötigen Aufmerksamkeit. Bis sie laufen, arbeitet der Shop mit dem Stand, den Kontor zuletzt gemeldet hat."
+
+#: includes/Admin/StatusReport.php:82
+msgid "Version"
+msgstr "Version"
+
+#: includes/Admin/StatusReport.php:84
+#: includes/Admin/StatusReport.php:92
+msgid "Not set"
+msgstr "Nicht gesetzt"
+
+#: includes/Admin/StatusReport.php:93
+msgid "Set"
+msgstr "Gesetzt"
+
+#: includes/Admin/StatusReport.php:95
+msgid "Kontor shop"
+msgstr "Kontor-Shop"
+
+#: includes/Admin/StatusReport.php:96
+msgid "None selected"
+msgstr "Keiner ausgewählt"
+
+#: includes/Admin/StatusReport.php:98
+msgid "Manufacturer filter"
+msgstr "Herstellerfilter"
+
+#: includes/Admin/StatusReport.php:99
+msgid "Whole catalogue"
+msgstr "Gesamter Katalog"
+
+#. translators: %d: number of manufacturers chosen.
+#: includes/Admin/StatusReport.php:102
+#, php-format
+msgid "%d manufacturer"
+msgid_plural "%d manufacturers"
+msgstr[0] "%d Hersteller"
+msgstr[1] "%d Hersteller"
+
+#: includes/Admin/StatusReport.php:106
+msgid "Category import"
+msgstr "Kategorie-Import"
+
+#: includes/Admin/StatusReport.php:112
+msgid "Require a category"
+msgstr "Kategorie erforderlich"
+
+#: includes/Admin/StatusReport.php:113
+msgid "Require an image"
+msgstr "Bild erforderlich"
+
+#: includes/Admin/StatusReport.php:114
+msgid "Trash unmanaged products"
+msgstr "Nicht verwaltete Produkte in den Papierkorb"
+
+#: includes/Admin/StatusReport.php:115
+msgid "Draft articles with no stock record"
+msgstr "Artikel ohne Bestandssatz auf Entwurf setzen"
+
+#: includes/Admin/StatusReport.php:116
+msgid "Enforce order quantities"
+msgstr "Bestellmengen erzwingen"
+
+#: includes/Admin/StatusReport.php:127
+msgid "Last catalogue size"
+msgstr "Letzte Kataloggröße"
+
+#: includes/Admin/StatusReport.php:129
+msgid "Not measured yet"
+msgstr "Noch nicht gemessen"
+
+#: includes/Admin/StatusReport.php:133
+msgid "Images queued"
+msgstr "Bilder in der Warteschlange"
+
+#: includes/Admin/StatusReport.php:134
+msgid "Products held back"
+msgstr "Zurückgehaltene Produkte"
+
+#: includes/Admin/StatusReport.php:160
+msgid "Off — this shop does not exchange orders with Kontor."
+msgstr "Aus — dieser Shop tauscht keine Bestellungen mit Kontor aus."
+
+#: includes/Admin/StatusReport.php:168
+msgid "Never"
+msgstr "Nie"
+
+#. translators: %s: an interval, for example "15 minutes".
+#: includes/Admin/StatusReport.php:171
+#, php-format
+msgid "Every %s"
+msgstr "Alle %s"
+
+#: includes/Admin/StatusReport.php:176
+msgid "NOT QUEUED"
+msgstr "NICHT EINGEPLANT"
+
+#: includes/Admin/StatusReport.php:196
+msgid "never run"
+msgstr "nie gelaufen"
+
+#. translators: %s: how long ago the run started.
+#: includes/Admin/StatusReport.php:209
+#, php-format
+msgid "running, started %s ago"
+msgstr "läuft, gestartet vor %s"
+
+#. translators: %s: how long ago the run started.
+#: includes/Admin/StatusReport.php:216
+#, php-format
+msgid "stranded, started %s ago and never finished"
+msgstr "gestrandet, gestartet vor %s und nie beendet"
+
+#. translators: 1: state, either succeeded or failed, 2: timestamp, 3: the run summary.
+#: includes/Admin/StatusReport.php:223
+#, php-format
+msgid "%1$s at %2$s: %3$s"
+msgstr "%1$s um %2$s: %3$s"
+
+#: includes/Admin/StatusReport.php:225
+msgid "failed"
+msgstr "fehlgeschlagen"
+
+#: includes/Admin/StatusReport.php:226
+msgid "succeeded"
+msgstr "erfolgreich"
+
+#: includes/Admin/StatusReport.php:260
+msgid "Yes"
+msgstr "Ja"
+
+#: includes/Admin/StatusReport.php:260
+msgid "No"
+msgstr "Nein"

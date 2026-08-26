@@ -1479,6 +1479,79 @@ calling it queues real work: it is not a way to test whether a job would be allo
 - Credentials live in a single autoloaded-`no` option and are never echoed back into an admin field
   in plaintext.
 
+## Saying that a sync is broken
+
+Every other surface in this plugin has to be visited. A shop whose product sync had failed every
+night for a week looked entirely normal from the dashboard, the orders list and the products list,
+and the only thing saying otherwise was one line on a screen nobody opens while things are working.
+`Admin\Health` is where that question is answered, and three screens ask it.
+
+- **One reader, three surfaces.** `Health::problems()` is the only thing that decides what counts as
+  broken, for the reason `InvoiceSync::label()` is a public static: three screens describing the
+  same shop differently is worse than not describing it at all.
+- **Three kinds, and they are genuinely different failures.** `failed` — the job ran and could not
+  finish, and its own message says why. `stale` — the job has sat in `running` past
+  `Status::STALE_AFTER`, so the chain behind it died with nothing left to close the status; there is
+  no message because nothing wrote one, which is why it is not folded in with `failed`.
+  `unscheduled` — an interval is set and no recurring action exists to run it. That last one is the
+  failure **nothing else in wp-admin would ever show**: the settings screen reads the interval out
+  of the settings and reports it as configured, whatever the queue actually holds, which is exactly
+  how a live shop sat with no recurring action of any kind while every screen said otherwise.
+- **A job can be two of them at once**, and is reported twice: one describes the last run, the other
+  says there will not be another.
+- **The order-side jobs are left out on a shop that does not exchange orders.** Their stored status
+  can only be left over from before the switch was turned off, and the settings screen does not list
+  them either.
+- **The schedule half is cached and the status half is not.** `Status::get()` is one option read.
+  `Scheduler::has_recurring()` has to fetch a hook's queued actions and ask each one whether it
+  repeats, because the kind of an action is not in the queue's index — so the screen that runs on
+  every admin page load reads a `Health::SCHEDULE_TTL` (15 minutes) copy, and the two that are
+  opened deliberately do not. Saving the settings drops it, since the schedules are re-queued.
+
+**`Admin\Notices` is the one thing here that goes looking for the reader.** An `admin_notices` error
+on WooCommerce's own screens, the dashboard and the plugins screen — not every admin page, because a
+notice on the post editor is in the way of somebody doing something else — and never on the Kontor
+Sync screen, which says all of it in more detail a few lines down.
+
+- **Dismissal is keyed on the job and the reason, never on the time.** A failing job records a new
+  finish time every run — every fifteen minutes on the stock sync — so a fingerprint carrying one
+  would change before the reader had finished reading it. Keyed on the reason, dismissing means "I
+  know about this one" and a *different* failure is a new notice.
+- **Per user, in user meta.** One person deciding they know about a failure is not everybody
+  deciding it.
+- **The fingerprints travel in the dismiss link** rather than being recomputed on arrival, so
+  pressing it puts away what was read and not whatever the state has become since. `handle_dismiss()`
+  authenticates and parses; `dismiss()` does the work, which is what makes it testable without a
+  redirect on the end of it.
+
+**`Admin\StatusReport` adds a section to WooCommerce → Status → Report**, which is the page a shop
+manager is asked for when something is wrong and the one with a button that turns itself into text.
+Before it, supporting a shop from anywhere but in front of it meant asking for screenshots — of
+exactly the things nobody thinks to photograph: the shop type, whether a manufacturer filter is
+narrowing the catalogue, whether the schedules are in the queue, what the drafting brake last
+measured.
+
+- **The API key is never in it**, and neither is anything derived from it. The report exists to be
+  pasted into a support thread, which is the one place a credential must not end up; the key is
+  reported as present or absent. `test_the_status_report_never_prints_the_api_key` is the guard.
+- **A stranded run is called stranded**, not "running", so the row cannot disagree with the notice
+  and Site Health about the same state.
+
+**`Admin\SiteHealth` adds two tests**, both **direct** and neither touching the network — a direct
+test runs while the page renders, and asking Kontor whether the key still works would put somebody
+else's server in the middle of a page load for an answer the jobs already record.
+
+- **Configuration is `recommended`, jobs are `critical`**, and the difference is deliberate. An
+  unconfigured plugin is a site where somebody has not finished. A failing or unqueued job is a shop
+  showing customers prices and stock levels that are no longer true, and sending nothing to the
+  warehouse.
+- **A catalogue-only shop is never asked for a shop ID**, the same judgement `Preflight` makes.
+
+**`Health::log_url()` is the only place that builds a link to the log**, and both of WooCommerce's
+log handlers — the file viewer and the database one — read the same `source` parameter, so one URL
+serves whichever the shop uses. It is on the notice, on both Site Health results and in every row of
+the jobs table. Every sync has always logged its decisions there and nothing anywhere pointed at it.
+
 ## REST API
 
 The outward-facing half of the sync layer: **start the product or stock sync, and report on a run.**

@@ -9,6 +9,7 @@ namespace WooKontorSync\Sync;
 
 use Exception;
 use WP_Error;
+use WooKontorSync\Admin\Health;
 use WooKontorSync\Admin\Settings;
 use WooKontorSync\Api\Client;
 
@@ -332,6 +333,10 @@ class Scheduler {
 		// Narrowing the manufacturer filter is a legitimate way to shrink the catalogue,
 		// so the measurement the drafting brake compares against stops applying.
 		add_action( 'update_option_' . Settings::OPTION_KEY, array( ProductSync::class, 'forget_catalogue_size' ), 10, 2 );
+
+		// The schedules are re-queued on a save, so whatever the notice cached about
+		// them a moment ago describes a queue that no longer exists.
+		add_action( 'update_option_' . Settings::OPTION_KEY, array( Health::class, 'forget_schedules' ) );
 	}
 
 	/**

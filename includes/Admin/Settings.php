@@ -2910,6 +2910,21 @@ class Settings {
 								<?php wp_nonce_field( 'wksync_run_job_' . $key ); ?>
 								<button type="submit" class="button"><?php echo esc_html__( 'Run now', 'woo-kontor-sync-pro' ); ?></button>
 							</form>
+							<?php
+							/*
+							 * Every job logs its decisions to WooCommerce's own log and nothing
+							 * anywhere pointed at it, so the detail behind a one-line summary was
+							 * three clicks away through a screen nobody thinks to open. The link
+							 * is per row rather than one under the table because the log filters
+							 * by source and not by job — this is the shortest honest way to say
+							 * "the rest of the story is over there".
+							 */
+							?>
+							<p class="description">
+								<a href="<?php echo esc_url( Health::log_url() ); ?>">
+									<?php echo esc_html__( 'View the log', 'woo-kontor-sync-pro' ); ?>
+								</a>
+							</p>
 						</td>
 					</tr>
 				<?php endforeach; ?>
