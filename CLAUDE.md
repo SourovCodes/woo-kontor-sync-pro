@@ -1022,7 +1022,7 @@ disables a schedule.
 
 The ERP is a remote REST service. Treat it as slow, occasionally unavailable, and never trusted.
 
-Five jobs are implemented: **product sync** (7–30 days), **stock sync** (15 minutes–1 day), **order
+Five jobs are implemented: **product sync** (1–30 days), **stock sync** (15 minutes–1 day), **order
 sync** pushing to Kontor, **delivery sync** pulling status and tracking back, and **invoice sync**
 (1 hour–1 day) downloading invoice PDFs. Nothing shorter than an hour for invoices: the listing has
 no incremental filter, so a tighter schedule only re-reads the same history more often.

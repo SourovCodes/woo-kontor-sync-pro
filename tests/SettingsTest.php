@@ -67,6 +67,32 @@ class SettingsTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * The catalogue can be walked daily, not just weekly.
+	 *
+	 * A full walk is cheap on a settled catalogue — the change hash short-circuits
+	 * every article that has not moved — so a shop that wants Kontor's prices within
+	 * the day should not have to press Run now for six days out of seven. The label
+	 * is the one the other four jobs already use, rather than a second wording for
+	 * the same cadence.
+	 *
+	 * @return void
+	 */
+	public function test_the_product_sync_can_run_daily() {
+		$intervals = Settings::product_sync_intervals();
+
+		$this->assertArrayHasKey( DAY_IN_SECONDS, $intervals );
+		$this->assertSame( $intervals[ DAY_IN_SECONDS ], Settings::stock_sync_intervals()[ DAY_IN_SECONDS ] );
+
+		$settings = new Settings();
+
+		$this->assertSame(
+			DAY_IN_SECONDS,
+			$settings->sanitize( array( 'product_sync_interval' => DAY_IN_SECONDS ) )['product_sync_interval'],
+			'a daily interval should survive being saved'
+		);
+	}
+
+	/**
 	 * A submission that omits an interval keeps the stored one.
 	 *
 	 * Now that 0 is a legitimate choice, defaulting a missing field to 0 would let
@@ -212,8 +238,15 @@ class SettingsTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * The product sync interval choices stay inside the 7 to 30 day range, and the
+	 * The product sync interval choices stay inside the 1 to 30 day range, and the
 	 * stock ones inside 15 minutes to a day.
+	 *
+	 * The floor was seven days until 0.28.0. A full walk is expensive on the first
+	 * run and cheap afterwards — the change hash short-circuits every article that
+	 * has not moved — so nothing about a daily catalogue costs what the old floor
+	 * assumed it did. Nothing shorter than a day is offered: the catalogue is not a
+	 * feed that moves by the hour, and the stock sync is what carries the figures
+	 * that do.
 	 *
 	 * @return void
 	 */
@@ -225,7 +258,7 @@ class SettingsTest extends WP_UnitTestCase {
 		$product = $scheduled( Settings::product_sync_intervals() );
 		$stock   = $scheduled( Settings::stock_sync_intervals() );
 
-		$this->assertSame( 7 * DAY_IN_SECONDS, min( $product ) );
+		$this->assertSame( DAY_IN_SECONDS, min( $product ) );
 		$this->assertSame( 30 * DAY_IN_SECONDS, max( $product ) );
 		$this->assertSame( 15 * MINUTE_IN_SECONDS, min( $stock ) );
 		$this->assertSame( DAY_IN_SECONDS, max( $stock ) );
