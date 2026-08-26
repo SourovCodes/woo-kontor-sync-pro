@@ -423,6 +423,7 @@ class Settings {
 	public static function product_sync_intervals() {
 		return array(
 			self::INTERVAL_NEVER => __( 'Never — only when run manually', 'woo-kontor-sync-pro' ),
+			DAY_IN_SECONDS       => __( 'Once a day', 'woo-kontor-sync-pro' ),
 			7 * DAY_IN_SECONDS   => __( 'Every 7 days', 'woo-kontor-sync-pro' ),
 			14 * DAY_IN_SECONDS  => __( 'Every 14 days', 'woo-kontor-sync-pro' ),
 			21 * DAY_IN_SECONDS  => __( 'Every 21 days', 'woo-kontor-sync-pro' ),
