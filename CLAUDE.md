@@ -1187,6 +1187,36 @@ calling it queues real work: it is not a way to test whether a job would be allo
     truthy test; now it fires only when a recurring action actually exists. A reconciliation
     deciding a job has no interval says nothing about whether somebody still wants the run they
     asked for.
+- **The guard is claimed for `GUARD_ATTEMPT` (5 minutes) before the work and extended to
+  `GUARD_SETTLED` (1 hour) only once it finishes.** Set to the full hour up front, a request that
+  dies mid-reconciliation — a fatal, an execution limit, or the file swap of a plugin update —
+  leaves the guard standing with nothing scheduled, and every later request returns early for the
+  rest of the hour while the settings screen shows each interval as configured. Found on
+  3ag.education: guard claimed 04:50:27, the 0.27.1 files landing at 04:51, and **no recurring
+  action of any kind had ever existed on the site**. Five minutes is PHP's usual outer execution
+  limit, so a request killed by that limit frees the guard about when it dies.
+  - **It cannot simply be set afterwards.** Two concurrent requests would both find no guard, both
+    read the job as unscheduled and both queue a recurring action — and the shop then syncs twice
+    as often for ever, which is a worse failure than the one being fixed and a permanent one.
+    `test_the_guard_is_already_held_while_the_work_runs` pins the claim happening first.
+  - **Run now cannot rescue any of this**, which is what makes it hard to recognise from wp-admin:
+    `trigger()` queues a one-off async action and never touches a schedule, so the obvious thing a
+    shop manager reaches for has no effect at all.
+- **`Plugin::maybe_upgrade()` reconciles after a version change, because nothing else does.**
+  WordPress runs neither the deactivation nor the activation hook when it replaces a plugin, so
+  after an update the only thing left is the once-an-hour `init` check — which is exactly what the
+  update is most likely to have interrupted. It compares `Plugin::VERSION_KEY` against
+  `WKSYNC_VERSION`, and `Activator` seeds that option with `add_option`, which never updates it.
+  - **It only asks for the reconciliation, it cannot perform one.** `Plugin::init()` runs on
+    `plugins_loaded`, and while Action Scheduler's functions are defined by then its table names
+    are not registered on `$wpdb` until its store initialises on `init` — scheduling from there
+    builds SQL against an empty table name (`SELECT a.action_id FROM  a LEFT JOIN  g …`) and fails.
+    So it calls `Scheduler::forget_guard()` and lets `ensure_recurring_actions()`, already hooked to
+    `init`, do the work later in the same request. `Scheduler::is_available()` does not catch this:
+    it tests for the functions, not the store.
+  - **The stamp is written whatever the reconciliation then decides**, or a shop whose settings say
+    Never would ask again on every request for the rest of that version's life. It is **autoloaded**
+    from 0.27.2, since it is now read on every request.
 - **`Scheduler::SCHEDULE_GUARD` means "the queue matches the settings"**, which is why
   `unschedule_all()` deletes it: it stops being true the moment the queue is emptied, and leaving
   it set makes `ensure_recurring_actions()` return early for the rest of the hour. A plugin

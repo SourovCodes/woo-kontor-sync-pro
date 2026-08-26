@@ -52,6 +52,14 @@ final class Plugin {
 	const GERMAN_FORMAL   = 'de_DE_formal';
 
 	/**
+	 * Option holding the version that last finished its upgrade routine.
+	 *
+	 * Written by the activator on a fresh install and by maybe_upgrade() on every
+	 * version change after that. Autoloaded, because it is read on every request.
+	 */
+	const VERSION_KEY = 'woo_kontor_sync_version';
+
+	/**
 	 * The single shared instance.
 	 *
 	 * @var Plugin|null
@@ -94,6 +102,8 @@ final class Plugin {
 		}
 
 		$this->initialised = true;
+
+		$this->maybe_upgrade();
 
 		add_action( 'init', array( $this, 'load_textdomain' ) );
 		add_filter( 'load_textdomain_mofile', array( $this, 'map_german_locale' ), 10, 2 );
@@ -168,6 +178,61 @@ final class Plugin {
 		 * @param Plugin $plugin The plugin instance.
 		 */
 		do_action( 'woo_kontor_sync_loaded', $this );
+	}
+
+	/**
+	 * Put the queue back in step after the plugin's version changes.
+	 *
+	 * **Nothing else reconciles the queue after an update.** WordPress deactivates a
+	 * plugin silently before replacing it — core's own comment on
+	 * `Plugin_Upgrader::deactivate_plugin_before_upgrade()` reads *"Prevent
+	 * deactivation hooks from running"* — and under cron, where automatic updates
+	 * happen, it does not deactivate at all. So neither `Deactivator::deactivate()`
+	 * nor `Activator::activate()` runs, and the only thing left is the once-an-hour
+	 * check on `init`, which is exactly the thing an update is most likely to have
+	 * interrupted. A live shop was found with no recurring action of any kind for
+	 * precisely that reason.
+	 *
+	 * **The reconciliation cannot happen here**, only be asked for. This runs on
+	 * `plugins_loaded`, and while Action Scheduler's *functions* are defined by then,
+	 * its table names are not registered on `$wpdb` until its store initialises on
+	 * `init` — so scheduling from here builds SQL against an empty table name and
+	 * fails. `forget_guard()` drops the rate limit instead, and
+	 * `Scheduler::ensure_recurring_actions()`, already hooked to `init`, does the work
+	 * later in this same request. It queues nothing that is already queued, so an
+	 * update that broke nothing costs one comparison and one deleted transient.
+	 *
+	 * The stamp is written whatever the reconciliation then decides. A version that
+	 * could never reconcile — because the settings say Never, say — must not ask again
+	 * on every request for the rest of that version's life.
+	 *
+	 * @return void
+	 */
+	private function maybe_upgrade() {
+		$stored = get_option( self::VERSION_KEY );
+
+		if ( WKSYNC_VERSION === $stored ) {
+			return;
+		}
+
+		/*
+		 * Autoloaded from here on: this is read on every request, and an option that
+		 * is not autoloaded costs a query of its own each time. update_option() moves
+		 * the flag for installs whose activator wrote it the other way.
+		 */
+		update_option( self::VERSION_KEY, WKSYNC_VERSION, true );
+
+		Scheduler::forget_guard();
+
+		/**
+		 * Fires after the plugin has upgraded from one version to another.
+		 *
+		 * @since 0.27.2
+		 *
+		 * @param string       $version The version now running.
+		 * @param string|false $stored  The version that ran before, false on a fresh install.
+		 */
+		do_action( 'woo_kontor_sync_upgraded', WKSYNC_VERSION, $stored );
 	}
 
 	/**

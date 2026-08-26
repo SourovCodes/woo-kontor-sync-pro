@@ -31,7 +31,8 @@ final class Activator {
 		// and inside scheduled sync jobs.
 		add_option( Settings::OPTION_KEY, Settings::default_settings(), '', false );
 
-		add_option( 'woo_kontor_sync_version', WKSYNC_VERSION, '', false );
+		// Autoloaded: Plugin::maybe_upgrade() reads it on every request.
+		add_option( Plugin::VERSION_KEY, WKSYNC_VERSION, '', true );
 
 		/*
 		 * Deactivation cancelled every queued action, and nothing else puts them back
