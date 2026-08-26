@@ -161,6 +161,25 @@ class Scheduler {
 	const SCHEDULE_GUARD = 'wksync_schedule_checked';
 
 	/**
+	 * How long the guard holds once a reconciliation has actually finished.
+	 */
+	const GUARD_SETTLED = HOUR_IN_SECONDS;
+
+	/**
+	 * How long the guard holds while a reconciliation is still running.
+	 *
+	 * The guard is claimed for this long *before* the work and extended to
+	 * GUARD_SETTLED only once it is done, so a request that dies in between costs
+	 * five minutes rather than an hour. It cannot simply be set afterwards: two
+	 * concurrent requests would then both find no guard, both decide the job is
+	 * unscheduled and both queue a recurring action, and the shop would sync twice
+	 * as often for ever — a worse failure than the one being fixed, and a permanent
+	 * one. Five minutes is PHP's usual outer execution limit, so a request killed by
+	 * that limit frees the guard at about the moment it dies.
+	 */
+	const GUARD_ATTEMPT = 5 * MINUTE_IN_SECONDS;
+
+	/**
 	 * How far down a job's queued actions to look for its recurring one.
 	 *
 	 * A job hook carries at most one recurring action plus however many Run now has
@@ -320,6 +339,16 @@ class Scheduler {
 	 * to once an hour. Saving the settings clears the guard, so a change still takes
 	 * effect immediately.
 	 *
+	 * **The guard is claimed briefly first and extended only on success.** Setting it
+	 * to the full hour up front means a request that dies in the middle — a fatal, an
+	 * execution limit, or the file swap of a plugin update — leaves the guard standing
+	 * with nothing scheduled, and every later request returns here early for the rest
+	 * of the hour while the settings screen shows each interval as configured. That
+	 * happened on a live shop: the guard was claimed at 04:50:27 with the 0.27.1 files
+	 * landing at 04:51, and the site sat with no recurring action of any kind. Run now
+	 * cannot rescue it either, because trigger() queues a one-off and never touches a
+	 * schedule.
+	 *
 	 * @return void
 	 */
 	public function ensure_recurring_actions() {
@@ -327,9 +356,11 @@ class Scheduler {
 			return;
 		}
 
-		set_transient( self::SCHEDULE_GUARD, 1, HOUR_IN_SECONDS );
+		set_transient( self::SCHEDULE_GUARD, 1, self::GUARD_ATTEMPT );
 
 		$this->sync_schedules();
+
+		set_transient( self::SCHEDULE_GUARD, 1, self::GUARD_SETTLED );
 	}
 
 	/**
@@ -957,6 +988,22 @@ class Scheduler {
 			),
 			'count'
 		);
+	}
+
+	/**
+	 * Drop the rate limit so the next `init` reconciles the schedules.
+	 *
+	 * For callers that run before Action Scheduler is ready. `is_available()` only
+	 * says its functions are defined; its table names are registered on `$wpdb` when
+	 * its store initialises on `init`, so reconciling from `plugins_loaded` builds SQL
+	 * against an empty table name and fails. Clearing the guard hands the work to
+	 * ensure_recurring_actions(), which is already hooked to `init` and will therefore
+	 * run later in this very request.
+	 *
+	 * @return void
+	 */
+	public static function forget_guard() {
+		delete_transient( self::SCHEDULE_GUARD );
 	}
 
 	/**
