@@ -77,6 +77,54 @@ class SchedulerScheduleTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * The plural lookup answers for every job, and does not re-scan the queue.
+	 *
+	 * Reporting when a job is next due is a scan rather than a lookup, so the progress
+	 * poll calling it per job was around a hundred row reads every five seconds to
+	 * redraw a timestamp that moves once an interval.
+	 *
+	 * @return void
+	 */
+	public function test_next_runs_answers_for_every_job_from_one_read() {
+		as_schedule_recurring_action( time() + HOUR_IN_SECONDS, HOUR_IN_SECONDS, Scheduler::ACTION_SYNC_STOCK, array(), Scheduler::GROUP );
+
+		$runs = Scheduler::next_runs();
+
+		$this->assertSame( array_keys( Scheduler::get_jobs() ), array_keys( $runs ) );
+		$this->assertSame( Scheduler::next_run( 'stock' ), $runs['stock'] );
+		$this->assertSame( 0, $runs['products'] );
+
+		// Queued behind its back, and not seen: the answer is the cached one until the
+		// queue is touched through sync_schedules() or the minute is up.
+		as_schedule_recurring_action( time() + DAY_IN_SECONDS, DAY_IN_SECONDS, Scheduler::ACTION_SYNC_PRODUCTS, array(), Scheduler::GROUP );
+
+		$this->assertSame( 0, Scheduler::next_runs()['products'] );
+
+		Scheduler::forget_next_runs();
+
+		$this->assertGreaterThan( 0, Scheduler::next_runs()['products'] );
+	}
+
+	/**
+	 * Re-queueing the schedules drops the cached times with them.
+	 *
+	 * Otherwise a shop that had just changed an interval would read the old one back
+	 * for a minute, on the very screen it changed it from.
+	 *
+	 * @return void
+	 */
+	public function test_reconciling_the_queue_forgets_the_cached_times() {
+		update_option(
+			Settings::OPTION_KEY,
+			array_merge( Settings::default_settings(), array( 'stock_sync_interval' => HOUR_IN_SECONDS ) )
+		);
+
+		( new Scheduler() )->sync_schedules();
+
+		$this->assertGreaterThan( 0, Scheduler::next_runs()['stock'] );
+	}
+
+	/**
 	 * The actions queued against one hook.
 	 *
 	 * @param string $hook   Action hook.

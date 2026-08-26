@@ -181,6 +181,25 @@ class Scheduler {
 	const GUARD_ATTEMPT = 5 * MINUTE_IN_SECONDS;
 
 	/**
+	 * Transient holding every job's next scheduled run.
+	 */
+	const NEXT_RUN_CACHE = 'wksync_next_runs';
+
+	/**
+	 * How long that answer is trusted for.
+	 *
+	 * Reporting when a job is next due is not a lookup, it is a scan: the kind of an
+	 * action is not in the queue's index, so answering means fetching a hook's queued
+	 * actions and asking each one whether it repeats. Five jobs of that, every five seconds, is what the
+	 * settings screen's progress poll was costing — around a hundred row reads a tick,
+	 * per open tab, to redraw a timestamp that moves once an interval.
+	 *
+	 * A minute of staleness on "next run" is invisible, and the queue changing under
+	 * it is not: sync_schedules() drops this whenever it touches a schedule.
+	 */
+	const NEXT_RUN_TTL = MINUTE_IN_SECONDS;
+
+	/**
 	 * How far down a job's queued actions to look for its recurring one.
 	 *
 	 * A job hook carries at most one recurring action plus however many Run now has
@@ -415,6 +434,10 @@ class Scheduler {
 
 			as_schedule_recurring_action( time() + $interval, $interval, $job['action'], array(), self::GROUP );
 		}
+
+		// The queue has just been brought in line with the settings, so whatever was
+		// cached about when each job is next due describes the queue from before that.
+		self::forget_next_runs();
 	}
 
 	/**
@@ -591,6 +614,43 @@ class Scheduler {
 		$date = $action->get_schedule()->get_date();
 
 		return $date ? (int) $date->format( 'U' ) : 0;
+	}
+
+	/**
+	 * When every job is next due, cheaply.
+	 *
+	 * The same answer as calling next_run() per job, at one option read instead of
+	 * five queue scans — for the callers that redraw the whole table and would
+	 * otherwise pay for all five. next_run() itself stays exact, because a caller
+	 * asking about one job is not in a loop and the REST API publishes that figure.
+	 *
+	 * @return array Job key to Unix timestamp, 0 where no schedule is queued.
+	 */
+	public static function next_runs() {
+		$cached = get_transient( self::NEXT_RUN_CACHE );
+
+		if ( is_array( $cached ) ) {
+			return $cached;
+		}
+
+		$runs = array();
+
+		foreach ( array_keys( self::get_jobs() ) as $key ) {
+			$runs[ $key ] = self::next_run( $key );
+		}
+
+		set_transient( self::NEXT_RUN_CACHE, $runs, self::NEXT_RUN_TTL );
+
+		return $runs;
+	}
+
+	/**
+	 * Forget the cached schedule times.
+	 *
+	 * @return void
+	 */
+	public static function forget_next_runs() {
+		delete_transient( self::NEXT_RUN_CACHE );
 	}
 
 	/**
@@ -948,6 +1008,7 @@ class Scheduler {
 	 */
 	public static function unschedule_all() {
 		delete_transient( self::SCHEDULE_GUARD );
+		self::forget_next_runs();
 
 		if ( ! function_exists( 'as_unschedule_all_actions' ) ) {
 			return;

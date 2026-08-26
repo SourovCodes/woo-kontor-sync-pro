@@ -1461,11 +1461,17 @@ class Settings {
 
 		$jobs = array();
 
-		foreach ( array_keys( Scheduler::get_jobs() ) as $key ) {
-			$status = Status::get( $key );
+		/*
+		 * Read for every job at once, and from a cache. Asking per job means scanning
+		 * that hook's queued actions and inspecting each one, because the kind of an
+		 * action is not in the queue's index — five of those every five seconds, per
+		 * open tab, to redraw a timestamp that moves once an interval.
+		 */
+		$next_runs = Scheduler::next_runs();
 
-			// Asked once and reused: it is a query, and this runs every five seconds.
-			$next_run = Scheduler::next_run( $key );
+		foreach ( array_keys( Scheduler::get_jobs() ) as $key ) {
+			$status   = Status::get( $key );
+			$next_run = isset( $next_runs[ $key ] ) ? (int) $next_runs[ $key ] : 0;
 
 			$jobs[ $key ] = array(
 				'state'    => (string) $status['state'],
@@ -2844,6 +2850,10 @@ class Settings {
 	protected function render_jobs_table() {
 		$images = Scheduler::pending_count( Scheduler::ACTION_SYNC_PRODUCT_IMAGES );
 		$orders = self::orders_enabled();
+
+		// The same cached read the poll makes, so the rendered table and the first poll
+		// after it cannot disagree about when a job is next due.
+		$next_runs = Scheduler::next_runs();
 		?>
 		<table class="widefat striped" id="wksync-jobs">
 			<thead>
@@ -2866,7 +2876,7 @@ class Settings {
 					}
 
 					$status   = Status::get( $key );
-					$next_run = Scheduler::next_run( $key );
+					$next_run = isset( $next_runs[ $key ] ) ? (int) $next_runs[ $key ] : 0;
 					$percent  = Status::percentage( $status );
 					$running  = 'running' === $status['state'];
 					?>

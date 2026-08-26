@@ -1218,8 +1218,16 @@ calling it queues real work: it is not a way to test whether a job would be allo
     fetching the IDs — a first run queues one action per article, and reading four thousand rows to
     render a sentence would be worse than not showing it.
   - **The screen polls `wksync_job_progress`** every 5 seconds, and only while something is running
-    or images are still queued — on a normally idle site it never starts. The whole answer is one
-    non-autoloaded option read plus that count query.
+    or images are still queued — on a normally idle site it never starts, and it pauses while the
+    tab is hidden. The whole answer is two non-autoloaded option reads plus that count query.
+    - **The second of those is `Scheduler::next_runs()`, and it exists because the obvious version
+      was expensive.** Reporting when a job is next due is a scan rather than a lookup — the kind
+      of an action is not in the queue's index, so `recurring_action()` fetches up to
+      `RECURRING_LOOKUP` of a hook's queued actions and asks each one whether it repeats. Called
+      per job it was five of those every five seconds, per open tab, to redraw a timestamp that
+      moves once an interval. The plural is cached for `NEXT_RUN_TTL` (1 minute) and dropped by
+      `sync_schedules()` whenever the queue is touched; `next_run()` itself stays exact, because a
+      caller asking about one job is not in a loop and `docs/rest-api.md` publishes that figure.
 - **Whoever breaks a chain owns closing the status behind it.** A run only ever leaves the
   `running` state from inside one of its own chained actions, so anything that destroys the chain
   strands the job: the admin screen reports it as running and `Scheduler::trigger()` refuses to
@@ -1664,9 +1672,9 @@ are a separate thing and stay documented where they are, beside the Kontor field
   request before the callback — a signed WooCommerce key, or `X-WP-Nonce` for a cookie client, which
   WordPress verifies itself — and the authorisation half is the `permission_callback`, gated on
   `Settings::CAPABILITY`. What would be wrong is `__return_true`.
-- **A poll is one non-autoloaded option read plus a couple of counting queries.** Call
-  `Scheduler::next_run()` once per job into a variable; `Admin\Settings::handle_job_progress()` calls
-  it twice per job, which is a small defect there and not a pattern to copy.
+- **A poll is two non-autoloaded option reads plus a couple of counting queries.** Read the schedule
+  times with `Scheduler::next_runs()` rather than calling `next_run()` per job — see the note under
+  the progress bar above for why the per-job version is a scan and not a lookup.
 - **A wrong method is answered by WordPress with 404 `rest_no_route`, not 405.** Worth knowing before
   reaching for a 405 assertion.
 - `Rest\Jobs` holds `REST_NAMESPACE` itself rather than there being a registrar class with one line

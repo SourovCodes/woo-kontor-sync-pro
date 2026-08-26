@@ -440,6 +440,16 @@
 			 * Read every job's position and repaint the table.
 			 */
 			function poll() {
+				/*
+				 * A hidden tab is nobody watching. Left running, a settings screen forgotten
+				 * in a background tab goes on asking the server where a sync has got to for
+				 * as long as the browser is open. The visibility listener below starts it
+				 * again the moment the tab comes back, so nothing is lost by waiting.
+				 */
+				if ( 'hidden' === document.visibilityState ) {
+					return;
+				}
+
 				var body = new FormData();
 
 				body.append( 'action', 'wksync_job_progress' );
@@ -494,12 +504,30 @@
 				}
 			}
 
+			/**
+			 * Begin polling, unless it is already under way.
+			 */
+			function start() {
+				if ( null === timer ) {
+					timer = window.setInterval( poll, wksyncSettings.progressInterval );
+				}
+
+				poll();
+			}
+
 			var running = table.querySelector( '.wksync-progress:not([hidden])' );
 			var queued = table.querySelector( '.wksync-image-queue:not([hidden])' );
 
 			if ( running || queued ) {
-				timer = window.setInterval( poll, wksyncSettings.progressInterval );
-				poll();
+				start();
+
+				// Coming back to the tab should show the current state at once rather than
+				// whatever it said when the reader looked away.
+				document.addEventListener( 'visibilitychange', function () {
+					if ( 'visible' === document.visibilityState && null !== timer ) {
+						poll();
+					}
+				} );
 			}
 		}() );
 	} );
