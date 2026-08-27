@@ -32,6 +32,19 @@ class Client {
 	const MAX_ATTEMPTS = 3;
 
 	/**
+	 * Attempts to make in a request somebody is waiting on.
+	 *
+	 * The force pushes are the only synchronous callers here, and retrying is the
+	 * wrong favour to do them. At MAX_ATTEMPTS a single batch can take three timeouts
+	 * plus six seconds of backoff — 96 seconds against Client::REQUEST_TIMEOUT — and
+	 * `OrderSync::FORCE_LIMIT` is four batches, so a bad afternoon at Kontor's end
+	 * turns a button press into six minutes of a blank screen and then whatever PHP's
+	 * execution limit does about it. One attempt puts the answer in front of the
+	 * operator, who is right there and can press it again.
+	 */
+	const SINGLE_ATTEMPT = 1;
+
+	/**
 	 * Base delay in seconds used for exponential backoff between attempts.
 	 */
 	const BACKOFF_BASE_SECONDS = 2;
@@ -308,9 +321,10 @@ class Client {
 	 * @param string $shop_id       Kontor shop GUID.
 	 * @param string $user_id       Value for the required meta.userId.
 	 * @param bool   $overwrite_all Whether Kontor should overwrite orders it already holds.
+	 * @param int    $attempts      Attempts to make; SINGLE_ATTEMPT in a request somebody is waiting on.
 	 * @return array|WP_Error Array with "data", "meta" and "raw" keys, or WP_Error on failure.
 	 */
-	public function push_orders( array $orders, $shop_id, $user_id, $overwrite_all = false ) {
+	public function push_orders( array $orders, $shop_id, $user_id, $overwrite_all = false, $attempts = self::MAX_ATTEMPTS ) {
 		$body = array(
 			'name'   => 'orders',
 			'meta'   => array( 'userId' => (string) $user_id ),
@@ -342,7 +356,7 @@ class Client {
 			(string) $shop_id . '|' . implode( ',', $numbers ) . '|' . ( $overwrite_all ? 'overwrite' : 'insert' )
 		);
 
-		return $this->request( 'POST', 'upsert', $body, $key, self::SHAPE_ENVELOPE );
+		return $this->request( 'POST', 'upsert', $body, $key, self::SHAPE_ENVELOPE, $attempts );
 	}
 
 	/**
@@ -365,9 +379,10 @@ class Client {
 	 * @param string $shop_id       Kontor shop GUID.
 	 * @param string $user_id       Value for the required meta.userId.
 	 * @param bool   $overwrite_all Whether Kontor should replace the shop's whole tree.
+	 * @param int    $attempts      Attempts to make; SINGLE_ATTEMPT in a request somebody is waiting on.
 	 * @return array|WP_Error Array with "data", "meta" and "raw" keys, or WP_Error on failure.
 	 */
-	public function push_categories( array $categories, $shop_id, $user_id, $overwrite_all = true ) {
+	public function push_categories( array $categories, $shop_id, $user_id, $overwrite_all = true, $attempts = self::MAX_ATTEMPTS ) {
 		$body = array(
 			'name'   => 'categories',
 			'meta'   => array( 'userId' => (string) $user_id ),
@@ -394,7 +409,7 @@ class Client {
 			(string) $shop_id . '|' . implode( ',', $katids ) . '|' . ( $overwrite_all ? 'overwrite' : 'insert' )
 		);
 
-		return $this->request( 'POST', 'upsert', $body, $key, self::SHAPE_ENVELOPE );
+		return $this->request( 'POST', 'upsert', $body, $key, self::SHAPE_ENVELOPE, $attempts );
 	}
 
 	/**
@@ -438,10 +453,12 @@ class Client {
 	 * @param array|null  $body            Optional request body.
 	 * @param string|null $idempotency_key Optional idempotency key for writes.
 	 * @param string      $shape           Envelope shape to expect, SHAPE_ROWS or SHAPE_DOCUMENT.
+	 * @param int         $attempts        Attempts to make, including the first.
 	 * @return array|WP_Error Decoded payload, or WP_Error on failure.
 	 */
-	protected function request( $method, $endpoint, $body = null, $idempotency_key = null, $shape = self::SHAPE_ROWS ) {
-		$url = $this->build_url( $endpoint );
+	protected function request( $method, $endpoint, $body = null, $idempotency_key = null, $shape = self::SHAPE_ROWS, $attempts = self::MAX_ATTEMPTS ) {
+		$attempts = max( 1, min( self::MAX_ATTEMPTS, (int) $attempts ) );
+		$url      = $this->build_url( $endpoint );
 
 		if ( is_wp_error( $url ) ) {
 			return $url;
@@ -475,7 +492,7 @@ class Client {
 		$label      = '' === $selector ? $endpoint : $endpoint . ':' . $selector;
 		$last_error = null;
 
-		for ( $attempt = 1; $attempt <= self::MAX_ATTEMPTS; $attempt++ ) {
+		for ( $attempt = 1; $attempt <= $attempts; $attempt++ ) {
 			$response = wp_remote_request( $url, $args );
 			$result   = $this->interpret_response( $response, $method, $label, $attempt, $shape );
 
@@ -485,7 +502,7 @@ class Client {
 
 			$last_error = $result;
 
-			if ( 'retry' !== self::detail( $result, 'disposition', 'fail' ) || self::MAX_ATTEMPTS === $attempt ) {
+			if ( 'retry' !== self::detail( $result, 'disposition', 'fail' ) || $attempt === $attempts ) {
 				break;
 			}
 

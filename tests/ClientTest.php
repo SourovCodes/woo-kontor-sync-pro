@@ -329,6 +329,60 @@ class ClientTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A write made in a request somebody is waiting on is tried once.
+	 *
+	 * The force pushes are the only synchronous callers here. At the full allowance a
+	 * single batch can take three timeouts plus six seconds of backoff, and
+	 * OrderSync::FORCE_LIMIT is four batches — six minutes of a blank screen on the one
+	 * path with a person at the other end of it.
+	 *
+	 * @return void
+	 */
+	public function test_a_synchronous_write_is_not_retried() {
+		$attempts = 0;
+
+		add_filter( 'woo_kontor_sync_retry_delay', '__return_zero' );
+		add_filter(
+			'pre_http_request',
+			function () use ( &$attempts ) {
+				++$attempts;
+
+				return array(
+					'headers'  => array(),
+					'body'     => wp_json_encode(
+						array(
+							'success' => false,
+							'message' => 'Service unavailable',
+						)
+					),
+					'response' => array(
+						'code'    => 503,
+						'message' => '',
+					),
+					'cookies'  => array(),
+					'filename' => null,
+				);
+			}
+		);
+
+		$client = new Client( $this->settings() );
+		$order  = array( 'orderNumber' => '123' );
+
+		$client->push_orders( array( $order ), '1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d', 'WKSP', true, Client::SINGLE_ATTEMPT );
+
+		$this->assertSame( 1, $attempts );
+
+		// The queued path keeps the full allowance: nobody is waiting on it, and a blip
+		// that clears in two seconds should not cost a whole sweep.
+		$attempts = 0;
+		$client->push_orders( array( $order ), '1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d', 'WKSP' );
+
+		$this->assertSame( Client::MAX_ATTEMPTS, $attempts );
+
+		remove_filter( 'woo_kontor_sync_retry_delay', '__return_zero' );
+	}
+
+	/**
 	 * Run a request against a failing endpoint and count the attempts made.
 	 *
 	 * @param int   $status HTTP status to return every time.

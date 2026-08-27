@@ -839,8 +839,12 @@ of them wrong produces silently wrong data rather than an error:
     one place this plugin deliberately breaks its own rule. The rule exists so nobody waits on
     Kontor; here the answer is the entire point, and a queued job would put it in a log instead of
     in front of the person who pressed the button. `OrderSync::FORCE_LIMIT` (100) is what keeps that
-    honest — four round trips at `Client::REQUEST_TIMEOUT` — and the batch is chunked at
-    `BATCH_SIZE` so the request shape is one Kontor has already accepted.
+    honest — four round trips at `Client::REQUEST_TIMEOUT`, which holds only because the
+    push is made with `Client::SINGLE_ATTEMPT`: at the ordinary allowance a batch is three
+    timeouts plus six seconds of backoff, so those four round trips would be six minutes of
+    a blank screen and then whatever the host's execution limit does about it. Retrying is
+    the wrong favour to do somebody who is watching and can press it again. The batch is
+    chunked at `BATCH_SIZE` so the request shape is one Kontor has already accepted.
   - **It never touches `Status`.** A run belongs to a scheduled job; marking one here would collide
     with a real sweep, and a request cut short would strand the job as `running` for the whole of
     `Status::STALE_AFTER`. `test_force_push_leaves_the_job_status_alone` is the guard.
@@ -1281,6 +1285,14 @@ calling it queues real work: it is not a way to test whether a job would be allo
     the removed stock finalising pass, still listened for, answered by
     `StockSync::close_legacy_run()`, which closes the run and drafts nothing. Removing a chained
     action means keeping its hook until no shop can still be upgrading across the change.
+- **Cancelling a schedule cancels the schedule, not the hook.** `Scheduler::cancel_recurring()`
+  looks the recurring action up by id and cancels that one. `as_unschedule_all_actions()` takes
+  everything queued on the hook, which includes whatever Run now has put there — so saving the
+  settings threw away a manual run somebody had started moments before, and setting a job to Never
+  did the same, which is the opposite of what "the job stays manual" means. It went silently, since
+  a cancelled async action leaves nothing behind to notice, and on a shop whose queue runs behind
+  the window between pressing Run now and pressing Save is not milliseconds. `unschedule_all()` is
+  the one place that still empties the whole group, which is right: it runs on deactivation.
 - **Whether a job is scheduled is `Scheduler::has_recurring()`, never
   `as_next_scheduled_action()`.** That function collapses three different states into two return
   values: a timestamp for a scheduled action, but a bare `true` both for an action already

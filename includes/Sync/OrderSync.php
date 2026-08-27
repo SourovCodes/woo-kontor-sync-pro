@@ -353,11 +353,19 @@ class OrderSync {
 
 		$result['attempted'] += count( $payload );
 
+		/*
+		 * One attempt, because this runs in the request the operator pressed the button
+		 * in. Retrying a batch costs up to three timeouts plus six seconds of backoff,
+		 * and FORCE_LIMIT is four batches — six minutes of a blank screen, on the one
+		 * path here with somebody waiting at the other end of it. They are right there
+		 * and can press it again.
+		 */
 		$response = $this->client->push_orders(
 			$payload,
 			(string) $this->settings['shop_id'],
 			self::UPLOAD_USER_ID,
-			true
+			true,
+			Client::SINGLE_ATTEMPT
 		);
 
 		if ( is_wp_error( $response ) ) {

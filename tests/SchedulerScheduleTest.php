@@ -77,6 +77,85 @@ class SchedulerScheduleTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Saving the settings does not throw away a Run now somebody has just started.
+	 *
+	 * `reschedule()` reached for `as_unschedule_all_actions()`, which takes everything
+	 * queued on the hook — the manual run included. It went silently, because a
+	 * cancelled async action leaves nothing behind to notice, and on a shop whose queue
+	 * runs behind the window between pressing Run now and pressing Save is not
+	 * milliseconds.
+	 *
+	 * @return void
+	 */
+	public function test_saving_the_settings_keeps_a_pending_manual_run() {
+		$this->store_interval( 'stock_sync_interval', 900 );
+
+		$scheduler = new Scheduler();
+		$scheduler->sync_schedules();
+
+		as_enqueue_async_action( Scheduler::ACTION_SYNC_STOCK, array(), Scheduler::GROUP );
+
+		$this->assertCount( 2, $this->actions( Scheduler::ACTION_SYNC_STOCK ) );
+
+		$this->store_interval( 'stock_sync_interval', HOUR_IN_SECONDS );
+		$scheduler->reschedule();
+
+		// The schedule was replaced, and the manual run is still waiting beside it.
+		$this->assertSame( 1, $this->recurring_count( Scheduler::ACTION_SYNC_STOCK ) );
+		$this->assertCount( 2, $this->actions( Scheduler::ACTION_SYNC_STOCK ) );
+	}
+
+	/**
+	 * Setting a job to Never keeps the manual run too.
+	 *
+	 * "Never" means the job stays manual, so throwing away the one manual run that was
+	 * waiting is the opposite of what was asked for.
+	 *
+	 * @return void
+	 */
+	public function test_switching_a_job_to_never_keeps_a_pending_manual_run() {
+		$this->store_interval( 'stock_sync_interval', 900 );
+
+		$scheduler = new Scheduler();
+		$scheduler->sync_schedules();
+
+		as_enqueue_async_action( Scheduler::ACTION_SYNC_STOCK, array(), Scheduler::GROUP );
+
+		$this->store_interval( 'stock_sync_interval', Settings::INTERVAL_NEVER );
+		$scheduler->sync_schedules();
+
+		$this->assertSame( 0, $this->recurring_count( Scheduler::ACTION_SYNC_STOCK ) );
+		$this->assertCount(
+			1,
+			$this->actions( Scheduler::ACTION_SYNC_STOCK ),
+			'the manual run should have survived the schedule being cancelled'
+		);
+	}
+
+	/**
+	 * Re-queueing still moves the schedule onto the new interval.
+	 *
+	 * The point of cancelling at all: a job left with its old recurring action would
+	 * go on running at the interval that was just changed.
+	 *
+	 * @return void
+	 */
+	public function test_rescheduling_moves_the_job_onto_its_new_interval() {
+		$this->store_interval( 'stock_sync_interval', 900 );
+
+		$scheduler = new Scheduler();
+		$scheduler->sync_schedules();
+
+		$first = Scheduler::next_run( 'stock' );
+
+		$this->store_interval( 'stock_sync_interval', DAY_IN_SECONDS );
+		$scheduler->reschedule();
+
+		$this->assertSame( 1, $this->recurring_count( Scheduler::ACTION_SYNC_STOCK ) );
+		$this->assertGreaterThan( $first, Scheduler::next_run( 'stock' ) );
+	}
+
+	/**
 	 * The plural lookup answers for every job, and does not re-scan the queue.
 	 *
 	 * Reporting when a job is next due is a scan rather than a lookup, so the progress

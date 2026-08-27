@@ -419,10 +419,12 @@ class Scheduler {
 				$interval = Settings::INTERVAL_NEVER;
 			}
 
-			// "Never" means no recurring action at all; the job stays manual.
+			// "Never" means no recurring action at all; the job stays manual — and
+			// "manual" is the point, so only the schedule is cancelled. A Run now waiting
+			// in the queue is somebody's decision and not this reconciliation's to undo.
 			if ( Settings::INTERVAL_NEVER === $interval ) {
 				if ( $scheduled ) {
-					as_unschedule_all_actions( $job['action'], array(), self::GROUP );
+					self::cancel_recurring( $job['action'] );
 				}
 
 				continue;
@@ -443,8 +445,14 @@ class Scheduler {
 	/**
 	 * Re-queue the recurring actions after the intervals change.
 	 *
-	 * Only the top-level job hooks are cancelled, so a sync already walking the
-	 * catalogue keeps its chained page actions and runs to completion.
+	 * Only the *recurring* action on each top-level job hook is cancelled. A sync
+	 * already walking the catalogue keeps its chained page actions and runs to
+	 * completion, and — as of 0.29.0 — so does a Run now still waiting in the queue.
+	 * This used to reach for `as_unschedule_all_actions()`, which takes everything on
+	 * the hook: saving the settings threw away a manual run somebody had started
+	 * moments before, silently, and on a shop whose queue runs behind that window is
+	 * not milliseconds. Nothing said so, because a cancelled async action leaves
+	 * nothing behind to notice.
 	 *
 	 * @return void
 	 */
@@ -454,7 +462,7 @@ class Scheduler {
 		}
 
 		foreach ( self::get_jobs() as $job ) {
-			as_unschedule_all_actions( $job['action'], array(), self::GROUP );
+			self::cancel_recurring( $job['action'] );
 		}
 
 		delete_transient( self::SCHEDULE_GUARD );
@@ -539,8 +547,33 @@ class Scheduler {
 	 * @return \ActionScheduler_Action|null The recurring action, or null when none is queued.
 	 */
 	private static function recurring_action( $hook ) {
-		if ( ! class_exists( '\ActionScheduler' ) || ! class_exists( '\ActionScheduler_Store' ) ) {
+		$id = self::recurring_action_id( $hook );
+
+		if ( 0 === $id ) {
 			return null;
+		}
+
+		$action = \ActionScheduler::store()->fetch_action( $id );
+
+		return $action instanceof \ActionScheduler_Action ? $action : null;
+	}
+
+	/**
+	 * The id of the recurring action queued for one job hook, if there is one.
+	 *
+	 * Kept apart from the action itself because cancelling needs the id and nothing
+	 * else — an `ActionScheduler_Action` does not carry its own — and because
+	 * `as_unschedule_all_actions()` is the wrong tool for the job. That cancels every
+	 * action on the hook, which includes whatever Run now has queued: pressing Save on
+	 * the settings screen would quietly throw away the manual run somebody had started
+	 * a moment before, and setting a job to Never would do the same.
+	 *
+	 * @param string $hook Action hook.
+	 * @return int The action id, or 0 when no recurring action is queued.
+	 */
+	private static function recurring_action_id( $hook ) {
+		if ( ! class_exists( '\ActionScheduler' ) || ! class_exists( '\ActionScheduler_Store' ) ) {
+			return 0;
 		}
 
 		$store = \ActionScheduler::store();
@@ -569,11 +602,29 @@ class Scheduler {
 			$schedule = $action->get_schedule();
 
 			if ( $schedule && $schedule->is_recurring() ) {
-				return $action;
+				return (int) $id;
 			}
 		}
 
-		return null;
+		return 0;
+	}
+
+	/**
+	 * Cancel a job's recurring action, leaving everything else on the hook alone.
+	 *
+	 * @param string $hook Action hook.
+	 * @return bool True when a recurring action was cancelled.
+	 */
+	public static function cancel_recurring( $hook ) {
+		$id = self::recurring_action_id( $hook );
+
+		if ( 0 === $id ) {
+			return false;
+		}
+
+		\ActionScheduler::store()->cancel_action( $id );
+
+		return true;
 	}
 
 	/**

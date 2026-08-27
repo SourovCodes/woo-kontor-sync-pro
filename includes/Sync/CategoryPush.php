@@ -200,7 +200,12 @@ class CategoryPush {
 
 		$result['rows'] = $rows;
 
-		$response = $this->client->push_categories( $rows, $shop_id, OrderSync::UPLOAD_USER_ID );
+		/*
+		 * One attempt, for the reason OrderSync::force_push() makes one: this runs in the
+		 * request that asked for it, and a retried timeout is a longer blank screen
+		 * rather than a better answer.
+		 */
+		$response = $this->client->push_categories( $rows, $shop_id, OrderSync::UPLOAD_USER_ID, true, Client::SINGLE_ATTEMPT );
 
 		if ( is_wp_error( $response ) ) {
 			$result['error'] = $response->get_error_message();
