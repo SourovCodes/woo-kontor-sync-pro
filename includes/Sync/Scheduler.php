@@ -9,6 +9,7 @@ namespace WooKontorSync\Sync;
 
 use Exception;
 use WP_Error;
+use WooKontorSync\Admin\Health;
 use WooKontorSync\Admin\Settings;
 use WooKontorSync\Api\Client;
 
@@ -180,6 +181,25 @@ class Scheduler {
 	const GUARD_ATTEMPT = 5 * MINUTE_IN_SECONDS;
 
 	/**
+	 * Transient holding every job's next scheduled run.
+	 */
+	const NEXT_RUN_CACHE = 'wksync_next_runs';
+
+	/**
+	 * How long that answer is trusted for.
+	 *
+	 * Reporting when a job is next due is not a lookup, it is a scan: the kind of an
+	 * action is not in the queue's index, so answering means fetching a hook's queued
+	 * actions and asking each one whether it repeats. Five jobs of that, every five seconds, is what the
+	 * settings screen's progress poll was costing — around a hundred row reads a tick,
+	 * per open tab, to redraw a timestamp that moves once an interval.
+	 *
+	 * A minute of staleness on "next run" is invisible, and the queue changing under
+	 * it is not: sync_schedules() drops this whenever it touches a schedule.
+	 */
+	const NEXT_RUN_TTL = MINUTE_IN_SECONDS;
+
+	/**
 	 * How far down a job's queued actions to look for its recurring one.
 	 *
 	 * A job hook carries at most one recurring action plus however many Run now has
@@ -284,7 +304,7 @@ class Scheduler {
 	 */
 	public function register() {
 		add_action( self::ACTION_SYNC_PRODUCTS, array( $this, 'handle_products' ) );
-		add_action( self::ACTION_SYNC_PRODUCTS_PAGE, array( $this, 'handle_products_page' ), 10, 2 );
+		add_action( self::ACTION_SYNC_PRODUCTS_PAGE, array( $this, 'handle_products_page' ), 10, 3 );
 		add_action( self::ACTION_SYNC_PRODUCT_IMAGES, array( $this, 'handle_product_images' ), 10, 3 );
 		add_action( self::ACTION_SYNC_PRODUCTS_FINALISE, array( $this, 'handle_products_finalise' ), 10, 1 );
 		add_action( self::ACTION_SYNC_PRODUCTS_TRASH, array( $this, 'handle_products_trash' ), 10, 1 );
@@ -328,6 +348,14 @@ class Scheduler {
 
 		// A saved key says nothing about whether the previous one worked.
 		add_action( 'update_option_' . Settings::OPTION_KEY, array( Preflight::class, 'forget_connection' ) );
+
+		// Narrowing the manufacturer filter is a legitimate way to shrink the catalogue,
+		// so the measurement the drafting brake compares against stops applying.
+		add_action( 'update_option_' . Settings::OPTION_KEY, array( ProductSync::class, 'forget_catalogue_size' ), 10, 2 );
+
+		// The schedules are re-queued on a save, so whatever the notice cached about
+		// them a moment ago describes a queue that no longer exists.
+		add_action( 'update_option_' . Settings::OPTION_KEY, array( Health::class, 'forget_schedules' ) );
 	}
 
 	/**
@@ -391,10 +419,12 @@ class Scheduler {
 				$interval = Settings::INTERVAL_NEVER;
 			}
 
-			// "Never" means no recurring action at all; the job stays manual.
+			// "Never" means no recurring action at all; the job stays manual — and
+			// "manual" is the point, so only the schedule is cancelled. A Run now waiting
+			// in the queue is somebody's decision and not this reconciliation's to undo.
 			if ( Settings::INTERVAL_NEVER === $interval ) {
 				if ( $scheduled ) {
-					as_unschedule_all_actions( $job['action'], array(), self::GROUP );
+					self::cancel_recurring( $job['action'] );
 				}
 
 				continue;
@@ -406,13 +436,23 @@ class Scheduler {
 
 			as_schedule_recurring_action( time() + $interval, $interval, $job['action'], array(), self::GROUP );
 		}
+
+		// The queue has just been brought in line with the settings, so whatever was
+		// cached about when each job is next due describes the queue from before that.
+		self::forget_next_runs();
 	}
 
 	/**
 	 * Re-queue the recurring actions after the intervals change.
 	 *
-	 * Only the top-level job hooks are cancelled, so a sync already walking the
-	 * catalogue keeps its chained page actions and runs to completion.
+	 * Only the *recurring* action on each top-level job hook is cancelled. A sync
+	 * already walking the catalogue keeps its chained page actions and runs to
+	 * completion, and — as of 0.29.0 — so does a Run now still waiting in the queue.
+	 * This used to reach for `as_unschedule_all_actions()`, which takes everything on
+	 * the hook: saving the settings threw away a manual run somebody had started
+	 * moments before, silently, and on a shop whose queue runs behind that window is
+	 * not milliseconds. Nothing said so, because a cancelled async action leaves
+	 * nothing behind to notice.
 	 *
 	 * @return void
 	 */
@@ -422,7 +462,7 @@ class Scheduler {
 		}
 
 		foreach ( self::get_jobs() as $job ) {
-			as_unschedule_all_actions( $job['action'], array(), self::GROUP );
+			self::cancel_recurring( $job['action'] );
 		}
 
 		delete_transient( self::SCHEDULE_GUARD );
@@ -507,8 +547,36 @@ class Scheduler {
 	 * @return \ActionScheduler_Action|null The recurring action, or null when none is queued.
 	 */
 	private static function recurring_action( $hook ) {
+		$found = self::find_recurring( $hook );
+
+		return null === $found ? null : $found['action'];
+	}
+
+	/**
+	 * The recurring action queued for one job hook, with its id, if there is one.
+	 *
+	 * Both are returned together because an `ActionScheduler_Action` does not carry its
+	 * own id and cancelling needs one, and asking twice would mean fetching the same
+	 * row twice on a path that already costs a scan.
+	 *
+	 * The statuses matter and differ by caller. Reading whether a job is scheduled has
+	 * to count an action that is executing, or a job would read as unscheduled for the
+	 * whole length of its own run. Cancelling one must not — see cancel_recurring().
+	 *
+	 * @param string   $hook     Action hook.
+	 * @param string[] $statuses Statuses to consider; pending and running when empty.
+	 * @return array|null Array with "id" and "action", or null when none is queued.
+	 */
+	private static function find_recurring( $hook, array $statuses = array() ) {
 		if ( ! class_exists( '\ActionScheduler' ) || ! class_exists( '\ActionScheduler_Store' ) ) {
 			return null;
+		}
+
+		if ( empty( $statuses ) ) {
+			$statuses = array(
+				\ActionScheduler_Store::STATUS_PENDING,
+				\ActionScheduler_Store::STATUS_RUNNING,
+			);
 		}
 
 		$store = \ActionScheduler::store();
@@ -517,10 +585,7 @@ class Scheduler {
 			array(
 				'hook'     => $hook,
 				'group'    => self::GROUP,
-				'status'   => array(
-					\ActionScheduler_Store::STATUS_PENDING,
-					\ActionScheduler_Store::STATUS_RUNNING,
-				),
+				'status'   => $statuses,
 				'orderby'  => 'date',
 				'order'    => 'ASC',
 				'per_page' => self::RECURRING_LOOKUP,
@@ -537,11 +602,52 @@ class Scheduler {
 			$schedule = $action->get_schedule();
 
 			if ( $schedule && $schedule->is_recurring() ) {
-				return $action;
+				return array(
+					'id'     => (int) $id,
+					'action' => $action,
+				);
 			}
 		}
 
 		return null;
+	}
+
+	/**
+	 * Cancel a job's recurring action, leaving everything else on the hook alone.
+	 *
+	 * **Pending only, and never one that is executing.** Action Scheduler queues a
+	 * recurring action's next occurrence at the *end* of the current run, so for the
+	 * whole length of a run the only recurring action on the hook is the running one.
+	 * Cancelling that leaves the job with two: `sync_schedules()` sees nothing queued
+	 * and adds one, and the action still executing then adds another of its own, since
+	 * `schedule_next_instance()` only declines to repeat an action whose status is
+	 * FAILED — a cancelled one repeats like any other. The shop would then sync twice
+	 * as often, for ever, which is the failure `has_recurring()` counts in-progress
+	 * actions to avoid in the first place.
+	 *
+	 * `as_unschedule_all_actions()` never had this problem, because it resolves to
+	 * `as_unschedule_action()`, which queries pending actions alone. Its problem was
+	 * the opposite one — it took the manual runs with it.
+	 *
+	 * The cost is that changing an interval while that job is running leaves the old
+	 * interval in place: the running action repeats itself on its own schedule and
+	 * `sync_schedules()` correctly leaves it alone. That is exactly what happened
+	 * before this method existed, and the next run after that one is queued at the new
+	 * interval by the reconciliation.
+	 *
+	 * @param string $hook Action hook.
+	 * @return bool True when a recurring action was cancelled.
+	 */
+	public static function cancel_recurring( $hook ) {
+		$found = self::find_recurring( $hook, array( \ActionScheduler_Store::STATUS_PENDING ) );
+
+		if ( null === $found ) {
+			return false;
+		}
+
+		\ActionScheduler::store()->cancel_action( $found['id'] );
+
+		return true;
 	}
 
 	/**
@@ -585,6 +691,43 @@ class Scheduler {
 	}
 
 	/**
+	 * When every job is next due, cheaply.
+	 *
+	 * The same answer as calling next_run() per job, at one option read instead of
+	 * five queue scans — for the callers that redraw the whole table and would
+	 * otherwise pay for all five. next_run() itself stays exact, because a caller
+	 * asking about one job is not in a loop and the REST API publishes that figure.
+	 *
+	 * @return array Job key to Unix timestamp, 0 where no schedule is queued.
+	 */
+	public static function next_runs() {
+		$cached = get_transient( self::NEXT_RUN_CACHE );
+
+		if ( is_array( $cached ) ) {
+			return $cached;
+		}
+
+		$runs = array();
+
+		foreach ( array_keys( self::get_jobs() ) as $key ) {
+			$runs[ $key ] = self::next_run( $key );
+		}
+
+		set_transient( self::NEXT_RUN_CACHE, $runs, self::NEXT_RUN_TTL );
+
+		return $runs;
+	}
+
+	/**
+	 * Forget the cached schedule times.
+	 *
+	 * @return void
+	 */
+	public static function forget_next_runs() {
+		delete_transient( self::NEXT_RUN_CACHE );
+	}
+
+	/**
 	 * Start a product sync.
 	 *
 	 * @return void
@@ -596,12 +739,18 @@ class Scheduler {
 	/**
 	 * Import one page of products.
 	 *
-	 * @param int $skip Number of records already imported.
-	 * @param int $run  Run identifier, used to spot products Kontor no longer lists.
+	 * The attempt number is carried so a page whose request failed transiently can be
+	 * queued again rather than taking the whole run with it. An action queued by a
+	 * version that did not carry it arrives without the argument and defaults to the
+	 * first attempt, which is what it was.
+	 *
+	 * @param int $skip    Number of records already imported.
+	 * @param int $run     Run identifier, used to spot products Kontor no longer lists.
+	 * @param int $attempt Which attempt at this page this is, counting from one.
 	 * @return void
 	 */
-	public function handle_products_page( $skip = 0, $run = 0 ) {
-		( new ProductSync() )->import_page( absint( $skip ), absint( $run ) );
+	public function handle_products_page( $skip = 0, $run = 0, $attempt = 1 ) {
+		( new ProductSync() )->import_page( absint( $skip ), absint( $run ), absint( $attempt ) );
 	}
 
 	/**
@@ -890,6 +1039,37 @@ class Scheduler {
 	}
 
 	/**
+	 * Queue a follow-up action for the current run, after a wait.
+	 *
+	 * The chain is otherwise built out of async actions, which are claimed on the very
+	 * next queue pass. That is right for every step that has work waiting for it and
+	 * wrong for the one case this exists for: a step retrying something that just
+	 * failed, where coming straight back is how three attempts are spent inside a
+	 * minute on a host that needs longer than that.
+	 *
+	 * @param string $hook     Action hook to queue.
+	 * @param array  $args     Arguments to pass along.
+	 * @param int    $delay    Seconds to wait before the action may be claimed.
+	 * @param int    $priority Claim priority, lower first. Defaults to Action Scheduler's own.
+	 * @return void
+	 */
+	public static function chain_later( $hook, array $args, $delay, $priority = self::PRIORITY_DEFAULT ) {
+		if ( ! self::is_available() ) {
+			return;
+		}
+
+		$delay = max( 0, (int) $delay );
+
+		if ( 0 === $delay ) {
+			self::chain( $hook, $args, $priority );
+
+			return;
+		}
+
+		as_schedule_single_action( time() + $delay, $hook, $args, self::GROUP, false, (int) $priority );
+	}
+
+	/**
 	 * Cancel everything this plugin has queued.
 	 *
 	 * The guard means "the queue matches the settings", which stops being true the
@@ -902,6 +1082,7 @@ class Scheduler {
 	 */
 	public static function unschedule_all() {
 		delete_transient( self::SCHEDULE_GUARD );
+		self::forget_next_runs();
 
 		if ( ! function_exists( 'as_unschedule_all_actions' ) ) {
 			return;
@@ -1040,6 +1221,7 @@ class Scheduler {
 		return function_exists( 'as_enqueue_async_action' )
 			&& function_exists( 'as_next_scheduled_action' )
 			&& function_exists( 'as_schedule_recurring_action' )
+			&& function_exists( 'as_schedule_single_action' )
 			&& function_exists( 'as_unschedule_all_actions' );
 	}
 }

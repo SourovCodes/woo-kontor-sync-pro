@@ -11,6 +11,7 @@ use WC_Product_Simple;
 use WooKontorSync\Admin\Settings;
 use WooKontorSync\Sync\Brands;
 use WooKontorSync\Sync\ProductSync;
+use WooKontorSync\Sync\Payload;
 use WooKontorSync\Sync\Scheduler;
 use WooKontorSync\Sync\Status;
 use WooKontorSync\Sync\StockSync;
@@ -879,12 +880,12 @@ class SyncTest extends WP_UnitTestCase {
 		$product = $this->imported_product( 'STILL-STOCKED' );
 		$run     = Status::start( StockSync::JOB );
 
-		set_transient( StockSync::TRANSIENT_PREFIX . $run, array( 'STILL-STOCKED' => 3 ), StockSync::TRANSIENT_TTL );
+		Payload::put( StockSync::JOB, array( 'STILL-STOCKED' => 3 ) );
 
 		( new StockSync( null, array() ) )->apply_chunk( 0, $run );
 
 		$this->assertSame( 'success', Status::get( StockSync::JOB )['state'] );
-		$this->assertFalse( get_transient( StockSync::TRANSIENT_PREFIX . $run ) );
+		$this->assertNull( Payload::get( StockSync::JOB ) );
 		$this->assertSame( 'publish', wc_get_product( $product )->get_status() );
 		$this->assertSame( 3, wc_get_product( $product )->get_stock_quantity() );
 	}
@@ -1014,13 +1015,12 @@ class SyncTest extends WP_UnitTestCase {
 
 		$run = Status::start( StockSync::JOB );
 
-		set_transient(
-			StockSync::TRANSIENT_PREFIX . $run,
+		Payload::put(
+			StockSync::JOB,
 			array(
 				'STILL-STOCKED' => 3,
 				'not-in-woo'    => 1,
-			),
-			StockSync::TRANSIENT_TTL
+			)
 		);
 
 		( new StockSync( null, array() ) )->apply_chunk( 0, $run );

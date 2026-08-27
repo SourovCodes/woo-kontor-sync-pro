@@ -254,6 +254,27 @@ class OrderPanel {
 			'<div class="notice notice-error inline"><p>%s</p></div>',
 			esc_html( $error )
 		);
+
+		if ( ! OrderSync::is_set_aside( $order ) ) {
+			return;
+		}
+
+		/*
+		 * Said separately from the reason, because it is a different fact and the more
+		 * consequential one: the reason describes what happened, this says nothing more
+		 * will happen. It also names the way out, which is the entry OrderActions adds to
+		 * the box further down this same screen.
+		 */
+		printf(
+			'<div class="notice notice-warning inline"><p>%s</p></div>',
+			esc_html(
+				sprintf(
+					/* translators: %d: number of attempts made. */
+					__( 'Refused %d times, so the sweep has stopped sending it. Use "Send this order to Kontor again" in the order actions box once the reason above is dealt with.', 'woo-kontor-sync-pro' ),
+					(int) $order->get_meta( OrderSync::META_PUSH_ATTEMPTS )
+				)
+			)
+		);
 	}
 
 	/**

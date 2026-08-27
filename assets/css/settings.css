@@ -5,6 +5,40 @@
  * multi-select, so it needs a box of its own to sit in.
  */
 
+/*
+ * The tabs hide panels; they never leave one out. Every field on this screen posts
+ * into a single option, and sanitize() reads an absent api_base_url as an empty one
+ * — so a panel that had not rendered would take the API URL with it on the next
+ * save. Hiding is therefore the mechanism rather than an implementation detail.
+ *
+ * The class is only ever added by the script, so without JavaScript every panel
+ * shows: the screen falls back to exactly what it was before the tabs existed
+ * rather than to a page with nothing on it.
+ */
+.wksync-settings.wksync-tabbed .wksync-panel {
+	display: none;
+}
+
+.wksync-settings.wksync-tabbed .wksync-panel.is-active {
+	display: block;
+}
+
+/* Saving belongs to the form, not to a tab, so the button goes away on the panels
+   that put nothing into it rather than sitting there achieving nothing. */
+.wksync-settings.wksync-tabbed .wksync-save {
+	display: none;
+}
+
+.wksync-settings.wksync-tabbed.wksync-on-settings-tab .wksync-save {
+	display: block;
+}
+
+/* The strip is the page's own heading furniture, so it wants the room core gives
+   its own. */
+.wksync-tabs {
+	margin-bottom: 1em;
+}
+
 .wksync-choice-list {
 	max-width: 32em;
 	max-height: 16em;
@@ -80,4 +114,32 @@
 	border: 1px solid #dcdcde;
 	font-size: 12px;
 	white-space: pre;
+}
+
+/* A panel's first heading sits directly under the tab strip, where core's own
+   top margin would leave it floating. */
+.wksync-settings.wksync-tabbed .wksync-panel > h2:first-child,
+.wksync-settings.wksync-tabbed .wksync-panel > .wksync-section:first-child > h2:first-child {
+	margin-top: 0;
+}
+
+/* The setup checklist. A done step is struck through rather than removed: the list
+   is also a description of what setting this up involves, and a list that shortens
+   as you go tells you less each time you look at it. */
+.wksync-setup h2 {
+	margin: 0.6em 0 0.2em;
+	font-size: 1.1em;
+}
+
+.wksync-setup-steps {
+	margin: 0 0 0.6em 1.6em;
+}
+
+.wksync-setup-steps li {
+	margin-bottom: 4px;
+}
+
+.wksync-setup-steps .wksync-done span {
+	color: #646970;
+	text-decoration: line-through;
 }

@@ -2,14 +2,14 @@
 # This file is distributed under the GPL-2.0-or-later.
 msgid ""
 msgstr ""
-"Project-Id-Version: Woo Kontor Sync Pro 0.28.0\n"
+"Project-Id-Version: Woo Kontor Sync Pro 0.29.0\n"
 "Report-Msgid-Bugs-To: https://wordpress.org/support/plugin/woo-kontor-sync-pro\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"POT-Creation-Date: 2026-08-26T06:01:46+00:00\n"
+"POT-Creation-Date: 2026-08-27T14:02:49+00:00\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "X-Generator: WP-CLI 2.12.0\n"
 "X-Domain: woo-kontor-sync-pro\n"
@@ -32,6 +32,14 @@ msgstr ""
 #. Author of the plugin
 #: woo-kontor-sync-pro.php
 msgid "Sourov Biswas"
+msgstr ""
+
+#: includes/Admin/Health.php:107
+msgid "The run stopped without saying why, and nothing closed it."
+msgstr ""
+
+#: includes/Admin/Health.php:118
+msgid "An interval is set but nothing is queued to run it."
 msgstr ""
 
 #: includes/Admin/HeldProducts.php:149
@@ -66,28 +74,88 @@ msgstr ""
 msgid "Kontor holds it back; not imported here"
 msgstr ""
 
-#: includes/Admin/OrderActions.php:83
+#: includes/Admin/Notices.php:93
+msgid "Kontor Sync needs attention."
+msgstr ""
+
+#: includes/Admin/Notices.php:102
+#: includes/Admin/SiteHealth.php:183
+msgid "Open Kontor Sync"
+msgstr ""
+
+#: includes/Admin/Notices.php:106
+#: includes/Admin/Settings.php:3565
+#: includes/Admin/SiteHealth.php:185
+msgid "View the log"
+msgstr ""
+
+#: includes/Admin/Notices.php:110
+msgid "Dismiss"
+msgstr ""
+
+#. translators: %s: job name.
+#: includes/Admin/Notices.php:128
+#, php-format
+msgid "%s has an interval set but nothing queued to run it, so it is not running at all."
+msgstr ""
+
+#. translators: %s: job name.
+#: includes/Admin/Notices.php:135
+#, php-format
+msgid "%s stopped part-way through and nothing recorded why."
+msgstr ""
+
+#. translators: 1: job name, 2: the reason it failed.
+#: includes/Admin/Notices.php:142
+#, php-format
+msgid "%1$s failed: %2$s"
+msgstr ""
+
+#: includes/Admin/Notices.php:250
+#: includes/Admin/Settings.php:997
+#: includes/Admin/Settings.php:1043
+#: includes/Admin/Settings.php:1092
+#: includes/Admin/Settings.php:1247
+#: includes/Admin/Settings.php:1289
+#: includes/Admin/Settings.php:1400
+#: includes/Admin/Settings.php:1497
+#: includes/Admin/Settings.php:1551
+#: includes/Admin/Settings.php:1748
+#: includes/Admin/Settings.php:2072
+#: includes/Rest/Jobs.php:172
+msgid "You do not have permission to do that."
+msgstr ""
+
+#: includes/Admin/OrderActions.php:91
 msgid "Email the invoice to the customer again"
 msgstr ""
 
-#: includes/Admin/OrderActions.php:87
+#: includes/Admin/OrderActions.php:95
 msgid "Email the tracking details to the customer again"
 msgstr ""
 
-#: includes/Admin/OrderActions.php:103
+#: includes/Admin/OrderActions.php:105
+msgid "Send this order to Kontor again"
+msgstr ""
+
+#: includes/Admin/OrderActions.php:121
 msgid "Kontor invoice email sent to the customer."
 msgstr ""
 
-#: includes/Admin/OrderActions.php:104
+#: includes/Admin/OrderActions.php:122
 msgid "The Kontor invoice email could not be sent."
 msgstr ""
 
-#: includes/Admin/OrderActions.php:118
+#: includes/Admin/OrderActions.php:136
 msgid "Kontor tracking email sent to the customer."
 msgstr ""
 
-#: includes/Admin/OrderActions.php:119
+#: includes/Admin/OrderActions.php:137
 msgid "The Kontor tracking email could not be sent."
+msgstr ""
+
+#: includes/Admin/OrderActions.php:161
+msgid "Queued to be sent to Kontor again."
 msgstr ""
 
 #: includes/Admin/OrderPanel.php:82
@@ -152,22 +220,28 @@ msgstr ""
 msgid "Carrier"
 msgstr ""
 
-#: includes/Admin/OrderPanel.php:270
+#. translators: %d: number of attempts made.
+#: includes/Admin/OrderPanel.php:273
+#, php-format
+msgid "Refused %d times, so the sweep has stopped sending it. Use \"Send this order to Kontor again\" in the order actions box once the reason above is dealt with."
+msgstr ""
+
+#: includes/Admin/OrderPanel.php:291
 #: includes/Frontend/Invoices.php:63
 #: includes/Frontend/Invoices.php:112
 #: includes/Frontend/Invoices.php:132
 msgid "Invoices"
 msgstr ""
 
-#: includes/Admin/OrderPanel.php:275
+#: includes/Admin/OrderPanel.php:296
 msgid "None downloaded yet"
 msgstr ""
 
-#: includes/Admin/OrderPanel.php:281
+#: includes/Admin/OrderPanel.php:302
 msgid "Run the invoice sync"
 msgstr ""
 
-#: includes/Admin/OrderPanel.php:295
+#: includes/Admin/OrderPanel.php:316
 #: includes/Frontend/Invoices.php:71
 msgid "Download PDF"
 msgstr ""
@@ -188,174 +262,164 @@ msgstr ""
 msgid "None"
 msgstr ""
 
-#: includes/Admin/Settings.php:311
+#: includes/Admin/Settings.php:337
 msgid "B2B — wholesale"
 msgstr ""
 
-#: includes/Admin/Settings.php:312
+#: includes/Admin/Settings.php:338
 msgid "B2C — retail"
 msgstr ""
 
-#: includes/Admin/Settings.php:313
+#: includes/Admin/Settings.php:339
 msgid "EDU — education"
 msgstr ""
 
-#: includes/Admin/Settings.php:324
+#: includes/Admin/Settings.php:350
 msgid "As soon as they are paid"
 msgstr ""
 
-#: includes/Admin/Settings.php:325
+#: includes/Admin/Settings.php:351
 msgid "Only on the scheduled sweep"
 msgstr ""
 
-#: includes/Admin/Settings.php:425
-#: includes/Admin/Settings.php:441
-#: includes/Admin/Settings.php:462
-#: includes/Admin/Settings.php:478
-#: includes/Admin/Settings.php:500
+#: includes/Admin/Settings.php:451
+#: includes/Admin/Settings.php:467
+#: includes/Admin/Settings.php:488
+#: includes/Admin/Settings.php:504
+#: includes/Admin/Settings.php:526
 msgid "Never — only when run manually"
 msgstr ""
 
-#: includes/Admin/Settings.php:426
-#: includes/Admin/Settings.php:448
-#: includes/Admin/Settings.php:467
-#: includes/Admin/Settings.php:484
-#: includes/Admin/Settings.php:505
+#: includes/Admin/Settings.php:452
+#: includes/Admin/Settings.php:474
+#: includes/Admin/Settings.php:493
+#: includes/Admin/Settings.php:510
+#: includes/Admin/Settings.php:531
 msgid "Once a day"
 msgstr ""
 
-#: includes/Admin/Settings.php:427
+#: includes/Admin/Settings.php:453
 msgid "Every 7 days"
 msgstr ""
 
-#: includes/Admin/Settings.php:428
+#: includes/Admin/Settings.php:454
 msgid "Every 14 days"
 msgstr ""
 
-#: includes/Admin/Settings.php:429
+#: includes/Admin/Settings.php:455
 msgid "Every 21 days"
 msgstr ""
 
-#: includes/Admin/Settings.php:430
+#: includes/Admin/Settings.php:456
 msgid "Every 30 days"
 msgstr ""
 
-#: includes/Admin/Settings.php:442
-#: includes/Admin/Settings.php:463
+#: includes/Admin/Settings.php:468
+#: includes/Admin/Settings.php:489
 msgid "Every 15 minutes"
 msgstr ""
 
-#: includes/Admin/Settings.php:443
-#: includes/Admin/Settings.php:464
-#: includes/Admin/Settings.php:479
+#: includes/Admin/Settings.php:469
+#: includes/Admin/Settings.php:490
+#: includes/Admin/Settings.php:505
 msgid "Every 30 minutes"
 msgstr ""
 
-#: includes/Admin/Settings.php:444
-#: includes/Admin/Settings.php:465
-#: includes/Admin/Settings.php:480
-#: includes/Admin/Settings.php:501
+#: includes/Admin/Settings.php:470
+#: includes/Admin/Settings.php:491
+#: includes/Admin/Settings.php:506
+#: includes/Admin/Settings.php:527
 msgid "Every hour"
 msgstr ""
 
-#: includes/Admin/Settings.php:445
-#: includes/Admin/Settings.php:481
-#: includes/Admin/Settings.php:502
+#: includes/Admin/Settings.php:471
+#: includes/Admin/Settings.php:507
+#: includes/Admin/Settings.php:528
 msgid "Every 3 hours"
 msgstr ""
 
-#: includes/Admin/Settings.php:446
-#: includes/Admin/Settings.php:466
-#: includes/Admin/Settings.php:482
-#: includes/Admin/Settings.php:503
+#: includes/Admin/Settings.php:472
+#: includes/Admin/Settings.php:492
+#: includes/Admin/Settings.php:508
+#: includes/Admin/Settings.php:529
 msgid "Every 6 hours"
 msgstr ""
 
-#: includes/Admin/Settings.php:447
-#: includes/Admin/Settings.php:483
-#: includes/Admin/Settings.php:504
+#: includes/Admin/Settings.php:473
+#: includes/Admin/Settings.php:509
+#: includes/Admin/Settings.php:530
 msgid "Every 12 hours"
 msgstr ""
 
-#: includes/Admin/Settings.php:553
-#: includes/Admin/Settings.php:554
-#: includes/Admin/Settings.php:1558
+#: includes/Admin/Settings.php:581
+#: includes/Admin/Settings.php:582
+#: includes/Admin/Settings.php:1831
+#: includes/Admin/SiteHealth.php:176
+#: includes/Admin/StatusReport.php:53
 msgid "Kontor Sync"
 msgstr ""
 
-#: includes/Admin/Settings.php:593
+#: includes/Admin/Settings.php:621
 msgid "Testing connection…"
 msgstr ""
 
-#: includes/Admin/Settings.php:594
+#: includes/Admin/Settings.php:622
 msgid "The connection test could not be completed."
 msgstr ""
 
-#: includes/Admin/Settings.php:596
+#: includes/Admin/Settings.php:624
 msgid "Fetching shops…"
 msgstr ""
 
-#: includes/Admin/Settings.php:597
+#: includes/Admin/Settings.php:625
 msgid "The shop list could not be fetched."
 msgstr ""
 
-#: includes/Admin/Settings.php:598
-#: includes/Admin/Settings.php:1651
+#: includes/Admin/Settings.php:626
+#: includes/Admin/Settings.php:2243
 msgid "— No shop selected —"
 msgstr ""
 
-#: includes/Admin/Settings.php:599
+#: includes/Admin/Settings.php:627
 msgid "Shops loaded. Choose one, then save the settings."
 msgstr ""
 
-#: includes/Admin/Settings.php:601
+#: includes/Admin/Settings.php:629
 msgid "Fetching manufacturers…"
 msgstr ""
 
-#: includes/Admin/Settings.php:602
+#: includes/Admin/Settings.php:630
 msgid "The manufacturer list could not be fetched."
 msgstr ""
 
-#: includes/Admin/Settings.php:603
+#: includes/Admin/Settings.php:631
 msgid "Manufacturers loaded. Tick the ones to import, then save the settings."
 msgstr ""
 
-#: includes/Admin/Settings.php:969
-#: includes/Admin/Settings.php:1015
-#: includes/Admin/Settings.php:1064
-#: includes/Admin/Settings.php:1219
-#: includes/Admin/Settings.php:1257
-#: includes/Admin/Settings.php:1363
-#: includes/Admin/Settings.php:1459
-#: includes/Admin/Settings.php:1505
-#: includes/Rest/Jobs.php:172
-msgid "You do not have permission to do that."
-msgstr ""
-
 #. translators: 1: number of articles, 2: shop type such as B2B.
-#: includes/Admin/Settings.php:994
+#: includes/Admin/Settings.php:1022
 #, php-format
 msgid "Connected. Kontor reports %1$s articles for %2$s."
 msgstr ""
 
-#: includes/Admin/Settings.php:1036
+#: includes/Admin/Settings.php:1064
 msgid "Kontor returned no shops for this key."
 msgstr ""
 
 #. translators: %s: number of shops found.
-#: includes/Admin/Settings.php:1044
+#: includes/Admin/Settings.php:1072
 #, php-format
 msgid "Found %s shop."
 msgid_plural "Found %s shops."
 msgstr[0] ""
 msgstr[1] ""
 
-#: includes/Admin/Settings.php:1085
+#: includes/Admin/Settings.php:1113
 msgid "Kontor returned no manufacturers for this key."
 msgstr ""
 
 #. translators: %s: number of manufacturers found.
-#: includes/Admin/Settings.php:1093
+#: includes/Admin/Settings.php:1121
 #, php-format
 msgid "Found %s manufacturer."
 msgid_plural "Found %s manufacturers."
@@ -363,767 +427,1074 @@ msgstr[0] ""
 msgstr[1] ""
 
 #. translators: %s: the word that must be typed to confirm.
-#: includes/Admin/Settings.php:1279
+#: includes/Admin/Settings.php:1311
 #, php-format
 msgid "Nothing was sent. Type %s to confirm overwriting every order already in Kontor."
 msgstr ""
 
-#: includes/Admin/Settings.php:1286
+#: includes/Admin/Settings.php:1318
 msgid "No orders have been sent to Kontor yet, so there is nothing to overwrite."
 msgstr ""
 
-#: includes/Admin/Settings.php:1294
+#: includes/Admin/Settings.php:1326
 msgid "No order with that number could be found."
 msgstr ""
 
 #. translators: %s: the word that must be typed to confirm.
-#: includes/Admin/Settings.php:1400
+#: includes/Admin/Settings.php:1437
 #, php-format
 msgid "Nothing was sent. Type %s to confirm replacing every category Kontor holds for this shop."
 msgstr ""
 
-#: includes/Admin/Settings.php:1533
-#: includes/Sync/Scheduler.php:450
+#: includes/Admin/Settings.php:1589
+#: includes/Admin/Settings.php:1619
+msgid "Preview the import"
+msgstr ""
+
+#. translators: %d: number of articles read.
+#: includes/Admin/Settings.php:1595
+#, php-format
+msgid "Reads the first %d articles Kontor lists for these settings and says what a run would do with each. It writes nothing at all — no product, no category, no image."
+msgstr ""
+
+#: includes/Admin/Settings.php:1602
+msgid "Worth a press before the first run, and after changing the shop type or the manufacturers: both change what a successful run writes rather than whether it succeeds."
+msgstr ""
+
+#. translators: 1: created, 2: updated, 3: unchanged, 4: held back, 5: passed over.
+#: includes/Admin/Settings.php:1667
+#, php-format
+msgid "Of the articles read: %1$d would be created, %2$d updated, %3$d left unchanged, %4$d held back as drafts, %5$d passed over."
+msgstr ""
+
+#. translators: 1: shop type, 2: shop type requested from Kontor, 3: the field prices are read from, 4: articles in the whole catalogue.
+#: includes/Admin/Settings.php:1683
+#, php-format
+msgid "Shop type %1$s, requested from Kontor as %2$s, priced from %3$s. Kontor lists %4$s articles in total for these settings."
+msgstr ""
+
+#: includes/Admin/Settings.php:1696
+msgid "Article"
+msgstr ""
+
+#: includes/Admin/Settings.php:1697
+#: includes/Admin/Settings.php:3022
+msgid "Name"
+msgstr ""
+
+#: includes/Admin/Settings.php:1698
+msgid "Price"
+msgstr ""
+
+#: includes/Admin/Settings.php:1699
+msgid "What would happen"
+msgstr ""
+
+#: includes/Admin/Settings.php:1727
+msgid "Created"
+msgstr ""
+
+#: includes/Admin/Settings.php:1728
+msgid "Updated"
+msgstr ""
+
+#: includes/Admin/Settings.php:1729
+msgid "Unchanged"
+msgstr ""
+
+#: includes/Admin/Settings.php:1730
+msgid "Held back"
+msgstr ""
+
+#: includes/Admin/Settings.php:1731
+msgid "Passed over"
+msgstr ""
+
+#: includes/Admin/Settings.php:1776
+#: includes/Sync/Scheduler.php:490
 msgid "The job could not be queued. Check that WooCommerce is active."
 msgstr ""
 
-#: includes/Admin/Settings.php:1534
-#: includes/Sync/Scheduler.php:457
+#: includes/Admin/Settings.php:1777
+#: includes/Sync/Scheduler.php:497
 msgid "That job is already running."
 msgstr ""
 
-#: includes/Admin/Settings.php:1535
+#: includes/Admin/Settings.php:1778
 msgid "Set the API base URL and API key before running a sync."
 msgstr ""
 
-#: includes/Admin/Settings.php:1536
+#: includes/Admin/Settings.php:1779
 msgid "Choose a Kontor shop before syncing orders."
 msgstr ""
 
-#: includes/Admin/Settings.php:1537
+#: includes/Admin/Settings.php:1780
 msgid "This shop does not exchange orders with Kontor. Turn that on under Orders first."
 msgstr ""
 
-#: includes/Admin/Settings.php:1548
-msgid "You do not have permission to manage these settings."
+#: includes/Admin/Settings.php:1796
+msgid "Jobs"
 msgstr ""
 
-#: includes/Admin/Settings.php:1566
+#: includes/Admin/Settings.php:1797
+#: includes/Admin/Settings.php:2158
 msgid "Connection"
 msgstr ""
 
-#: includes/Admin/Settings.php:1570
-msgid "API base URL"
-msgstr ""
-
-#: includes/Admin/Settings.php:1580
-msgid "The search endpoint is appended to this, so omit the trailing \"/search\"."
-msgstr ""
-
-#: includes/Admin/Settings.php:1585
-msgid "API key"
-msgstr ""
-
-#: includes/Admin/Settings.php:1600
-msgid "No key stored yet. Sent as the x-api-key header."
-msgstr ""
-
-#: includes/Admin/Settings.php:1601
-msgid "A key is stored. Leave this field blank to keep it."
-msgstr ""
-
-#: includes/Admin/Settings.php:1609
-msgid "Shop type"
-msgstr ""
-
-#: includes/Admin/Settings.php:1619
-msgid "Selects which price list is imported. The article list is the same for every shop type; only the selling price differs."
-msgstr ""
-
-#: includes/Admin/Settings.php:1620
-msgid "B2B also imports the retail price as a recommended retail price, stored on each product as _wksync_msrp. It is the figure a business can resell at, and it is left off any article Kontor lists no retail price for."
-msgstr ""
-
-#: includes/Admin/Settings.php:1624
-msgid "Connection test"
-msgstr ""
-
-#: includes/Admin/Settings.php:1627
-msgid "Test connection"
-msgstr ""
-
-#: includes/Admin/Settings.php:1647
-msgid "Shop"
-msgstr ""
-
-#: includes/Admin/Settings.php:1659
-msgid "Fetch shops"
-msgstr ""
-
-#: includes/Admin/Settings.php:1668
-msgid "Identifies this store in Kontor. The order, delivery and invoice jobs all need one, and so does the category import, because Kontor holds a separate category tree per shop. The stock sync does not use it at all."
-msgstr ""
-
-#: includes/Admin/Settings.php:1675
+#: includes/Admin/Settings.php:1798
+#: includes/Admin/Settings.php:2280
 msgid "Products"
 msgstr ""
 
-#: includes/Admin/Settings.php:1678
-msgid "Manufacturers"
-msgstr ""
-
-#: includes/Admin/Settings.php:1705
-msgid "Manufacturers to import"
-msgstr ""
-
-#: includes/Admin/Settings.php:1706
-msgid "Every manufacturer is imported."
-msgstr ""
-
-#: includes/Admin/Settings.php:1716
-msgid "Fetch manufacturers"
-msgstr ""
-
-#: includes/Admin/Settings.php:1719
-msgid "Import everything"
-msgstr ""
-
-#: includes/Admin/Settings.php:1740
-msgid "Tick the manufacturers to import. Fetch the list to add more; leave every box clear to import the whole catalogue."
-msgstr ""
-
-#: includes/Admin/Settings.php:1743
-msgid "Narrowing this drafts products."
-msgstr ""
-
-#: includes/Admin/Settings.php:1744
-msgid "Articles the filter excludes are no longer in the feed, so the next product sync drafts the ones it previously imported. Widening the filter again republishes them."
-msgstr ""
-
-#: includes/Admin/Settings.php:1751
-msgid "Image base URL"
-msgstr ""
-
-#: includes/Admin/Settings.php:1761
-msgid "Kontor returns image filenames rather than URLs. Set the folder they live in to import product images; leave blank to skip images."
-msgstr ""
-
-#: includes/Admin/Settings.php:1765
-msgid "Articles without images"
-msgstr ""
-
-#: includes/Admin/Settings.php:1784
-msgid "Only import articles that Kontor lists an image for"
-msgstr ""
-
-#: includes/Admin/Settings.php:1787
-msgid "An article with no image is passed over rather than created. The check is on what Kontor sends, not on the shop, so a product whose pictures are still downloading is never caught by it."
-msgstr ""
-
-#: includes/Admin/Settings.php:1790
-msgid "This drafts products already imported."
-msgstr ""
-
-#: includes/Admin/Settings.php:1791
-msgid "A product this plugin imported whose article now arrives without an image is drafted, exactly as one Kontor stopped listing is. It is republished by itself as soon as the article has an image again, or when this setting is turned off."
-msgstr ""
-
-#: includes/Admin/Settings.php:1796
-msgid "Sales quantities"
-msgstr ""
-
-#: includes/Admin/Settings.php:1814
-msgid "Hold customers to the quantities Kontor sells each article in"
-msgstr ""
-
-#: includes/Admin/Settings.php:1817
-msgid "Kontor states a smallest quantity and a step for every article, imported as _wksync_min_qty and _wksync_qty_step. An article sold in sixes with a step of two can then only be bought as 6, 8, 10 and so on — in the quantity box, in the cart and at checkout alike."
-msgstr ""
-
-#: includes/Admin/Settings.php:1820
-msgid "Leave it clear to ignore them. The figures are still imported, so turning this on takes effect immediately rather than after the next product sync. Order screens and refunds are never restricted by it."
-msgstr ""
-
-#: includes/Admin/Settings.php:1823
-msgid "Both figures are shown on each product's Inventory tab, where they are read-only: Kontor supplies them and every sync rewrites them, so they are changed in the ERP."
-msgstr ""
-
-#: includes/Admin/Settings.php:1828
-msgid "Articles without stock records"
-msgstr ""
-
-#: includes/Admin/Settings.php:1846
-msgid "Draft imported products the stock feed does not carry"
-msgstr ""
-
-#: includes/Admin/Settings.php:1849
-msgid "Kontor's stock list is narrower than its catalogue: it holds no record at all for some articles the catalogue lists. Left clear, those products keep the level they last had and stay published, and whether Kontor still sells an article is left to the product sync to answer."
-msgstr ""
-
-#: includes/Admin/Settings.php:1852
-msgid "Ticking this hides a large part of the catalogue."
-msgstr ""
-
-#: includes/Admin/Settings.php:1853
-msgid "On the account this was built against the catalogue lists 4386 articles and the stock feed carries 2945, so the first run after ticking it drafts some 1400 products. Each one comes back by itself as soon as a stock level for it arrives again."
-msgstr ""
-
-#: includes/Admin/Settings.php:1856
-msgid "Clearing it again republishes what it drafted, on the next stock sync — unless the product sync is holding the product back for its own reason."
-msgstr ""
-
-#: includes/Admin/Settings.php:1861
-msgid "Products Kontor does not list"
-msgstr ""
-
-#: includes/Admin/Settings.php:1881
-msgid "Move products this plugin did not import to the trash"
-msgstr ""
-
-#: includes/Admin/Settings.php:1884
-msgid "Leave it clear and a product this plugin never imported is left alone for ever, whoever made it and whatever its article number. Tick it only where the shop sells Kontor's catalogue and nothing besides."
-msgstr ""
-
-#: includes/Admin/Settings.php:1887
-msgid "This removes products from the shop."
-msgstr ""
-
-#: includes/Admin/Settings.php:1888
-msgid "At the end of each product sync, every product with no article number of Kontor's — and every product whose article number the catalogue did not carry in that run — is moved to the trash, whether it is published, private or a draft. Products made by another plugin, by an importer or by hand all count."
-msgstr ""
-
-#: includes/Admin/Settings.php:1891
-msgid "They go to the trash rather than being deleted, so Products → Trash is the way back and nothing is lost until the trash is emptied. Their images are kept in the media library either way, because a restored product needs them."
-msgstr ""
-
-#: includes/Admin/Settings.php:1894
-msgid "Clearing this setting again stops the sweeping, but it does not empty the trash and it does not restore anything already trashed. Restoring is done in Products → Trash."
-msgstr ""
-
-#: includes/Admin/Settings.php:1897
-msgid "A product whose article Kontor lists but is holding back — switched off for the webshop, or without an image — is never trashed by this. It was in the catalogue, which is the whole question being asked."
-msgstr ""
-
-#: includes/Admin/Settings.php:1903
-#: includes/Sync/Scheduler.php:201
-msgid "Product sync"
-msgstr ""
-
-#: includes/Admin/Settings.php:1918
-#: includes/Sync/Scheduler.php:209
-msgid "Stock sync"
-msgstr ""
-
-#: includes/Admin/Settings.php:1933
+#: includes/Admin/Settings.php:1799
+#: includes/Admin/Settings.php:2553
 msgid "Categories"
 msgstr ""
 
-#: includes/Admin/Settings.php:1936
-msgid "Categories from Kontor"
-msgstr ""
-
-#: includes/Admin/Settings.php:1947
-msgid "Let Kontor decide which categories a product is in"
-msgstr ""
-
-#: includes/Admin/Settings.php:1951
-msgid "Categories will not be imported until a shop is chosen above. Kontor holds a separate category tree per shop, and asks for one before it will list any."
-msgstr ""
-
-#: includes/Admin/Settings.php:1955
-msgid "The category tree Kontor holds for the chosen shop becomes WooCommerce product categories, matched on Kontor's own category ID so that renaming or moving one in the ERP is followed here rather than duplicated. Each product is then filed as its article says."
-msgstr ""
-
-#: includes/Admin/Settings.php:1958
-msgid "Categories you added in WooCommerce are left on their products untouched, and so is any category Kontor has stopped listing. Nothing here ever deletes a category."
-msgstr ""
-
-#: includes/Admin/Settings.php:1961
-msgid "Turning this on or off rewrites the whole catalogue on the next run."
-msgstr ""
-
-#: includes/Admin/Settings.php:1962
-msgid "The category field joins the change check with it, so every article counts as changed once. That is the same cost as changing the shop type."
-msgstr ""
-
-#: includes/Admin/Settings.php:1971
-msgid "Articles with no category"
-msgstr ""
-
-#: includes/Admin/Settings.php:1982
-msgid "Hold them back as drafts"
-msgstr ""
-
-#: includes/Admin/Settings.php:1985
-msgid "An article Kontor files under no category is imported as a draft rather than put on sale, the same answer this plugin gives an article with no image. It keeps its price, its stock and its pictures, and a category added in Kontor publishes it on the next run."
-msgstr ""
-
-#: includes/Admin/Settings.php:1988
-msgid "This is usually a large number."
-msgstr ""
-
-#: includes/Admin/Settings.php:1989
-msgid "On the account this was measured against, close to half the catalogue belonged to no category at all. Check the run summary before assuming something went wrong."
-msgstr ""
-
-#: includes/Admin/Settings.php:1996
-msgid "Product page"
-msgstr ""
-
-#: includes/Admin/Settings.php:1998
-msgid "Both rows are added to the product meta block, beside the article number and the categories, and each is shown only on a product that has the figure."
-msgstr ""
-
-#: includes/Admin/Settings.php:2002
-msgid "Recommended retail price"
-msgstr ""
-
-#: includes/Admin/Settings.php:2020
-msgid "Show the recommended retail price on the product page"
-msgstr ""
-
-#: includes/Admin/Settings.php:2023
-#: includes/Admin/Settings.php:2056
-msgid "Label"
-msgstr ""
-
-#: includes/Admin/Settings.php:2034
-msgid "Kontor supplies this figure on a wholesale shop only, where it sells at Ek and the UVP beside it is the price a business buying here can resell at. It is imported as _wksync_msrp and, until now, nothing rendered it."
-msgstr ""
-
-#: includes/Admin/Settings.php:2037
-msgid "The label is shown in front of the amount. Leave it empty for the default wording in the shop's language, and remember that it is what the customer reads: the figure is stated raw, not as a saving, and Kontor lists a retail price no higher than the shop's own for a small number of articles."
-msgstr ""
-
-#: includes/Admin/Settings.php:2042
-msgid "EAN"
-msgstr ""
-
-#: includes/Admin/Settings.php:2053
-msgid "Show the EAN on the product page"
-msgstr ""
-
-#: includes/Admin/Settings.php:2067
-msgid "The EAN Kontor sends as Artean, held in WooCommerce's own GTIN field. EANs repeat across articles in the feed and WooCommerce refuses a duplicate, so a product whose EAN another already holds has none and shows no row."
-msgstr ""
-
-#: includes/Admin/Settings.php:2073
+#: includes/Admin/Settings.php:1800
+#: includes/Admin/Settings.php:2721
 msgid "Orders"
 msgstr ""
 
-#: includes/Admin/Settings.php:2076
-msgid "Orders with Kontor"
+#: includes/Admin/Settings.php:1801
+msgid "Tools"
 msgstr ""
 
-#: includes/Admin/Settings.php:2094
-msgid "Send orders to Kontor, and bring deliveries and invoices back"
+#: includes/Admin/Settings.php:1824
+msgid "You do not have permission to manage these settings."
 msgstr ""
 
-#: includes/Admin/Settings.php:2097
-msgid "Leave this off for a shop that only imports the catalogue. Nothing is sent at checkout and the three jobs below never run. Turning it back on restores the schedules exactly as they were."
+#: includes/Admin/Settings.php:1839
+msgid "Scheduled jobs"
 msgstr ""
 
-#: includes/Admin/Settings.php:2115
-msgid "Upload user ID"
+#: includes/Admin/Settings.php:1911
+msgid "Enter the Kontor API base URL and key"
 msgstr ""
 
-#: includes/Admin/Settings.php:2133
-msgid "Sent with every order upload as meta.userId. Fixed by agreement with Kontor and not editable here."
+#: includes/Admin/Settings.php:1924
+msgid "Choose which Kontor shop this store is"
 msgstr ""
 
-#: includes/Admin/Settings.php:2138
-msgid "Send orders"
+#: includes/Admin/Settings.php:1931
+msgid "Import the catalogue once, and check what it would do first"
 msgstr ""
 
-#: includes/Admin/Settings.php:2149
-msgid "Sending as they are paid reaches Kontor within a minute of checkout. Either way the sweep below catches whatever that moment missed, so this is a choice about the ordinary path rather than about reliability."
+#: includes/Admin/Settings.php:1937
+msgid "Choose how often each job runs — they are all set to Never until you do"
 msgstr ""
 
-#: includes/Admin/Settings.php:2153
-msgid "Nothing will send orders on its own."
+#: includes/Admin/Settings.php:1995
+msgid "Getting Kontor Sync running"
 msgstr ""
 
-#: includes/Admin/Settings.php:2154
-msgid "With the sweep below set to Never as well, an order reaches Kontor only when Run now is pressed."
+#: includes/Admin/Settings.php:2009
+msgid "Hide this"
 msgstr ""
 
-#: includes/Admin/Settings.php:2161
-#: includes/Sync/Scheduler.php:217
-msgid "Order sync"
+#: includes/Admin/Settings.php:2114
+msgid "Kontor Sync sections"
+msgstr ""
+
+#: includes/Admin/Settings.php:2162
+#: includes/Admin/StatusReport.php:83
+msgid "API base URL"
 msgstr ""
 
 #: includes/Admin/Settings.php:2172
-msgid "A sweep for whatever the moment above missed — an order Kontor rejected, or one placed while the site could not reach it."
+msgid "The search endpoint is appended to this, so omit the trailing \"/search\"."
 msgstr ""
 
 #: includes/Admin/Settings.php:2177
-#: includes/Sync/Scheduler.php:226
-msgid "Delivery sync"
+#: includes/Admin/StatusReport.php:91
+msgid "API key"
 msgstr ""
 
-#: includes/Admin/Settings.php:2188
-msgid "Pulls tracking details back from Kontor. An order Kontor reports as completed is completed here too, which emails the customer."
+#: includes/Admin/Settings.php:2192
+msgid "No key stored yet. Sent as the x-api-key header."
 msgstr ""
 
 #: includes/Admin/Settings.php:2193
-#: includes/Sync/Scheduler.php:235
+msgid "A key is stored. Leave this field blank to keep it."
+msgstr ""
+
+#: includes/Admin/Settings.php:2201
+#: includes/Admin/StatusReport.php:94
+msgid "Shop type"
+msgstr ""
+
+#: includes/Admin/Settings.php:2211
+msgid "Selects which price list is imported. The article list is the same for every shop type; only the selling price differs."
+msgstr ""
+
+#: includes/Admin/Settings.php:2212
+msgid "B2B also imports the retail price as a recommended retail price, stored on each product as _wksync_msrp. It is the figure a business can resell at, and it is left off any article Kontor lists no retail price for."
+msgstr ""
+
+#: includes/Admin/Settings.php:2216
+msgid "Connection test"
+msgstr ""
+
+#: includes/Admin/Settings.php:2219
+msgid "Test connection"
+msgstr ""
+
+#: includes/Admin/Settings.php:2239
+msgid "Shop"
+msgstr ""
+
+#: includes/Admin/Settings.php:2251
+msgid "Fetch shops"
+msgstr ""
+
+#: includes/Admin/Settings.php:2260
+msgid "Identifies this store in Kontor. The order, delivery and invoice jobs all need one, and so does the category import, because Kontor holds a separate category tree per shop. The stock sync does not use it at all."
+msgstr ""
+
+#: includes/Admin/Settings.php:2283
+msgid "Manufacturers"
+msgstr ""
+
+#: includes/Admin/Settings.php:2310
+msgid "Manufacturers to import"
+msgstr ""
+
+#: includes/Admin/Settings.php:2311
+msgid "Every manufacturer is imported."
+msgstr ""
+
+#: includes/Admin/Settings.php:2321
+msgid "Fetch manufacturers"
+msgstr ""
+
+#: includes/Admin/Settings.php:2324
+msgid "Import everything"
+msgstr ""
+
+#: includes/Admin/Settings.php:2345
+msgid "Tick the manufacturers to import. Fetch the list to add more; leave every box clear to import the whole catalogue."
+msgstr ""
+
+#: includes/Admin/Settings.php:2348
+msgid "Narrowing this drafts products."
+msgstr ""
+
+#: includes/Admin/Settings.php:2349
+msgid "Articles the filter excludes are no longer in the feed, so the next product sync drafts the ones it previously imported. Widening the filter again republishes them."
+msgstr ""
+
+#: includes/Admin/Settings.php:2356
+msgid "Image base URL"
+msgstr ""
+
+#: includes/Admin/Settings.php:2366
+msgid "Kontor returns image filenames rather than URLs. Set the folder they live in to import product images; leave blank to skip images."
+msgstr ""
+
+#: includes/Admin/Settings.php:2370
+msgid "Articles without images"
+msgstr ""
+
+#: includes/Admin/Settings.php:2389
+msgid "Only import articles that Kontor lists an image for"
+msgstr ""
+
+#: includes/Admin/Settings.php:2392
+msgid "An article with no image is passed over rather than created. The check is on what Kontor sends, not on the shop, so a product whose pictures are still downloading is never caught by it."
+msgstr ""
+
+#: includes/Admin/Settings.php:2395
+msgid "This drafts products already imported."
+msgstr ""
+
+#: includes/Admin/Settings.php:2396
+msgid "A product this plugin imported whose article now arrives without an image is drafted, exactly as one Kontor stopped listing is. It is republished by itself as soon as the article has an image again, or when this setting is turned off."
+msgstr ""
+
+#: includes/Admin/Settings.php:2401
+msgid "Sales quantities"
+msgstr ""
+
+#: includes/Admin/Settings.php:2419
+msgid "Hold customers to the quantities Kontor sells each article in"
+msgstr ""
+
+#: includes/Admin/Settings.php:2422
+msgid "Kontor states a smallest quantity and a step for every article, imported as _wksync_min_qty and _wksync_qty_step. An article sold in sixes with a step of two can then only be bought as 6, 8, 10 and so on — in the quantity box, in the cart and at checkout alike."
+msgstr ""
+
+#: includes/Admin/Settings.php:2425
+msgid "Leave it clear to ignore them. The figures are still imported, so turning this on takes effect immediately rather than after the next product sync. Order screens and refunds are never restricted by it."
+msgstr ""
+
+#: includes/Admin/Settings.php:2428
+msgid "Both figures are shown on each product's Inventory tab, where they are read-only: Kontor supplies them and every sync rewrites them, so they are changed in the ERP."
+msgstr ""
+
+#: includes/Admin/Settings.php:2433
+msgid "Articles without stock records"
+msgstr ""
+
+#: includes/Admin/Settings.php:2451
+msgid "Draft imported products the stock feed does not carry"
+msgstr ""
+
+#: includes/Admin/Settings.php:2454
+msgid "Kontor's stock list is narrower than its catalogue: it holds no record at all for some articles the catalogue lists. Left clear, those products keep the level they last had and stay published, and whether Kontor still sells an article is left to the product sync to answer."
+msgstr ""
+
+#: includes/Admin/Settings.php:2457
+msgid "Ticking this hides a large part of the catalogue."
+msgstr ""
+
+#: includes/Admin/Settings.php:2458
+msgid "On the account this was built against the catalogue lists 4386 articles and the stock feed carries 2945, so the first run after ticking it drafts some 1400 products. Each one comes back by itself as soon as a stock level for it arrives again."
+msgstr ""
+
+#: includes/Admin/Settings.php:2461
+msgid "Clearing it again republishes what it drafted, on the next stock sync — unless the product sync is holding the product back for its own reason."
+msgstr ""
+
+#: includes/Admin/Settings.php:2466
+msgid "Products Kontor does not list"
+msgstr ""
+
+#: includes/Admin/Settings.php:2486
+msgid "Move products this plugin did not import to the trash"
+msgstr ""
+
+#: includes/Admin/Settings.php:2489
+msgid "Leave it clear and a product this plugin never imported is left alone for ever, whoever made it and whatever its article number. Tick it only where the shop sells Kontor's catalogue and nothing besides."
+msgstr ""
+
+#: includes/Admin/Settings.php:2492
+msgid "This removes products from the shop."
+msgstr ""
+
+#: includes/Admin/Settings.php:2493
+msgid "At the end of each product sync, every product with no article number of Kontor's — and every product whose article number the catalogue did not carry in that run — is moved to the trash, whether it is published, private or a draft. Products made by another plugin, by an importer or by hand all count."
+msgstr ""
+
+#: includes/Admin/Settings.php:2496
+msgid "They go to the trash rather than being deleted, so Products → Trash is the way back and nothing is lost until the trash is emptied. Their images are kept in the media library either way, because a restored product needs them."
+msgstr ""
+
+#: includes/Admin/Settings.php:2499
+msgid "Clearing this setting again stops the sweeping, but it does not empty the trash and it does not restore anything already trashed. Restoring is done in Products → Trash."
+msgstr ""
+
+#: includes/Admin/Settings.php:2502
+msgid "A product whose article Kontor lists but is holding back — switched off for the webshop, or without an image — is never trashed by this. It was in the catalogue, which is the whole question being asked."
+msgstr ""
+
+#: includes/Admin/Settings.php:2508
+#: includes/Sync/Scheduler.php:221
+msgid "Product sync"
+msgstr ""
+
+#: includes/Admin/Settings.php:2523
+#: includes/Sync/Scheduler.php:229
+msgid "Stock sync"
+msgstr ""
+
+#: includes/Admin/Settings.php:2556
+msgid "Categories from Kontor"
+msgstr ""
+
+#: includes/Admin/Settings.php:2567
+msgid "Let Kontor decide which categories a product is in"
+msgstr ""
+
+#: includes/Admin/Settings.php:2571
+msgid "Categories will not be imported until a shop is chosen above. Kontor holds a separate category tree per shop, and asks for one before it will list any."
+msgstr ""
+
+#: includes/Admin/Settings.php:2575
+msgid "The category tree Kontor holds for the chosen shop becomes WooCommerce product categories, matched on Kontor's own category ID so that renaming or moving one in the ERP is followed here rather than duplicated. Each product is then filed as its article says."
+msgstr ""
+
+#: includes/Admin/Settings.php:2578
+msgid "Categories you added in WooCommerce are left on their products untouched, and so is any category Kontor has stopped listing. Nothing here ever deletes a category."
+msgstr ""
+
+#: includes/Admin/Settings.php:2581
+msgid "Turning this on or off rewrites the whole catalogue on the next run."
+msgstr ""
+
+#: includes/Admin/Settings.php:2582
+msgid "The category field joins the change check with it, so every article counts as changed once. That is the same cost as changing the shop type."
+msgstr ""
+
+#: includes/Admin/Settings.php:2591
+msgid "Articles with no category"
+msgstr ""
+
+#: includes/Admin/Settings.php:2602
+msgid "Hold them back as drafts"
+msgstr ""
+
+#: includes/Admin/Settings.php:2605
+msgid "An article Kontor files under no category is imported as a draft rather than put on sale, the same answer this plugin gives an article with no image. It keeps its price, its stock and its pictures, and a category added in Kontor publishes it on the next run."
+msgstr ""
+
+#: includes/Admin/Settings.php:2608
+msgid "This is usually a large number."
+msgstr ""
+
+#: includes/Admin/Settings.php:2609
+msgid "On the account this was measured against, close to half the catalogue belonged to no category at all. Check the run summary before assuming something went wrong."
+msgstr ""
+
+#: includes/Admin/Settings.php:2629
+msgid "Product page"
+msgstr ""
+
+#: includes/Admin/Settings.php:2631
+msgid "Both rows are added to the product meta block, beside the article number and the categories, and each is shown only on a product that has the figure."
+msgstr ""
+
+#: includes/Admin/Settings.php:2635
+msgid "Recommended retail price"
+msgstr ""
+
+#: includes/Admin/Settings.php:2653
+msgid "Show the recommended retail price on the product page"
+msgstr ""
+
+#: includes/Admin/Settings.php:2656
+#: includes/Admin/Settings.php:2689
+msgid "Label"
+msgstr ""
+
+#: includes/Admin/Settings.php:2667
+msgid "Kontor supplies this figure on a wholesale shop only, where it sells at Ek and the UVP beside it is the price a business buying here can resell at. It is imported as _wksync_msrp and, until now, nothing rendered it."
+msgstr ""
+
+#: includes/Admin/Settings.php:2670
+msgid "The label is shown in front of the amount. Leave it empty for the default wording in the shop's language, and remember that it is what the customer reads: the figure is stated raw, not as a saving, and Kontor lists a retail price no higher than the shop's own for a small number of articles."
+msgstr ""
+
+#: includes/Admin/Settings.php:2675
+msgid "EAN"
+msgstr ""
+
+#: includes/Admin/Settings.php:2686
+msgid "Show the EAN on the product page"
+msgstr ""
+
+#: includes/Admin/Settings.php:2700
+msgid "The EAN Kontor sends as Artean, held in WooCommerce's own GTIN field. EANs repeat across articles in the feed and WooCommerce refuses a duplicate, so a product whose EAN another already holds has none and shows no row."
+msgstr ""
+
+#: includes/Admin/Settings.php:2724
+msgid "Orders with Kontor"
+msgstr ""
+
+#: includes/Admin/Settings.php:2742
+msgid "Send orders to Kontor, and bring deliveries and invoices back"
+msgstr ""
+
+#: includes/Admin/Settings.php:2745
+msgid "Leave this off for a shop that only imports the catalogue. Nothing is sent at checkout and the three jobs below never run. Turning it back on restores the schedules exactly as they were."
+msgstr ""
+
+#: includes/Admin/Settings.php:2763
+msgid "Upload user ID"
+msgstr ""
+
+#: includes/Admin/Settings.php:2781
+msgid "Sent with every order upload as meta.userId. Fixed by agreement with Kontor and not editable here."
+msgstr ""
+
+#: includes/Admin/Settings.php:2786
+msgid "Send orders"
+msgstr ""
+
+#: includes/Admin/Settings.php:2797
+msgid "Sending as they are paid reaches Kontor within a minute of checkout. Either way the sweep below catches whatever that moment missed, so this is a choice about the ordinary path rather than about reliability."
+msgstr ""
+
+#: includes/Admin/Settings.php:2801
+msgid "Nothing will send orders on its own."
+msgstr ""
+
+#: includes/Admin/Settings.php:2802
+msgid "With the sweep below set to Never as well, an order reaches Kontor only when Run now is pressed."
+msgstr ""
+
+#: includes/Admin/Settings.php:2809
+#: includes/Admin/StatusReport.php:105
+#: includes/Sync/Scheduler.php:237
+msgid "Order sync"
+msgstr ""
+
+#: includes/Admin/Settings.php:2820
+msgid "A sweep for whatever the moment above missed — an order Kontor rejected, or one placed while the site could not reach it."
+msgstr ""
+
+#: includes/Admin/Settings.php:2825
+#: includes/Sync/Scheduler.php:246
+msgid "Delivery sync"
+msgstr ""
+
+#: includes/Admin/Settings.php:2836
+msgid "Pulls tracking details back from Kontor. An order Kontor reports as completed is completed here too, which emails the customer."
+msgstr ""
+
+#: includes/Admin/Settings.php:2841
+#: includes/Sync/Scheduler.php:255
 msgid "Invoice sync"
 msgstr ""
 
-#: includes/Admin/Settings.php:2204
+#: includes/Admin/Settings.php:2852
 msgid "Downloads invoice PDFs from Kontor. Each invoice is stored privately, shown to the customer on their order, and attached to the order emails sent after it arrives."
 msgstr ""
 
 #. translators: %s: link to the WooCommerce email settings screen.
-#: includes/Admin/Settings.php:2221
+#: includes/Admin/Settings.php:2869
 #, php-format
 msgid "The delivery and invoice syncs can also email the customer when tracking details or an invoice arrive. Both are switched off until you turn them on under %s."
 msgstr ""
 
-#: includes/Admin/Settings.php:2225
+#: includes/Admin/Settings.php:2873
 msgid "WooCommerce → Settings → Emails"
 msgstr ""
 
-#: includes/Admin/Settings.php:2235
-msgid "Scheduled jobs"
-msgstr ""
-
-#: includes/Admin/Settings.php:2269
+#: includes/Admin/Settings.php:2905
 msgid "Send categories to Kontor"
 msgstr ""
 
-#: includes/Admin/Settings.php:2273
+#: includes/Admin/Settings.php:2909
 msgid "This replaces the entire category tree Kontor holds for this shop with the product categories in WooCommerce. It is not an import in reverse and it is not additive."
 msgstr ""
 
-#: includes/Admin/Settings.php:2276
+#: includes/Admin/Settings.php:2912
 msgid "A category that is not in what gets sent is deleted in Kontor, and the product assignments on it go with it."
 msgstr ""
 
-#: includes/Admin/Settings.php:2277
+#: includes/Admin/Settings.php:2913
 msgid "A category that came from Kontor is sent back under Kontor's own ID, which is what keeps its assignments attached. One created here is sent under a new ID and starts empty."
 msgstr ""
 
-#: includes/Admin/Settings.php:2280
+#: includes/Admin/Settings.php:2916
 msgid "Kontor's exact behaviour here has not been established against a live account."
 msgstr ""
 
-#: includes/Admin/Settings.php:2281
+#: includes/Admin/Settings.php:2917
 msgid "Read the preview first. It shows exactly what would be sent and sends nothing. This runs in this request rather than in the background, so leave the page open until it answers."
 msgstr ""
 
-#: includes/Admin/Settings.php:2293
+#: includes/Admin/Settings.php:2929
 msgid "Preview"
 msgstr ""
 
-#: includes/Admin/Settings.php:2296
+#: includes/Admin/Settings.php:2932
 msgid "Preview payload"
 msgstr ""
 
-#: includes/Admin/Settings.php:2299
+#: includes/Admin/Settings.php:2935
 msgid "Builds the request and shows it. Nothing reaches Kontor."
 msgstr ""
 
-#: includes/Admin/Settings.php:2305
+#: includes/Admin/Settings.php:2941
 msgid "Replace the tree in Kontor"
 msgstr ""
 
-#: includes/Admin/Settings.php:2310
+#: includes/Admin/Settings.php:2946
 msgid "Send categories"
 msgstr ""
 
 #. translators: %s: the word that must be typed to confirm.
-#: includes/Admin/Settings.php:2316
+#: includes/Admin/Settings.php:2952
 #, php-format
 msgid "Type %s to confirm. Checked here rather than in the browser, because this request can be made without ever loading the page."
 msgstr ""
 
 #. translators: %d: number of categories that would be sent.
-#: includes/Admin/Settings.php:2372
+#: includes/Admin/Settings.php:3008
 #, php-format
 msgid "%d categories would be sent. Nothing has been sent."
 msgstr ""
 
 #. translators: %d: number of categories sent.
-#: includes/Admin/Settings.php:2374
+#: includes/Admin/Settings.php:3010
 #, php-format
 msgid "%d categories sent to Kontor."
 msgstr ""
 
-#: includes/Admin/Settings.php:2384
+#: includes/Admin/Settings.php:3020
 msgid "Category ID"
 msgstr ""
 
-#: includes/Admin/Settings.php:2385
+#: includes/Admin/Settings.php:3021
 msgid "Parent ID"
 msgstr ""
 
-#: includes/Admin/Settings.php:2386
-msgid "Name"
-msgstr ""
-
-#: includes/Admin/Settings.php:2401
+#: includes/Admin/Settings.php:3037
 msgid "What Kontor replied"
 msgstr ""
 
-#: includes/Admin/Settings.php:2425
+#: includes/Admin/Settings.php:3061
 msgid "Force push to Kontor"
 msgstr ""
 
-#: includes/Admin/Settings.php:2429
+#: includes/Admin/Settings.php:3065
 msgid "An ordinary push cannot change an order Kontor already holds. Kontor deduplicates on the order number and the sync leaves overwrite off, so a re-send is answered with \"Dublette\" and an order edited after it was sent never reaches the ERP. This sends it again with overwrite enabled."
 msgstr ""
 
-#: includes/Admin/Settings.php:2432
+#: includes/Admin/Settings.php:3068
 msgid "Kontor's exact behaviour under overwrite has not been established against a live account."
 msgstr ""
 
-#: includes/Admin/Settings.php:2433
+#: includes/Admin/Settings.php:3069
 msgid "Try one order first and read the reply below before using this on the whole shop. It runs in this request rather than in the background, so leave the page open until it answers."
 msgstr ""
 
-#: includes/Admin/Settings.php:2447
+#: includes/Admin/Settings.php:3083
 msgid "Order number"
 msgstr ""
 
-#: includes/Admin/Settings.php:2451
+#: includes/Admin/Settings.php:3087
 msgid "Force push this order"
 msgstr ""
 
-#: includes/Admin/Settings.php:2453
+#: includes/Admin/Settings.php:3089
 msgid "The order ID, which is what this plugin sends as the order number. It is shown in the order screen's URL, and is not always the number the shop displays."
 msgstr ""
 
-#: includes/Admin/Settings.php:2468
+#: includes/Admin/Settings.php:3104
 msgid "Force push every sent order"
 msgstr ""
 
-#: includes/Admin/Settings.php:2472
+#: includes/Admin/Settings.php:3108
 msgid "Force push all"
 msgstr ""
 
 #. translators: 1: the word that must be typed to confirm, 2: largest number of orders one press sends.
-#: includes/Admin/Settings.php:2477
+#: includes/Admin/Settings.php:3113
 #, php-format
 msgid "Type %1$s to confirm. This overwrites what Kontor holds for every order this plugin has already sent, oldest first, up to %2$d of them in one press. Orders never sent are left alone — the ordinary sweep is already sending those."
 msgstr ""
 
 #. translators: 1: orders overwritten, 2: orders Kontor still called duplicates, 3: orders rejected, 4: orders skipped.
-#: includes/Admin/Settings.php:2533
+#: includes/Admin/Settings.php:3169
 #, php-format
 msgid "%1$d overwritten, %2$d still reported as duplicates, %3$d rejected, %4$d skipped."
 msgstr ""
 
-#: includes/Admin/Settings.php:2543
+#: includes/Admin/Settings.php:3179
 msgid "An order still reported as a duplicate means Kontor declined to overwrite it. The edit has not reached the ERP and has to be made there."
 msgstr ""
 
-#: includes/Admin/Settings.php:2552
+#: includes/Admin/Settings.php:3188
 msgid "Order"
 msgstr ""
 
-#: includes/Admin/Settings.php:2553
+#: includes/Admin/Settings.php:3189
 msgid "Result"
 msgstr ""
 
-#: includes/Admin/Settings.php:2554
+#: includes/Admin/Settings.php:3190
 msgid "What Kontor said"
 msgstr ""
 
-#: includes/Admin/Settings.php:2574
+#: includes/Admin/Settings.php:3210
 msgid "What Kontor returned"
 msgstr ""
 
 #. translators: %d: request number within this force push.
-#: includes/Admin/Settings.php:2581
+#: includes/Admin/Settings.php:3217
 #, php-format
 msgid "Request %d"
 msgstr ""
 
-#: includes/Admin/Settings.php:2596
+#: includes/Admin/Settings.php:3232
 msgid "The same replies are in WooCommerce → Status → Logs, under woo-kontor-sync."
 msgstr ""
 
-#: includes/Admin/Settings.php:2611
+#: includes/Admin/Settings.php:3247
 msgid "Overwritten"
 msgstr ""
 
-#: includes/Admin/Settings.php:2613
+#: includes/Admin/Settings.php:3249
 msgid "Refused as a duplicate"
 msgstr ""
 
-#: includes/Admin/Settings.php:2615
+#: includes/Admin/Settings.php:3251
 msgid "Rejected"
 msgstr ""
 
-#: includes/Admin/Settings.php:2627
+#: includes/Admin/Settings.php:3263
 msgid "Kontor returned no body that could be decoded."
 msgstr ""
 
-#: includes/Admin/Settings.php:2632
+#: includes/Admin/Settings.php:3268
 msgid "The reply could not be rendered."
 msgstr ""
 
-#: includes/Admin/Settings.php:2655
+#: includes/Admin/Settings.php:3291
 msgid "Updates"
 msgstr ""
 
-#: includes/Admin/Settings.php:2659
+#: includes/Admin/Settings.php:3295
 msgid "Installed version"
 msgstr ""
 
-#: includes/Admin/Settings.php:2663
+#: includes/Admin/Settings.php:3299
 msgid "Latest release"
 msgstr ""
 
-#: includes/Admin/Settings.php:2669
+#: includes/Admin/Settings.php:3305
 msgid "install it from the plugins screen"
 msgstr ""
 
-#: includes/Admin/Settings.php:2672
-#: includes/Admin/Settings.php:2725
+#: includes/Admin/Settings.php:3308
+#: includes/Admin/Settings.php:3361
 msgid "This is the newest release."
 msgstr ""
 
-#: includes/Admin/Settings.php:2674
+#: includes/Admin/Settings.php:3310
 msgid "Not known. Nothing has checked yet, or the last check could not reach GitHub."
 msgstr ""
 
-#: includes/Admin/Settings.php:2684
+#: includes/Admin/Settings.php:3320
 msgid "Check for updates"
 msgstr ""
 
-#: includes/Admin/Settings.php:2687
+#: includes/Admin/Settings.php:3323
 msgid "WordPress looks for plugin updates about twice a day and reuses that answer in between, so a release published since the last look does not appear on its own. This discards what was cached and asks again."
 msgstr ""
 
 #. translators: %s: version number of the release that was found.
-#: includes/Admin/Settings.php:2713
+#: includes/Admin/Settings.php:3349
 #, php-format
 msgid "Version %s is available. Install it from the plugins screen."
 msgstr ""
 
-#: includes/Admin/Settings.php:2739
+#: includes/Admin/Settings.php:3375
 msgid "The release could not be checked. GitHub or WordPress.org could not be reached; try again in a moment."
 msgstr ""
 
-#: includes/Admin/Settings.php:2803
+#: includes/Admin/Settings.php:3439
 msgid "No manufacturers selected, so the whole catalogue is imported."
 msgstr ""
 
 #. translators: %s: number of manufacturers selected.
-#: includes/Admin/Settings.php:2808
+#: includes/Admin/Settings.php:3444
 #, php-format
 msgid "%s manufacturer selected. Everything else is left out of the import."
 msgid_plural "%s manufacturers selected. Everything else is left out of the import."
 msgstr[0] ""
 msgstr[1] ""
 
-#: includes/Admin/Settings.php:2851
+#: includes/Admin/Settings.php:3491
 msgid "Job"
 msgstr ""
 
-#: includes/Admin/Settings.php:2852
+#: includes/Admin/Settings.php:3492
 msgid "Next run"
 msgstr ""
 
-#: includes/Admin/Settings.php:2853
+#: includes/Admin/Settings.php:3493
 msgid "Last result"
 msgstr ""
 
-#: includes/Admin/Settings.php:2854
+#: includes/Admin/Settings.php:3494
 msgid "Actions"
 msgstr ""
 
-#: includes/Admin/Settings.php:2911
+#: includes/Admin/Settings.php:3551
 msgid "Run now"
 msgstr ""
 
 #. translators: %s: number of products.
-#: includes/Admin/Settings.php:2951
+#: includes/Admin/Settings.php:3607
 #, php-format
 msgid "%s product is currently held back as a draft."
 msgid_plural "%s products are currently held back as drafts."
 msgstr[0] ""
 msgstr[1] ""
 
-#: includes/Admin/Settings.php:2961
+#: includes/Admin/Settings.php:3617
 msgid "Show them, with the reason for each."
 msgstr ""
 
-#: includes/Admin/Settings.php:2973
+#. translators: %s: number of orders.
+#: includes/Admin/Settings.php:3654
+#, php-format
+msgid "%s order was refused by Kontor too often and is no longer being sent."
+msgid_plural "%s orders were refused by Kontor too often and are no longer being sent."
+msgstr[0] ""
+msgstr[1] ""
+
+#: includes/Admin/Settings.php:3664
+msgid "Show them. Each order carries the reason, and an action to send it again."
+msgstr ""
+
+#: includes/Admin/Settings.php:3676
 msgid "Never run"
 msgstr ""
 
 #. translators: %s: how long ago the run started.
-#: includes/Admin/Settings.php:2978
+#: includes/Admin/Settings.php:3681
 #, php-format
 msgid "Running, started %s ago"
 msgstr ""
 
 #. translators: 1: timestamp, 2: failure reason.
-#: includes/Admin/Settings.php:2985
+#: includes/Admin/Settings.php:3688
 #, php-format
 msgid "Failed at %1$s — %2$s"
 msgstr ""
 
 #. translators: 1: timestamp, 2: run summary.
-#: includes/Admin/Settings.php:2989
+#: includes/Admin/Settings.php:3692
 #, php-format
 msgid "Succeeded at %1$s — %2$s"
 msgstr ""
 
-#: includes/Admin/Settings.php:3011
+#: includes/Admin/Settings.php:3714
 msgid "Working…"
 msgstr ""
 
 #. translators: 1: records handled so far, 2: records in total.
-#: includes/Admin/Settings.php:3018
+#: includes/Admin/Settings.php:3721
 #, php-format
 msgid "%1$s of %2$s"
 msgstr ""
 
 #. translators: %s: number of products whose images are still queued.
-#: includes/Admin/Settings.php:3045
+#: includes/Admin/Settings.php:3748
 #, php-format
 msgid "Images for %s product still to download."
 msgid_plural "Images for %s products still to download."
 msgstr[0] ""
 msgstr[1] ""
 
-#: includes/Admin/Settings.php:3064
+#: includes/Admin/Settings.php:3767
 msgid "Not scheduled"
 msgstr ""
 
-#: includes/Admin/Settings.php:3092
+#: includes/Admin/Settings.php:3795
 msgid "The job could not be queued. It may already be running, or WooCommerce may be inactive."
 msgstr ""
 
 #. translators: %s: job name.
-#: includes/Admin/Settings.php:3104
+#: includes/Admin/Settings.php:3807
 #, php-format
 msgid "%s queued. It runs on the next queue pass, within a minute or so."
 msgstr ""
 
-#: includes/Api/Client.php:555
+#: includes/Admin/SiteHealth.php:49
+msgid "Kontor Sync configuration"
+msgstr ""
+
+#: includes/Admin/SiteHealth.php:54
+msgid "Kontor Sync jobs"
+msgstr ""
+
+#: includes/Admin/SiteHealth.php:75
+msgid "the API base URL"
+msgstr ""
+
+#: includes/Admin/SiteHealth.php:79
+msgid "the API key"
+msgstr ""
+
+#: includes/Admin/SiteHealth.php:90
+msgid "the Kontor shop"
+msgstr ""
+
+#: includes/Admin/SiteHealth.php:97
+msgid "Kontor Sync is configured"
+msgstr ""
+
+#: includes/Admin/SiteHealth.php:98
+msgid "The API base URL and key are set, and every feature that needs a Kontor shop has one."
+msgstr ""
+
+#: includes/Admin/SiteHealth.php:105
+msgid "Kontor Sync is not fully configured"
+msgstr ""
+
+#. translators: %s: a list of settings, for example "the API key and the Kontor shop".
+#: includes/Admin/SiteHealth.php:108
+#, php-format
+msgid "Nothing will sync until these are filled in: %s."
+msgstr ""
+
+#: includes/Admin/SiteHealth.php:133
+msgid "The Kontor syncs are running"
+msgstr ""
+
+#: includes/Admin/SiteHealth.php:134
+msgid "Every job with an interval is queued, and none of them reported a failure on its last run."
+msgstr ""
+
+#: includes/Admin/SiteHealth.php:147
+msgid "A Kontor sync is not working"
+msgstr ""
+
+#: includes/Admin/SiteHealth.php:150
+msgid "These jobs need attention. Until they run, the shop is working from whatever Kontor last told it."
+msgstr ""
+
+#: includes/Admin/StatusReport.php:82
+msgid "Version"
+msgstr ""
+
+#: includes/Admin/StatusReport.php:84
+#: includes/Admin/StatusReport.php:92
+msgid "Not set"
+msgstr ""
+
+#: includes/Admin/StatusReport.php:93
+msgid "Set"
+msgstr ""
+
+#: includes/Admin/StatusReport.php:95
+msgid "Kontor shop"
+msgstr ""
+
+#: includes/Admin/StatusReport.php:96
+msgid "None selected"
+msgstr ""
+
+#: includes/Admin/StatusReport.php:98
+msgid "Manufacturer filter"
+msgstr ""
+
+#: includes/Admin/StatusReport.php:99
+msgid "Whole catalogue"
+msgstr ""
+
+#. translators: %d: number of manufacturers chosen.
+#: includes/Admin/StatusReport.php:102
+#, php-format
+msgid "%d manufacturer"
+msgid_plural "%d manufacturers"
+msgstr[0] ""
+msgstr[1] ""
+
+#: includes/Admin/StatusReport.php:106
+msgid "Category import"
+msgstr ""
+
+#: includes/Admin/StatusReport.php:112
+msgid "Require a category"
+msgstr ""
+
+#: includes/Admin/StatusReport.php:113
+msgid "Require an image"
+msgstr ""
+
+#: includes/Admin/StatusReport.php:114
+msgid "Trash unmanaged products"
+msgstr ""
+
+#: includes/Admin/StatusReport.php:115
+msgid "Draft articles with no stock record"
+msgstr ""
+
+#: includes/Admin/StatusReport.php:116
+msgid "Enforce order quantities"
+msgstr ""
+
+#: includes/Admin/StatusReport.php:127
+msgid "Last catalogue size"
+msgstr ""
+
+#: includes/Admin/StatusReport.php:129
+msgid "Not measured yet"
+msgstr ""
+
+#: includes/Admin/StatusReport.php:133
+msgid "Images queued"
+msgstr ""
+
+#: includes/Admin/StatusReport.php:134
+msgid "Products held back"
+msgstr ""
+
+#: includes/Admin/StatusReport.php:137
+msgid "Orders no longer being sent"
+msgstr ""
+
+#: includes/Admin/StatusReport.php:164
+msgid "Off — this shop does not exchange orders with Kontor."
+msgstr ""
+
+#: includes/Admin/StatusReport.php:172
+msgid "Never"
+msgstr ""
+
+#. translators: %s: an interval, for example "15 minutes".
+#: includes/Admin/StatusReport.php:175
+#, php-format
+msgid "Every %s"
+msgstr ""
+
+#: includes/Admin/StatusReport.php:180
+msgid "NOT QUEUED"
+msgstr ""
+
+#: includes/Admin/StatusReport.php:200
+msgid "never run"
+msgstr ""
+
+#. translators: %s: how long ago the run started.
+#: includes/Admin/StatusReport.php:213
+#, php-format
+msgid "running, started %s ago"
+msgstr ""
+
+#. translators: %s: how long ago the run started.
+#: includes/Admin/StatusReport.php:220
+#, php-format
+msgid "stranded, started %s ago and never finished"
+msgstr ""
+
+#. translators: 1: state, either succeeded or failed, 2: timestamp, 3: the run summary.
+#: includes/Admin/StatusReport.php:227
+#, php-format
+msgid "%1$s at %2$s: %3$s"
+msgstr ""
+
+#: includes/Admin/StatusReport.php:229
+msgid "failed"
+msgstr ""
+
+#: includes/Admin/StatusReport.php:230
+msgid "succeeded"
+msgstr ""
+
+#: includes/Admin/StatusReport.php:264
+msgid "Yes"
+msgstr ""
+
+#: includes/Admin/StatusReport.php:264
+msgid "No"
+msgstr ""
+
+#: includes/Api/Client.php:572
 msgid "Kontor returned a response that could not be decoded."
 msgstr ""
 
 #. translators: %d: HTTP status code returned by the Kontor API.
-#: includes/Api/Client.php:592
+#: includes/Api/Client.php:609
 #, php-format
 msgid "Kontor returned HTTP status %d."
 msgstr ""
 
-#: includes/Api/Client.php:634
+#: includes/Api/Client.php:651
 msgid "The Kontor API base URL has not been configured."
 msgstr ""
 
-#: includes/Api/Client.php:693
+#: includes/Api/Client.php:710
 msgid "The Kontor API key has not been configured."
 msgstr ""
 
-#: includes/Deactivator.php:35
+#: includes/Deactivator.php:36
 msgid "Interrupted: the plugin was deactivated while this run was in progress."
 msgstr ""
 
@@ -1392,16 +1763,16 @@ msgstr ""
 msgid "Quantity step this product may be bought in. One when there is no step, or when the shop is not enforcing them."
 msgstr ""
 
-#: includes/Sync/Categories.php:124
+#: includes/Sync/Categories.php:143
 #: includes/Sync/CategoryPush.php:102
 msgid "WooCommerce product categories are not available."
 msgstr ""
 
-#: includes/Sync/Categories.php:133
+#: includes/Sync/Categories.php:152
 msgid "No Kontor shop has been selected, so there is no category tree to import."
 msgstr ""
 
-#: includes/Sync/Categories.php:170
+#: includes/Sync/Categories.php:189
 msgid "Kontor returned no categories for this shop."
 msgstr ""
 
@@ -1419,113 +1790,143 @@ msgstr ""
 msgid "No Kontor shop has been selected. Choose one before sending categories."
 msgstr ""
 
-#: includes/Sync/DeliverySync.php:166
+#: includes/Sync/DeliverySync.php:156
 msgid "Kontor reported no orders for this shop."
 msgstr ""
 
-#: includes/Sync/DeliverySync.php:200
-msgid "The cached delivery payload expired before it could be applied."
+#: includes/Sync/DeliverySync.php:169
+msgid "The delivery rows could not be stored for the run to work through."
 msgstr ""
 
-#: includes/Sync/DeliverySync.php:285
+#: includes/Sync/DeliverySync.php:201
+msgid "The stored delivery rows could not be read, so the run was stopped part-way."
+msgstr ""
+
+#: includes/Sync/DeliverySync.php:287
 msgid "Kontor reports this order as completed."
 msgstr ""
 
-#: includes/Sync/DeliverySync.php:297
+#: includes/Sync/DeliverySync.php:299
 msgid "Kontor reports this order as partially completed."
 msgstr ""
 
 #. translators: 1: shipping provider, 2: tracking number.
-#: includes/Sync/DeliverySync.php:402
+#: includes/Sync/DeliverySync.php:404
 #, php-format
 msgid "Kontor tracking: %1$s %2$s"
 msgstr ""
 
-#: includes/Sync/DeliverySync.php:403
+#: includes/Sync/DeliverySync.php:405
 msgid "unknown carrier"
 msgstr ""
 
 #. translators: 1: orders updated, 2: orders completed, 3: orders partially completed, 4: order numbers with no matching order.
-#: includes/Sync/DeliverySync.php:514
+#: includes/Sync/DeliverySync.php:518
 #, php-format
 msgid "%1$d orders updated, %2$d completed, %3$d partially completed, %4$d not found locally."
 msgstr ""
 
-#: includes/Sync/InvoiceSync.php:168
+#: includes/Sync/InvoiceSync.php:158
 msgid "Invoice"
 msgstr ""
 
 #. translators: %s: invoice number.
-#: includes/Sync/InvoiceSync.php:173
+#: includes/Sync/InvoiceSync.php:163
 #, php-format
 msgid "Invoice %s"
 msgstr ""
 
 #. translators: 1: invoice number, 2: date the invoice was issued.
-#: includes/Sync/InvoiceSync.php:185
+#: includes/Sync/InvoiceSync.php:175
 #, php-format
 msgid "Invoice %1$s of %2$s"
 msgstr ""
 
-#: includes/Sync/InvoiceSync.php:225
+#: includes/Sync/InvoiceSync.php:215
 msgid "Kontor reported no invoices for this shop."
 msgstr ""
 
-#: includes/Sync/InvoiceSync.php:259
-msgid "The cached invoice listing expired before it could be applied."
+#: includes/Sync/InvoiceSync.php:228
+msgid "The invoice listing could not be stored for the run to work through."
 msgstr ""
 
-#: includes/Sync/InvoiceSync.php:367
+#: includes/Sync/InvoiceSync.php:260
+msgid "The stored invoice listing could not be read, so the run was stopped part-way."
+msgstr ""
+
+#: includes/Sync/InvoiceSync.php:369
 msgid "Kontor returned a document that could not be decoded."
 msgstr ""
 
 #. translators: %s: invoice number as issued by Kontor.
-#: includes/Sync/InvoiceSync.php:401
+#: includes/Sync/InvoiceSync.php:403
 #, php-format
 msgid "Invoice %s downloaded from Kontor."
 msgstr ""
 
 #. translators: 1: invoices downloaded, 2: invoices that failed, 3: invoice rows with no matching order.
-#: includes/Sync/InvoiceSync.php:540
+#: includes/Sync/InvoiceSync.php:544
 #, php-format
 msgid "%1$d invoices downloaded, %2$d failed, %3$d not found locally."
 msgstr ""
 
-#: includes/Sync/OrderSync.php:420
+#: includes/Sync/OrderSync.php:448
 msgid "Force-pushed to Kontor with overwrite enabled."
 msgstr ""
 
 #. translators: %s: Kontor's internal order number.
-#: includes/Sync/OrderSync.php:423
+#: includes/Sync/OrderSync.php:451
 #, php-format
 msgid "Force-pushed to Kontor with overwrite enabled, as %s."
 msgstr ""
 
-#: includes/Sync/OrderSync.php:480
-#: includes/Sync/OrderSync.php:830
+#: includes/Sync/OrderSync.php:508
+#: includes/Sync/OrderSync.php:919
 msgid "Kontor accepted the batch but said nothing about this order."
 msgstr ""
 
-#: includes/Sync/OrderSync.php:547
+#: includes/Sync/OrderSync.php:575
 msgid "No orders were waiting to be sent."
 msgstr ""
 
-#: includes/Sync/OrderSync.php:602
-msgid "The list of orders to send expired before they could be sent."
+#: includes/Sync/OrderSync.php:598
+msgid "The list of orders to send could not be stored for the sweep to work through."
+msgstr ""
+
+#: includes/Sync/OrderSync.php:640
+msgid "The stored list of orders to send could not be read, so the sweep was stopped part-way."
 msgstr ""
 
 #. translators: 1: orders accepted, 2: orders already present, 3: orders rejected.
-#: includes/Sync/OrderSync.php:668
+#: includes/Sync/OrderSync.php:707
 #, php-format
 msgid "%1$d sent, %2$d already in Kontor, %3$d rejected."
 msgstr ""
 
-#: includes/Sync/OrderSync.php:875
+#. translators: %d: number of orders set aside.
+#: includes/Sync/OrderSync.php:724
+#, php-format
+msgid "%d order was refused too often and will not be sent again automatically."
+msgid_plural "%d orders were refused too often and will not be sent again automatically."
+msgstr[0] ""
+msgstr[1] ""
+
+#. translators: 1: number of attempts made, 2: the reason the last one failed.
+#: includes/Sync/OrderSync.php:965
+#, php-format
+msgid "Kontor refused this order %1$d times, so it will not be sent again automatically. Last reason: %2$s"
+msgstr ""
+
+#: includes/Sync/OrderSync.php:967
+msgid "no reason given"
+msgstr ""
+
+#: includes/Sync/OrderSync.php:1039
 msgid "Already present in Kontor; not sent again."
 msgstr ""
 
 #. translators: %s: Kontor's internal order number.
-#: includes/Sync/OrderSync.php:878
+#: includes/Sync/OrderSync.php:1042
 #, php-format
 msgid "Sent to Kontor as %s."
 msgstr ""
@@ -1542,119 +1943,181 @@ msgstr ""
 msgid "No Kontor shop has been selected. Choose one on the settings screen before syncing orders."
 msgstr ""
 
+#: includes/Sync/ProductSync.php:543
+msgid "Kontor lists no article number, so nothing could recognise it on the next run."
+msgstr ""
+
+#: includes/Sync/ProductSync.php:557
+msgid "More than one product already has this article number, so the sync will not choose between them."
+msgstr ""
+
+#. translators: %s: the reason the article is held back.
+#: includes/Sync/ProductSync.php:574
+#, php-format
+msgid "Imported as a draft: %s."
+msgstr ""
+
+#: includes/Sync/ProductSync.php:588
+msgid "No product has this article number yet."
+msgstr ""
+
+#: includes/Sync/ProductSync.php:603
+msgid "A product here already has this article number and this plugin did not import it, so it is left alone."
+msgstr ""
+
+#: includes/Sync/ProductSync.php:615
+msgid "Nothing this sync reads has changed since the last run."
+msgstr ""
+
+#: includes/Sync/ProductSync.php:626
+msgid "The product exists and something this sync reads has changed."
+msgstr ""
+
+#: includes/Sync/ProductSync.php:666
+msgid "The catalogue did not end. The run was stopped rather than draft the articles it never reached."
+msgstr ""
+
+#. translators: 1: number of attempts made, 2: the reason the last one failed.
+#: includes/Sync/ProductSync.php:834
+#, php-format
+msgid "Gave up after %1$d attempts: %2$s"
+msgstr ""
+
+#. translators: 1: articles this run read, 2: articles the last completed run read.
+#: includes/Sync/ProductSync.php:929
+#, php-format
+msgid "Kontor listed %1$d articles, down from %2$d. Nothing was drafted: run the sync again, and if the catalogue really has shrunk the next run will go ahead."
+msgstr ""
+
 #. translators: 1: created count, 2: updated count, 3: unchanged count, 4: drafted count.
-#: includes/Sync/ProductSync.php:717
+#: includes/Sync/ProductSync.php:1259
 #, php-format
 msgid "%1$d created, %2$d updated, %3$d unchanged, %4$d drafted."
 msgstr ""
 
 #. translators: %d: number of articles Kontor listed no image for.
-#: includes/Sync/ProductSync.php:735
+#: includes/Sync/ProductSync.php:1277
 #, php-format
 msgid "Held %d back as drafts for having no image."
 msgstr ""
 
 #. translators: %d: number of articles Kontor files under no category.
-#: includes/Sync/ProductSync.php:751
+#: includes/Sync/ProductSync.php:1293
 #, php-format
 msgid "Held %d back as drafts for belonging to no category."
 msgstr ""
 
 #. translators: %d: number of articles Kontor has switched off for the webshop.
-#: includes/Sync/ProductSync.php:767
+#: includes/Sync/ProductSync.php:1309
 #, php-format
 msgid "Held %d back as drafts, switched off for the webshop in Kontor."
 msgstr ""
 
 #. translators: %d: number of products moved to the trash for not being in Kontor's catalogue.
-#: includes/Sync/ProductSync.php:782
+#: includes/Sync/ProductSync.php:1324
 #, php-format
 msgid "Moved %d to the trash that Kontor does not list."
 msgstr ""
 
 #. translators: %d: number of the shop's own products whose article Kontor is holding back.
-#: includes/Sync/ProductSync.php:800
+#: includes/Sync/ProductSync.php:1342
 #, php-format
 msgid "Left %d alone that Kontor is holding back but this plugin did not import."
 msgstr ""
 
 #. translators: 1: articles with no article number, 2: articles whose article number matched more than one product.
-#: includes/Sync/ProductSync.php:816
+#: includes/Sync/ProductSync.php:1358
 #, php-format
 msgid "Passed over %1$d with no article number and %2$d matching more than one product; see the log."
 msgstr ""
 
-#: includes/Sync/Scheduler.php:202
+#: includes/Sync/ProductSync.php:1828
+msgid "Kontor has switched it off for the webshop"
+msgstr ""
+
+#: includes/Sync/ProductSync.php:1829
+msgid "Kontor lists no image for it"
+msgstr ""
+
+#: includes/Sync/ProductSync.php:1830
+msgid "Kontor files it under no category"
+msgstr ""
+
+#: includes/Sync/Scheduler.php:222
 msgid "Imports articles, titles, descriptions and prices from Kontor."
 msgstr ""
 
-#: includes/Sync/Scheduler.php:203
-#: includes/Sync/Scheduler.php:211
-#: includes/Sync/Scheduler.php:228
-#: includes/Sync/Scheduler.php:237
+#: includes/Sync/Scheduler.php:223
+#: includes/Sync/Scheduler.php:231
+#: includes/Sync/Scheduler.php:248
+#: includes/Sync/Scheduler.php:257
 msgid "From Kontor"
 msgstr ""
 
-#: includes/Sync/Scheduler.php:210
+#: includes/Sync/Scheduler.php:230
 msgid "Updates stock levels for every article Kontor reports. An article the stock feed does not carry keeps the level it already had, unless the settings ask for those articles to be drafted."
 msgstr ""
 
-#: includes/Sync/Scheduler.php:218
+#: includes/Sync/Scheduler.php:238
 msgid "Sends paid orders to Kontor. Orders are normally sent as they are paid; this sweep catches any that were missed."
 msgstr ""
 
-#: includes/Sync/Scheduler.php:219
+#: includes/Sync/Scheduler.php:239
 msgid "To Kontor"
 msgstr ""
 
-#: includes/Sync/Scheduler.php:227
+#: includes/Sync/Scheduler.php:247
 msgid "Brings order status and tracking details back from Kontor. Completing an order emails the customer."
 msgstr ""
 
-#: includes/Sync/Scheduler.php:236
+#: includes/Sync/Scheduler.php:256
 msgid "Downloads invoice PDFs from Kontor and files them against their orders."
 msgstr ""
 
-#: includes/Sync/Scheduler.php:767
+#: includes/Sync/Scheduler.php:893
 msgid "an unknown error"
 msgstr ""
 
 #. translators: %s: error message.
-#: includes/Sync/Scheduler.php:772
+#: includes/Sync/Scheduler.php:898
 #, php-format
 msgid "The run stopped because a background task failed: %s"
 msgstr ""
 
-#: includes/Sync/Scheduler.php:785
+#: includes/Sync/Scheduler.php:911
 msgid "The run stopped because a background task took too long and was abandoned."
 msgstr ""
 
-#: includes/Sync/Scheduler.php:797
+#: includes/Sync/Scheduler.php:923
 msgid "a fatal error"
 msgstr ""
 
 #. translators: %s: error message.
-#: includes/Sync/Scheduler.php:802
+#: includes/Sync/Scheduler.php:928
 #, php-format
 msgid "The run stopped because a background task ended unexpectedly: %s"
 msgstr ""
 
-#: includes/Sync/StockSync.php:150
+#: includes/Sync/StockSync.php:140
 msgid "Kontor reported no stock levels."
 msgstr ""
 
-#: includes/Sync/StockSync.php:184
-msgid "The cached stock payload expired before it could be applied."
+#: includes/Sync/StockSync.php:154
+msgid "The stock levels could not be stored for the run to work through."
+msgstr ""
+
+#: includes/Sync/StockSync.php:186
+msgid "The stored stock levels could not be read, so the run was stopped part-way."
 msgstr ""
 
 #. translators: 1: products updated, 2: article numbers with no matching product, 3: products left alone because they do not manage stock.
-#: includes/Sync/StockSync.php:738
+#: includes/Sync/StockSync.php:742
 #, php-format
 msgid "%1$d products updated, %2$d article numbers had no matching SKU, %3$d skipped as not stock-managed."
 msgstr ""
 
 #. translators: 1: products drafted for having no stock record, 2: products published again.
-#: includes/Sync/StockSync.php:755
+#: includes/Sync/StockSync.php:759
 #, php-format
 msgid "%1$d drafted for having no stock record, %2$d republished."
 msgstr ""

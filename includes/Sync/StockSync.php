@@ -79,16 +79,6 @@ class StockSync {
 	const FINALISE_BATCH = 200;
 
 	/**
-	 * Prefix for the transient holding a run's payload.
-	 */
-	const TRANSIENT_PREFIX = 'wksync_stock_run_';
-
-	/**
-	 * How long a run's cached payload stays available.
-	 */
-	const TRANSIENT_TTL = 6 * HOUR_IN_SECONDS;
-
-	/**
 	 * Plugin settings.
 	 *
 	 * @var array
@@ -153,7 +143,19 @@ class StockSync {
 		}
 
 		Status::measure( self::JOB, count( $levels ) );
-		set_transient( self::TRANSIENT_PREFIX . $run, $levels, self::TRANSIENT_TTL );
+
+		/*
+		 * Settled before a single chunk is queued. A payload that could not be stored
+		 * means every chunk after this would find nothing, and reporting that here — once
+		 * — beats reporting it from inside the first chunk, where the honest reason is no
+		 * longer available to say.
+		 */
+		if ( ! Payload::put( self::JOB, $levels ) ) {
+			Status::fail( self::JOB, __( 'The stock levels could not be stored for the run to work through.', 'woo-kontor-sync-pro' ) );
+			$this->log( 'error', 'Stock sync aborted: the payload could not be stored.' );
+
+			return;
+		}
 
 		Scheduler::chain(
 			Scheduler::ACTION_SYNC_STOCK_CHUNK,
@@ -178,10 +180,11 @@ class StockSync {
 			return;
 		}
 
-		$levels = get_transient( self::TRANSIENT_PREFIX . $run );
+		$levels = Payload::get( self::JOB );
 
-		if ( ! is_array( $levels ) ) {
-			Status::fail( self::JOB, __( 'The cached stock payload expired before it could be applied.', 'woo-kontor-sync-pro' ) );
+		if ( null === $levels ) {
+			Status::fail( self::JOB, __( 'The stored stock levels could not be read, so the run was stopped part-way.', 'woo-kontor-sync-pro' ) );
+			$this->log( 'error', sprintf( 'Stock sync aborted at offset %d: the stored payload could not be read.', $offset ) );
 
 			return;
 		}
@@ -455,7 +458,7 @@ class StockSync {
 			return;
 		}
 
-		$this->complete( $run );
+		$this->complete();
 	}
 
 	/**
@@ -523,7 +526,7 @@ class StockSync {
 			return;
 		}
 
-		$this->complete( $run );
+		$this->complete();
 	}
 
 	/**
@@ -716,20 +719,21 @@ class StockSync {
 
 		$this->log( 'info', sprintf( 'Closing stock run %d: its finalising action was queued before the pass was removed.', $run ) );
 
-		$this->complete( $run );
+		$this->complete();
 	}
 
 	/**
-	 * Close out a run and drop its cached payload.
+	 * Close out a run and drop the payload it was working through.
 	 *
 	 * Called straight from the last chunk unless a finalising pass was needed, in
-	 * which case that pass calls it instead.
+	 * which case that pass calls it instead. It takes no run identifier: the payload
+	 * is keyed on the job, and whichever pass gets here has already checked that this
+	 * run is the current one.
 	 *
-	 * @param int $run Run identifier.
 	 * @return void
 	 */
-	protected function complete( $run ) {
-		delete_transient( self::TRANSIENT_PREFIX . $run );
+	protected function complete() {
+		Payload::forget( self::JOB );
 
 		$counts = Status::get( self::JOB )['counts'];
 

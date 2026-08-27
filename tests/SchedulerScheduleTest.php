@@ -77,6 +77,170 @@ class SchedulerScheduleTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A recurring action that is executing is never cancelled.
+	 *
+	 * Action Scheduler queues a recurring action's next occurrence at the *end* of the
+	 * current run, so for the whole length of a run the only recurring action on the
+	 * hook is the running one. Cancel it and the job ends up with two: sync_schedules()
+	 * sees nothing queued and adds one, and the action still executing then adds
+	 * another of its own — schedule_next_instance() only declines to repeat an action
+	 * whose status is FAILED, and a cancelled one repeats like any other. The shop
+	 * would sync twice as often, for ever.
+	 *
+	 * @return void
+	 */
+	public function test_a_running_schedule_survives_a_settings_save() {
+		$this->store_interval( 'stock_sync_interval', 900 );
+
+		$store = ActionScheduler::store();
+		$id    = (int) as_schedule_recurring_action( time() + 900, 900, Scheduler::ACTION_SYNC_STOCK, array(), Scheduler::GROUP );
+
+		// The state a recurring job is in for the whole length of its own run.
+		$store->log_execution( $id );
+
+		$this->assertSame( ActionScheduler_Store::STATUS_RUNNING, $store->get_status( $id ) );
+
+		$this->store_interval( 'stock_sync_interval', HOUR_IN_SECONDS );
+		( new Scheduler() )->reschedule();
+
+		$this->assertSame(
+			ActionScheduler_Store::STATUS_RUNNING,
+			$store->get_status( $id ),
+			'the running action was cancelled, so it will queue a second recurring action when it finishes'
+		);
+
+		// And nothing was queued beside it, because it still counts as scheduled.
+		$this->assertSame( 0, $this->recurring_count( Scheduler::ACTION_SYNC_STOCK ) );
+	}
+
+	/**
+	 * Saving the settings does not throw away a Run now somebody has just started.
+	 *
+	 * `reschedule()` reached for `as_unschedule_all_actions()`, which takes everything
+	 * queued on the hook — the manual run included. It went silently, because a
+	 * cancelled async action leaves nothing behind to notice, and on a shop whose queue
+	 * runs behind the window between pressing Run now and pressing Save is not
+	 * milliseconds.
+	 *
+	 * @return void
+	 */
+	public function test_saving_the_settings_keeps_a_pending_manual_run() {
+		$this->store_interval( 'stock_sync_interval', 900 );
+
+		$scheduler = new Scheduler();
+		$scheduler->sync_schedules();
+
+		as_enqueue_async_action( Scheduler::ACTION_SYNC_STOCK, array(), Scheduler::GROUP );
+
+		$this->assertCount( 2, $this->actions( Scheduler::ACTION_SYNC_STOCK ) );
+
+		$this->store_interval( 'stock_sync_interval', HOUR_IN_SECONDS );
+		$scheduler->reschedule();
+
+		// The schedule was replaced, and the manual run is still waiting beside it.
+		$this->assertSame( 1, $this->recurring_count( Scheduler::ACTION_SYNC_STOCK ) );
+		$this->assertCount( 2, $this->actions( Scheduler::ACTION_SYNC_STOCK ) );
+	}
+
+	/**
+	 * Setting a job to Never keeps the manual run too.
+	 *
+	 * "Never" means the job stays manual, so throwing away the one manual run that was
+	 * waiting is the opposite of what was asked for.
+	 *
+	 * @return void
+	 */
+	public function test_switching_a_job_to_never_keeps_a_pending_manual_run() {
+		$this->store_interval( 'stock_sync_interval', 900 );
+
+		$scheduler = new Scheduler();
+		$scheduler->sync_schedules();
+
+		as_enqueue_async_action( Scheduler::ACTION_SYNC_STOCK, array(), Scheduler::GROUP );
+
+		$this->store_interval( 'stock_sync_interval', Settings::INTERVAL_NEVER );
+		$scheduler->sync_schedules();
+
+		$this->assertSame( 0, $this->recurring_count( Scheduler::ACTION_SYNC_STOCK ) );
+		$this->assertCount(
+			1,
+			$this->actions( Scheduler::ACTION_SYNC_STOCK ),
+			'the manual run should have survived the schedule being cancelled'
+		);
+	}
+
+	/**
+	 * Re-queueing still moves the schedule onto the new interval.
+	 *
+	 * The point of cancelling at all: a job left with its old recurring action would
+	 * go on running at the interval that was just changed.
+	 *
+	 * @return void
+	 */
+	public function test_rescheduling_moves_the_job_onto_its_new_interval() {
+		$this->store_interval( 'stock_sync_interval', 900 );
+
+		$scheduler = new Scheduler();
+		$scheduler->sync_schedules();
+
+		$first = Scheduler::next_run( 'stock' );
+
+		$this->store_interval( 'stock_sync_interval', DAY_IN_SECONDS );
+		$scheduler->reschedule();
+
+		$this->assertSame( 1, $this->recurring_count( Scheduler::ACTION_SYNC_STOCK ) );
+		$this->assertGreaterThan( $first, Scheduler::next_run( 'stock' ) );
+	}
+
+	/**
+	 * The plural lookup answers for every job, and does not re-scan the queue.
+	 *
+	 * Reporting when a job is next due is a scan rather than a lookup, so the progress
+	 * poll calling it per job was around a hundred row reads every five seconds to
+	 * redraw a timestamp that moves once an interval.
+	 *
+	 * @return void
+	 */
+	public function test_next_runs_answers_for_every_job_from_one_read() {
+		as_schedule_recurring_action( time() + HOUR_IN_SECONDS, HOUR_IN_SECONDS, Scheduler::ACTION_SYNC_STOCK, array(), Scheduler::GROUP );
+
+		$runs = Scheduler::next_runs();
+
+		$this->assertSame( array_keys( Scheduler::get_jobs() ), array_keys( $runs ) );
+		$this->assertSame( Scheduler::next_run( 'stock' ), $runs['stock'] );
+		$this->assertSame( 0, $runs['products'] );
+
+		// Queued behind its back, and not seen: the answer is the cached one until the
+		// queue is touched through sync_schedules() or the minute is up.
+		as_schedule_recurring_action( time() + DAY_IN_SECONDS, DAY_IN_SECONDS, Scheduler::ACTION_SYNC_PRODUCTS, array(), Scheduler::GROUP );
+
+		$this->assertSame( 0, Scheduler::next_runs()['products'] );
+
+		Scheduler::forget_next_runs();
+
+		$this->assertGreaterThan( 0, Scheduler::next_runs()['products'] );
+	}
+
+	/**
+	 * Re-queueing the schedules drops the cached times with them.
+	 *
+	 * Otherwise a shop that had just changed an interval would read the old one back
+	 * for a minute, on the very screen it changed it from.
+	 *
+	 * @return void
+	 */
+	public function test_reconciling_the_queue_forgets_the_cached_times() {
+		update_option(
+			Settings::OPTION_KEY,
+			array_merge( Settings::default_settings(), array( 'stock_sync_interval' => HOUR_IN_SECONDS ) )
+		);
+
+		( new Scheduler() )->sync_schedules();
+
+		$this->assertGreaterThan( 0, Scheduler::next_runs()['stock'] );
+	}
+
+	/**
 	 * The actions queued against one hook.
 	 *
 	 * @param string $hook   Action hook.

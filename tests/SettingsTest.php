@@ -11,6 +11,7 @@ use WC_Product_Simple;
 use WooKontorSync\Admin\HeldProducts;
 use WooKontorSync\Admin\Settings;
 use WooKontorSync\Sync\ProductSync;
+use WooKontorSync\Sync\Status;
 use WP_UnitTestCase;
 
 /**
@@ -630,6 +631,184 @@ class SettingsTest extends WP_UnitTestCase {
 		$this->assertSame( array(), Settings::shops_from_response( array() ) );
 		$this->assertSame( array(), Settings::shops_from_response( array( 'data' => array() ) ) );
 		$this->assertSame( array(), Settings::shops_from_response( array( 'data' => 'nonsense' ) ) );
+	}
+
+	/**
+	 * A fresh install is told what to do, in order.
+	 *
+	 * The screen otherwise opens as an empty form with every schedule set to Never, and
+	 * nothing on it says which of those facts matter or in what order.
+	 *
+	 * @return void
+	 */
+	public function test_a_fresh_install_gets_a_setup_checklist() {
+		wp_set_current_user( self::factory()->user->create( array( 'role' => 'administrator' ) ) );
+		update_option( Settings::OPTION_KEY, Settings::default_settings() );
+
+		$markup = $this->render_tab( '' );
+
+		$this->assertStringContainsString( 'wksync-setup', $markup );
+		$this->assertStringContainsString( 'API base URL and key', $markup );
+
+		// The step that is nobody's fault and everybody's surprise.
+		$this->assertStringContainsString( 'set to Never', $markup );
+	}
+
+	/**
+	 * A shop with everything done is not told how to start.
+	 *
+	 * @return void
+	 */
+	public function test_a_configured_shop_gets_no_checklist() {
+		wp_set_current_user( self::factory()->user->create( array( 'role' => 'administrator' ) ) );
+
+		update_option(
+			Settings::OPTION_KEY,
+			array_merge(
+				Settings::default_settings(),
+				array(
+					'api_base_url'        => 'https://erp.example.test/api/v1/kontor',
+					'api_key'             => 'test-key-123',
+					'shop_id'             => '3f2504e0-4f89-11d3-9a0c-0305e82c3301',
+					'stock_sync_interval' => 900,
+				)
+			)
+		);
+
+		Status::start( 'products' );
+		Status::finish( 'products', 'All good.' );
+
+		$this->assertStringNotContainsString( 'wksync-setup', $this->render_tab( '' ) );
+	}
+
+	/**
+	 * A catalogue-only shop is never told to choose a Kontor shop.
+	 *
+	 * The same judgement Preflight makes: an empty shop field is the correct setting
+	 * there, not an unfinished one.
+	 *
+	 * @return void
+	 */
+	public function test_the_checklist_does_not_ask_a_catalogue_only_shop_for_a_shop() {
+		wp_set_current_user( self::factory()->user->create( array( 'role' => 'administrator' ) ) );
+
+		update_option(
+			Settings::OPTION_KEY,
+			array_merge(
+				Settings::default_settings(),
+				array(
+					'api_base_url'        => 'https://erp.example.test/api/v1/kontor',
+					'api_key'             => 'test-key-123',
+					Settings::SYNC_ORDERS => false,
+				)
+			)
+		);
+
+		$markup = $this->render_tab( '' );
+
+		$this->assertStringContainsString( 'wksync-setup', $markup );
+		$this->assertStringNotContainsString( 'which Kontor shop', $markup );
+	}
+
+	/**
+	 * Every tab renders every field, whichever one is showing.
+	 *
+	 * **This is the load-bearing property of the tabs**, not a detail of them. The
+	 * screen posts one option array and `sanitize()` reads what arrives: `api_base_url`
+	 * and `image_base_url` are taken as empty when absent, so a tab that rendered only
+	 * its own panel would wipe the API URL — and stop the shop syncing entirely — the
+	 * first time somebody saved from anywhere else. The tabs hide panels; they must
+	 * never leave one out.
+	 *
+	 * @return void
+	 */
+	public function test_every_tab_submits_the_whole_settings_form() {
+		wp_set_current_user( self::factory()->user->create( array( 'role' => 'administrator' ) ) );
+
+		$fields = array();
+
+		foreach ( array_keys( Settings::tabs() ) as $tab ) {
+			$fields[ $tab ] = $this->field_names( $this->render_tab( $tab ) );
+
+			$this->assertContains(
+				'woo_kontor_sync_settings[api_base_url]',
+				$fields[ $tab ],
+				$tab . ' does not carry the API base URL, so saving from it would clear it'
+			);
+			$this->assertContains(
+				'woo_kontor_sync_settings[image_base_url]',
+				$fields[ $tab ],
+				$tab . ' does not carry the image base URL'
+			);
+		}
+
+		// Not merely present on each: identical on all of them.
+		$this->assertCount( 1, array_unique( array_map( 'wp_json_encode', $fields ) ) );
+	}
+
+	/**
+	 * A tab nobody registered falls back to the first rather than hiding everything.
+	 *
+	 * @return void
+	 */
+	public function test_an_unknown_tab_falls_back_to_the_first() {
+		wp_set_current_user( self::factory()->user->create( array( 'role' => 'administrator' ) ) );
+
+		$markup = $this->render_tab( 'not-a-tab' );
+
+		$this->assertStringContainsString( 'data-wksync-tab="jobs"', $markup );
+		$this->assertMatchesRegularExpression( '/nav-tab-active[^>]*data-wksync-tab="jobs"/', $markup );
+	}
+
+	/**
+	 * Every tab has a panel, and every panel a tab.
+	 *
+	 * A tab with no panel behind it shows an empty screen; a panel no tab reaches is
+	 * unreachable once the script starts hiding them.
+	 *
+	 * @return void
+	 */
+	public function test_the_tabs_and_the_panels_match() {
+		wp_set_current_user( self::factory()->user->create( array( 'role' => 'administrator' ) ) );
+
+		$markup = $this->render_tab( '' );
+
+		preg_match_all( '/data-wksync-panel="([a-z]+)"/', $markup, $panels );
+
+		$this->assertSame( array_keys( Settings::tabs() ), $panels[1] );
+	}
+
+	/**
+	 * Render the screen with one tab requested.
+	 *
+	 * @param string $tab Tab key.
+	 * @return string Markup.
+	 */
+	private function render_tab( $tab ) {
+		$_GET['tab'] = $tab;
+
+		ob_start();
+		( new Settings() )->render_page();
+		$markup = (string) ob_get_clean();
+
+		unset( $_GET['tab'] );
+
+		return $markup;
+	}
+
+	/**
+	 * The names of every field in some markup, sorted.
+	 *
+	 * @param string $markup Rendered screen.
+	 * @return string[] Field names.
+	 */
+	private function field_names( $markup ) {
+		preg_match_all( '/name="([^"]+)"/', $markup, $matches );
+
+		$names = array_values( array_unique( $matches[1] ) );
+		sort( $names );
+
+		return $names;
 	}
 
 	/**

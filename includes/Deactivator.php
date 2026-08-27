@@ -7,6 +7,7 @@
 
 namespace WooKontorSync;
 
+use WooKontorSync\Sync\Payload;
 use WooKontorSync\Sync\Scheduler;
 use WooKontorSync\Sync\Status;
 
@@ -35,6 +36,10 @@ final class Deactivator {
 		Status::abandon( __( 'Interrupted: the plugin was deactivated while this run was in progress.', 'woo-kontor-sync-pro' ) );
 
 		Scheduler::unschedule_all();
+
+		// The chain that would have read them has just been thrown away, so what any run
+		// had stored to work through is now a row nothing will ever look at again.
+		Payload::forget_all();
 
 		/**
 		 * Fires after the plugin has finished its deactivation routine.

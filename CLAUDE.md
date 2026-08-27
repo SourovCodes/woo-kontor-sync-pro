@@ -695,6 +695,26 @@ of them wrong produces silently wrong data rather than an error:
   saving 500 products took around 78 seconds, long enough to risk being cut short on a slow host.
   Raise this and the failure mode is a truncated pass, not an API error. That budget only holds
   because images are downloaded elsewhere; do not put them back in the page action.
+- **The walk ends on an empty page, and on nothing else.** Up to 0.28.0 it ended when `skip` reached
+  the `totalCount` the first page reported, which made a number *describing* the catalogue the
+  authority on where the catalogue stopped. An absent `totalCount` reads as `0`, so one missing
+  field would have ended the walk after a single page and handed `finalise()` the other 4186
+  articles as ones Kontor had dropped — the whole shop dark, from a field nobody promised. The count
+  is still read on the first page for the progress bar, where being wrong costs nothing. A short
+  page is not the end either, for the reason in the cap above: `skip` advances by the rows actually
+  returned. The cost of all this is one extra request per run, to be told there is nothing left.
+  - **`ProductSync::MAX_PAGES` (1000) is what keeps that terminating**, since a pager that ignored
+    `skip` would otherwise walk for ever. Reaching it **fails the run rather than finalising it** —
+    a walk that did not finish has no business deciding which articles Kontor has stopped listing.
+- **A page that fails transiently is waited out, not the end of the run.** `retry_page()` queues the
+  same page again through `Scheduler::chain_later()` on `ProductSync::PAGE_RETRY_DELAYS`
+  (5 minutes, 15, then an hour) before giving up. The product sync runs as seldom as once a month,
+  so a blip lasting seconds used to cost weeks of a stale catalogue with one line on a settings
+  screen to say so. **Only a failure the Client called transient is retried** — it has already spent
+  its own three attempts and its own backoff on those, while a refusal it called final is a bad key
+  or a bad request, and asking again in five minutes is a slower way of writing the same message an
+  hour later. The run stays `running` across the wait, which is what stops a schedule starting a
+  second walk over the top of it; the delays sum to well inside `Status::STALE_AFTER`.
 - **The `stock` entity takes no paging and no filter.** One request returns a level for every
   article (~2945 rows in ~65ms). Sending paging to it is not an error, just pointless.
   - **It is narrower than the catalogue, and as of 0.13.0 the difference is a non-event.** Measured
@@ -819,8 +839,12 @@ of them wrong produces silently wrong data rather than an error:
     one place this plugin deliberately breaks its own rule. The rule exists so nobody waits on
     Kontor; here the answer is the entire point, and a queued job would put it in a log instead of
     in front of the person who pressed the button. `OrderSync::FORCE_LIMIT` (100) is what keeps that
-    honest — four round trips at `Client::REQUEST_TIMEOUT` — and the batch is chunked at
-    `BATCH_SIZE` so the request shape is one Kontor has already accepted.
+    honest — four round trips at `Client::REQUEST_TIMEOUT`, which holds only because the
+    push is made with `Client::SINGLE_ATTEMPT`: at the ordinary allowance a batch is three
+    timeouts plus six seconds of backoff, so those four round trips would be six minutes of
+    a blank screen and then whatever the host's execution limit does about it. Retrying is
+    the wrong favour to do somebody who is watching and can press it again. The batch is
+    chunked at `BATCH_SIZE` so the request shape is one Kontor has already accepted.
   - **It never touches `Status`.** A run belongs to a scheduled job; marking one here would collide
     with a real sweep, and a request cut short would strand the job as `running` for the whole of
     `Status::STALE_AFTER`. `test_force_push_leaves_the_job_status_alone` is the guard.
@@ -895,6 +919,39 @@ of them wrong produces silently wrong data rather than an error:
 - **An order the upsert reply says nothing about is counted as failed.** Nothing is written on it, so
   the next sweep sends it again; leaving it out of the counts instead would report a batch of
   twenty-five as "five sent" and give nobody a reason to look.
+- **An order Kontor keeps refusing is set aside, or the sweep starves.** `pending_orders()` asks for
+  orders that have never reached Kontor, oldest first, capped at `SWEEP_LIMIT` — and an order
+  refused for a reason in its own data never reaches Kontor, so it stayed in that set for ever *and
+  sorted to the front of it*. Two hundred of those and no order placed afterwards would ever be sent
+  again, silently, with every sweep dutifully re-sending the same rejections.
+  `OrderSync::MAX_PUSH_ATTEMPTS` (5) is the allowance, counted in
+  `META_PUSH_ATTEMPTS` (`_wksync_push_attempts`).
+  - **Only a refusal about *this order* counts** — one Kontor named in a result row, one it said
+    nothing about, or one `build_payload()` could not map. **A batch that failed in transit counts
+    against nothing**: it says nothing about any order in it, and counting it would set the whole
+    queue aside over a week of somebody else's network trouble.
+  - **An order this plugin cannot map is now recorded on the order**, which it was not before: such
+    an order was refused by our own code on every sweep for ever with no meta anywhere to say why —
+    the same starvation as a Kontor rejection and harder to find, because Kontor never saw it.
+  - **`META_PUSH_GIVEN_UP` (`_wksync_push_given_up`) is a separate marker rather than a comparison
+    against the count**, and the reason is the shape of the query. `pending_orders()` would
+    otherwise need "no count at all, or a count below the limit", and `WP_Meta_Query` drops
+    `meta_key` from every `ON` clause the moment an OR appears — the trap that made `HeldProducts`'
+    `any` view never return. Two `NOT EXISTS` clauses joined by AND each match one row per order.
+  - **A successful push clears both**, or the order screen would say an order was set aside while it
+    is plainly in Kontor.
+  - **The way back is `Admin\OrderActions`' third entry**, which clears the markers and queues the
+    single-order push. Without it the marker is a one-way door: those orders are out of
+    `pending_orders()` by definition, so no sweep would pick one up however thoroughly it was fixed.
+    Clearing the count as well as the marker is deliberate — a fixed order deserves the full
+    allowance rather than one attempt before it is set aside again.
+  - **`Admin\StuckOrders` is where the count becomes a list.** The marker is `_wksync_`-prefixed and
+    therefore protected, so the run summary would otherwise name orders nothing in wp-admin could
+    find. Deliberately smaller than `Admin\HeldProducts`: one condition, so one link and no views
+    apparatus. The meta query is appended rather than assigned, for the reason `HeldProducts`'
+    is — WooCommerce's own screen puts clauses on the same query.
+  - **The run summary mentions it only when it happened**, so a shop whose orders all go through
+    reads the sentence it has always read. It is the one number there that will not resolve itself.
 - **Invoices are a two-step download, and the second step is not under the base URL.** The
   `invoices` entity lists what exists — `id`, `Belegnr`, `Datum`, `Auftrnr` and the `ordernumber`
   this plugin sent — honouring only `filter.shopid`, exactly like `orders`. Fetching a document is
@@ -1033,6 +1090,38 @@ last page — the walk is unbounded, which is the one thing that would put a chu
 host's execution limit. The stock sync used to do the same for its own feed and no longer does; see
 the `stock` entity above for why, and for the marker left behind to undo it.
 
+**Nothing is drafted on the strength of a catalogue that came back a fraction of its usual size.**
+`Preflight` settles whether Kontor answers at all; it cannot settle whether what came back was the
+whole catalogue, and `finalise()` cannot tell the two apart — an article missing because Kontor
+stopped listing it and an article missing because the feed came back short look identical from
+there, and both are drafted. So `catalogue_is_credible()` stops a run that read markedly fewer
+articles than the last one to finish, and `ProductSync::CATALOGUE_OPTION`
+(`woo_kontor_sync_catalogue`) is where the measurement lives — its own option, because it is
+something the plugin measured rather than something anybody chose, and a save of the settings screen
+must not rewrite it.
+
+- **It stops the run once, and a second run is what confirms the shrink.** The count that tripped it
+  is recorded, and a later run reading about the same number again goes ahead: two runs, two
+  requests, two independent readings agreeing. A catalogue Kontor really has cut in half costs one
+  run's delay and then proceeds on its own, and a blip costs nothing at all, because the run after
+  it sees the full catalogue and never asks the question. A run that shrank *further* is held back
+  again rather than believed.
+- **Deliberately not a setting and not a confirmation prompt.** Something a shop manager has to
+  find, read and switch off would be switched off during the incident it exists for, and a dialog
+  would be answered by nobody at four in the morning, which is when the sync runs.
+  `woo_kontor_sync_catalogue_shrink_limit` is the developer's way out; at `1` any shrink passes.
+- **`CATALOGUE_SHRINK_LIMIT` is 0.3**, measured against the article count rather than the product
+  count, so the reasons that hold articles *back* — `Ws_aktiv`, the image and category requirements
+  — do not enter into it. They change what happens to an article, not whether Kontor listed it.
+- **Narrowing the manufacturer filter clears the measurement**, in
+  `ProductSync::forget_catalogue_size()` on `update_option_`. It is the one thing a shop can do that
+  legitimately takes a fifth of the catalogue away in a single run — it is documented above as
+  drafting the excluded articles — so left alone, the old measurement would stop the very run the
+  change was made to produce. Nothing else needs it: the shop type does not change which articles
+  come back, only their prices.
+- **The first run of all is never held back.** With no stored size there is no shrink to measure,
+  and a shop with nothing imported yet has nothing to lose either way.
+
 **One job removes products, and only where a shop has asked for it.**
 `Settings::TRASH_UNMANAGED` (`trash_unmanaged`, off by default) chains
 `Scheduler::ACTION_SYNC_PRODUCTS_TRASH` after the finalising pass, and
@@ -1103,6 +1192,41 @@ calling it queues real work: it is not a way to test whether a job would be allo
   retry semantics, no concurrency control, and no admin visibility.
 - **Chain long runs across actions.** A job that walks thousands of records queues a follow-up
   action per page or chunk rather than looping in one request. See `ProductSync::import_page()`.
+- **What a chunked run is working through lives in an option, never a transient.** Four jobs fetch
+  everything in one request and apply it a chunk per action — the stock levels, the delivery rows,
+  the invoice listing, the order IDs a sweep fixed at the start — and `Sync\Payload` is where that
+  sits between actions.
+  - **A transient is not storage on a site with a persistent object cache.** Redis and Memcached
+    hold it *instead of* the database, so it can be evicted under memory pressure at any moment —
+    and neither the eviction nor the failure that follows says anything: `set_transient()` returns
+    true, the chunks are queued, and the first one finds nothing. On the stock sync that is a
+    failure every fifteen minutes, for ever, reported as the payload having *expired*, which is the
+    one thing that had not happened. A non-autoloaded option is cache-*backed* rather than
+    cache-*only*, so a flush costs a read instead of the value.
+    - **Eviction is the realistic failure, not the size limit.** Measured on the development site,
+      a stock payload of 3000 rows serialises to **68KB** — memcached's default megabyte slab is
+      some forty thousand rows away, so no feed on this account comes near it. What does not depend
+      on size is the cache deciding it needs the memory back, which it may do at any point in the
+      hours a run can span.
+  - **The key is the job, not the run.** A per-run key needed a TTL to clean up after a run that
+    died and left a row behind for every one that did. Only one run of a job can be in flight —
+    `start()` refuses otherwise — and every chunked action checks `Status::is_current_run()` before
+    it reads, so a superseded action never gets as far as asking. One row per job, overwritten by
+    the next run. `complete()` therefore takes no run identifier on any of the four.
+  - **The write is read back, once per run.** `update_option()` returns false both for a write that
+    failed and for one that stored a value identical to what was there, which is exactly what a job
+    re-running over an unchanged feed does — so its return cannot answer this. One extra read per
+    *run* turns a job that would fail on every chunk for ever into one accurate failure at the
+    start, before a single chunk is queued.
+  - **`Deactivator` and `uninstall.php` drop them by name.** The uninstall used to call
+    `delete_expired_transients()`, which by definition never caught the ones that mattered.
+  - **Upgrading across this change costs one run**, and deliberately no more. The payload moved
+    from a transient to an option with no fallback read, so a chunked run whose files are replaced
+    mid-flight finds nothing on its next chunk and fails once, with an accurate message, closing
+    its status cleanly. A legacy read was considered and rejected: the precedent for keeping one
+    (`Scheduler::ACTION_LEGACY_STOCK_FINALISE`) exists for a *stranded* run — six hours of a
+    phantom — and this is a clean failure the next scheduled run corrects. **Deploy while nothing
+    is running** and it costs nothing at all.
   **All five jobs chain**, including the order sweep: `OrderSync::start()` fixes the list of pending
   orders, caches the IDs in a transient and queues `ACTION_SYNC_ORDERS_BATCH`, and
   `send_batch()` sends one batch per action. It used to send every batch inside the action that
@@ -1133,8 +1257,16 @@ calling it queues real work: it is not a way to test whether a job would be allo
     fetching the IDs — a first run queues one action per article, and reading four thousand rows to
     render a sentence would be worse than not showing it.
   - **The screen polls `wksync_job_progress`** every 5 seconds, and only while something is running
-    or images are still queued — on a normally idle site it never starts. The whole answer is one
-    non-autoloaded option read plus that count query.
+    or images are still queued — on a normally idle site it never starts, and it pauses while the
+    tab is hidden. The whole answer is two non-autoloaded option reads plus that count query.
+    - **The second of those is `Scheduler::next_runs()`, and it exists because the obvious version
+      was expensive.** Reporting when a job is next due is a scan rather than a lookup — the kind
+      of an action is not in the queue's index, so `recurring_action()` fetches up to
+      `RECURRING_LOOKUP` of a hook's queued actions and asks each one whether it repeats. Called
+      per job it was five of those every five seconds, per open tab, to redraw a timestamp that
+      moves once an interval. The plural is cached for `NEXT_RUN_TTL` (1 minute) and dropped by
+      `sync_schedules()` whenever the queue is touched; `next_run()` itself stays exact, because a
+      caller asking about one job is not in a loop and `docs/rest-api.md` publishes that figure.
 - **Whoever breaks a chain owns closing the status behind it.** A run only ever leaves the
   `running` state from inside one of its own chained actions, so anything that destroys the chain
   strands the job: the admin screen reports it as running and `Scheduler::trigger()` refuses to
@@ -1160,6 +1292,28 @@ calling it queues real work: it is not a way to test whether a job would be allo
     the removed stock finalising pass, still listened for, answered by
     `StockSync::close_legacy_run()`, which closes the run and drafts nothing. Removing a chained
     action means keeping its hook until no shop can still be upgrading across the change.
+- **Cancelling a schedule cancels the schedule, not the hook.** `Scheduler::cancel_recurring()`
+  looks the recurring action up by id and cancels that one. `as_unschedule_all_actions()` takes
+  everything queued on the hook, which includes whatever Run now has put there — so saving the
+  settings threw away a manual run somebody had started moments before, and setting a job to Never
+  did the same, which is the opposite of what "the job stays manual" means. It went silently, since
+  a cancelled async action leaves nothing behind to notice, and on a shop whose queue runs behind
+  the window between pressing Run now and pressing Save is not milliseconds. `unschedule_all()` is
+  the one place that still empties the whole group, which is right: it runs on deactivation.
+  - **It cancels a *pending* recurring action and never one that is executing**, and that is the
+    load-bearing half. Action Scheduler queues the next occurrence at the *end* of a run, so for
+    the whole length of a run the only recurring action on the hook is the running one. Cancel it
+    and the job ends up with two: `sync_schedules()` finds nothing queued and adds one, and the
+    action still executing then adds another of its own, because `schedule_next_instance()` only
+    declines to repeat an action whose status is **FAILED** — a cancelled one repeats like any
+    other. The shop then syncs twice as often for ever, which is the very failure
+    `has_recurring()` counts in-progress actions to avoid.
+    `test_a_running_schedule_survives_a_settings_save` is the guard.
+  - `as_unschedule_all_actions()` never had *that* problem: it resolves to `as_unschedule_action()`,
+    which queries pending actions alone. Its problem was the opposite one.
+  - The cost is that changing an interval while that job is running leaves the old interval until
+    the run finishes: the running action repeats on its own schedule and `sync_schedules()`
+    correctly leaves it alone. That is what happened before `cancel_recurring()` existed.
 - **Whether a job is scheduled is `Scheduler::has_recurring()`, never
   `as_next_scheduled_action()`.** That function collapses three different states into two return
   values: a timestamp for a scheduled action, but a bare `true` both for an action already
@@ -1427,6 +1581,156 @@ calling it queues real work: it is not a way to test whether a job would be allo
 - Credentials live in a single autoloaded-`no` option and are never echoed back into an admin field
   in plaintext.
 
+## The settings screen
+
+`Admin\Settings` renders one page in six tabs — Jobs, Connection, Products, Categories, Orders,
+Tools — each panel a `render_*_section()` of its own rather than seven hundred lines inlined in
+`render_page()`.
+
+- **The tabs hide panels; they never leave one out.** This is the load-bearing property, not a
+  detail of the implementation. The screen posts a single option array and `sanitize()` reads what
+  arrives — and `api_base_url` and `image_base_url` are taken as **empty when absent**, unlike every
+  other field, which keeps its stored value. So the obvious version of this feature, rendering one
+  tab per request, would wipe the API URL and stop the shop syncing the first time anybody saved
+  from a different tab. `test_every_tab_submits_the_whole_settings_form` is the guard, and it
+  compares the whole field set rather than spot-checking.
+  - It is the same reasoning that keeps the shop row `hidden` rather than left out when neither
+    orders nor categories want it.
+  - **Four settings panels, one form.** A form per tab would post a quarter of the option each time
+    and `sanitize()` would read the rest as absent — the same failure by another route.
+- **Without JavaScript every panel shows**, which is exactly what the screen did before the tabs
+  existed. The class that does the hiding is added by the script, so the fallback is the old page
+  rather than a blank one.
+- **Jobs is first and is where the screen opens.** It is what somebody arriving on an ordinary day
+  came for: what ran, how it went, and the button to run it again. The settings behind it are read
+  during setup and then rarely. **Tools is last**, where nobody reaches the two destructive pushes
+  by accident.
+- **The Save button belongs to the form, not to a tab**, so it is hidden on Jobs and Tools, which
+  put nothing into it. A Save button that appears to do nothing is worse than none.
+- **A save returns to the tab it was made from.** `settings_fields()` writes `_wp_http_referer` when
+  the page renders, so it names whichever tab the URL carried then; the script rewrites it when a
+  tab is clicked. That update happens **before** the address-bar update and not after it —
+  `replaceState` throws on a cross-origin URL, and anything below a throw there is a save quietly
+  returning to the wrong tab. The history call itself is guarded and is the convenience of the two.
+- **The tabs are real links carrying `tab=` in the URL**, so one can be bookmarked, `Settings::tab_url()`
+  can point at one from elsewhere, and the strip works before the script has loaded. An unrecognised
+  value falls back to the first tab rather than leaving every panel hidden.
+- **The redirects name their tab**: Run now comes back to Jobs, and both force pushes to Tools,
+  where the reply they print is.
+
+**A fresh install is told what to do.** `setup_steps()` is a checklist above the tabs: enter the
+credentials, choose a shop where something needs one, import the catalogue once, and choose how
+often each job runs. Every step is answered from stored state, so the list costs a page load and
+nothing else.
+
+- **The last step is the surprise worth naming.** Never is the documented default for every job, so
+  a shop that is otherwise fully configured still syncs only when somebody presses Run now, and
+  nothing else on the screen says so.
+- **The shop step appears only where something wants one**, the same judgement `Preflight` makes: a
+  catalogue-only shop has the correct setting, not an unfinished one.
+- **It goes away on its own** once every step is done, and can be dismissed before then — a shop
+  that deliberately runs everything by hand would otherwise be told to schedule something for ever.
+  Dismissal is keyed on the steps still outstanding, so putting it away cannot hide a step that
+  becomes outstanding later.
+
+**`ProductSync::preview()` says what a run would do without doing any of it.** The settings that
+decide what a product sync writes are the ones hardest to check by reading them — the shop type
+picks which field the price comes from, the manufacturer filter decides which articles arrive at
+all — and getting one wrong is not an error but a successful run that prices the catalogue wrong or
+drafts a fifth of it.
+
+- **It writes nothing**, and that is the promise the feature rests on: no product saved, no term
+  created, no image queued, no run recorded. `test_a_preview_creates_no_products_terms_or_actions`
+  counts products and terms either side of a call.
+- **The category tree is read rather than reconciled.** Building it is what creates a shop's
+  categories, which is the one write the withheld decision would otherwise make on the way to an
+  answer — so `Categories` takes a `$read_only` flag and returns the Katids with a term ID of 0.
+  `has_category()` only asks whether a key is there, which is what keeps the withheld decision one
+  code path rather than a preview copy of it that could drift.
+- **It reads the row through the run's own methods** — `request_shoptype()`, `withheld_reason()`,
+  `hash()` — so it reports what would happen rather than a second opinion about it.
+- **`PREVIEW_LIMIT` (25) is a sample, not a page.** It is rendered as a table somebody reads, and it
+  is the whole cost of the feature: one request, no writes.
+- **The button is a link, not a form.** The panel sits inside the settings form, HTML has no nested
+  forms, and a browser drops the inner tag — so a form here would submit the outer one and pressing
+  Preview would save the settings and never reach the handler.
+- **`preview_reason()` is not `reason_for()`.** That one is the log wording and is bare English on
+  purpose, because a log is read by whoever supports the shop rather than whoever runs it. Reusing
+  it here put half an English sentence in the middle of a German one.
+
+## Saying that a sync is broken
+
+Every other surface in this plugin has to be visited. A shop whose product sync had failed every
+night for a week looked entirely normal from the dashboard, the orders list and the products list,
+and the only thing saying otherwise was one line on a screen nobody opens while things are working.
+`Admin\Health` is where that question is answered, and three screens ask it.
+
+- **One reader, three surfaces.** `Health::problems()` is the only thing that decides what counts as
+  broken, for the reason `InvoiceSync::label()` is a public static: three screens describing the
+  same shop differently is worse than not describing it at all.
+- **Three kinds, and they are genuinely different failures.** `failed` — the job ran and could not
+  finish, and its own message says why. `stale` — the job has sat in `running` past
+  `Status::STALE_AFTER`, so the chain behind it died with nothing left to close the status; there is
+  no message because nothing wrote one, which is why it is not folded in with `failed`.
+  `unscheduled` — an interval is set and no recurring action exists to run it. That last one is the
+  failure **nothing else in wp-admin would ever show**: the settings screen reads the interval out
+  of the settings and reports it as configured, whatever the queue actually holds, which is exactly
+  how a live shop sat with no recurring action of any kind while every screen said otherwise.
+- **A job can be two of them at once**, and is reported twice: one describes the last run, the other
+  says there will not be another.
+- **The order-side jobs are left out on a shop that does not exchange orders.** Their stored status
+  can only be left over from before the switch was turned off, and the settings screen does not list
+  them either.
+- **The schedule half is cached and the status half is not.** `Status::get()` is one option read.
+  `Scheduler::has_recurring()` has to fetch a hook's queued actions and ask each one whether it
+  repeats, because the kind of an action is not in the queue's index — so the screen that runs on
+  every admin page load reads a `Health::SCHEDULE_TTL` (15 minutes) copy, and the two that are
+  opened deliberately do not. Saving the settings drops it, since the schedules are re-queued.
+
+**`Admin\Notices` is the one thing here that goes looking for the reader.** An `admin_notices` error
+on WooCommerce's own screens, the dashboard and the plugins screen — not every admin page, because a
+notice on the post editor is in the way of somebody doing something else — and never on the Kontor
+Sync screen, which says all of it in more detail a few lines down.
+
+- **Dismissal is keyed on the job and the reason, never on the time.** A failing job records a new
+  finish time every run — every fifteen minutes on the stock sync — so a fingerprint carrying one
+  would change before the reader had finished reading it. Keyed on the reason, dismissing means "I
+  know about this one" and a *different* failure is a new notice.
+- **Per user, in user meta.** One person deciding they know about a failure is not everybody
+  deciding it.
+- **The fingerprints travel in the dismiss link** rather than being recomputed on arrival, so
+  pressing it puts away what was read and not whatever the state has become since. `handle_dismiss()`
+  authenticates and parses; `dismiss()` does the work, which is what makes it testable without a
+  redirect on the end of it.
+
+**`Admin\StatusReport` adds a section to WooCommerce → Status → Report**, which is the page a shop
+manager is asked for when something is wrong and the one with a button that turns itself into text.
+Before it, supporting a shop from anywhere but in front of it meant asking for screenshots — of
+exactly the things nobody thinks to photograph: the shop type, whether a manufacturer filter is
+narrowing the catalogue, whether the schedules are in the queue, what the drafting brake last
+measured.
+
+- **The API key is never in it**, and neither is anything derived from it. The report exists to be
+  pasted into a support thread, which is the one place a credential must not end up; the key is
+  reported as present or absent. `test_the_status_report_never_prints_the_api_key` is the guard.
+- **A stranded run is called stranded**, not "running", so the row cannot disagree with the notice
+  and Site Health about the same state.
+
+**`Admin\SiteHealth` adds two tests**, both **direct** and neither touching the network — a direct
+test runs while the page renders, and asking Kontor whether the key still works would put somebody
+else's server in the middle of a page load for an answer the jobs already record.
+
+- **Configuration is `recommended`, jobs are `critical`**, and the difference is deliberate. An
+  unconfigured plugin is a site where somebody has not finished. A failing or unqueued job is a shop
+  showing customers prices and stock levels that are no longer true, and sending nothing to the
+  warehouse.
+- **A catalogue-only shop is never asked for a shop ID**, the same judgement `Preflight` makes.
+
+**`Health::log_url()` is the only place that builds a link to the log**, and both of WooCommerce's
+log handlers — the file viewer and the database one — read the same `source` parameter, so one URL
+serves whichever the shop uses. It is on the notice, on both Site Health results and in every row of
+the jobs table. Every sync has always logged its decisions there and nothing anywhere pointed at it.
+
 ## REST API
 
 The outward-facing half of the sync layer: **start the product or stock sync, and report on a run.**
@@ -1506,9 +1810,9 @@ are a separate thing and stay documented where they are, beside the Kontor field
   request before the callback — a signed WooCommerce key, or `X-WP-Nonce` for a cookie client, which
   WordPress verifies itself — and the authorisation half is the `permission_callback`, gated on
   `Settings::CAPABILITY`. What would be wrong is `__return_true`.
-- **A poll is one non-autoloaded option read plus a couple of counting queries.** Call
-  `Scheduler::next_run()` once per job into a variable; `Admin\Settings::handle_job_progress()` calls
-  it twice per job, which is a small defect there and not a pattern to copy.
+- **A poll is two non-autoloaded option reads plus a couple of counting queries.** Read the schedule
+  times with `Scheduler::next_runs()` rather than calling `next_run()` per job — see the note under
+  the progress bar above for why the per-job version is a scan and not a lookup.
 - **A wrong method is answered by WordPress with 404 `rest_no_route`, not 405.** Worth knowing before
   reaching for a 405 assertion.
 - `Rest\Jobs` holds `REST_NAMESPACE` itself rather than there being a registrar class with one line
