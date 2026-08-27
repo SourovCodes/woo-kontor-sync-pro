@@ -69,6 +69,19 @@ class Settings {
 	const FORCE_PUSH_RESULT = 'wksync_force_push_result_';
 
 	/**
+	 * Transient prefix holding one operator's catalogue preview.
+	 *
+	 * Per user and short-lived, like the two push results: it is the answer to a button
+	 * somebody just pressed, and it belongs to them rather than to the site.
+	 */
+	const PREVIEW_RESULT = 'wksync_preview_result_';
+
+	/**
+	 * User meta holding the setup checklist this user has put away.
+	 */
+	const SETUP_DISMISSED_META = '_wksync_setup_dismissed';
+
+	/**
 	 * Word an operator must type to force push every order that has been sent.
 	 *
 	 * Not translated, and deliberately so: a confirmation is only a confirmation if
@@ -536,6 +549,8 @@ class Settings {
 		add_action( 'admin_post_wksync_check_updates', array( $this, 'handle_check_updates' ) );
 		add_action( 'admin_post_wksync_force_push', array( $this, 'handle_force_push' ) );
 		add_action( 'admin_post_wksync_category_push', array( $this, 'handle_category_push' ) );
+		add_action( 'admin_post_wksync_preview_products', array( $this, 'handle_preview_products' ) );
+		add_action( 'admin_post_wksync_dismiss_setup', array( $this, 'handle_dismiss_setup' ) );
 	}
 
 	/**
@@ -1521,6 +1536,205 @@ class Settings {
 	}
 
 	/**
+	 * Run a catalogue preview and show what it found.
+	 *
+	 * Synchronous, like the connection test and the two force pushes, and for the same
+	 * reason: the answer is the entire point, and a queued job would put it in a log
+	 * instead of in front of the person who pressed the button. It is one request for
+	 * ProductSync::PREVIEW_LIMIT articles and it writes nothing, so there is no run to
+	 * mark and nothing for a slow reply to hold up but this page.
+	 *
+	 * @return void
+	 */
+	public function handle_preview_products() {
+		if ( ! current_user_can( self::CAPABILITY ) ) {
+			wp_die( esc_html__( 'You do not have permission to do that.', 'woo-kontor-sync-pro' ) );
+		}
+
+		check_admin_referer( 'wksync_preview_products' );
+
+		$preview = ( new ProductSync() )->preview();
+
+		set_transient(
+			self::PREVIEW_RESULT . get_current_user_id(),
+			is_wp_error( $preview ) ? array( 'error' => $preview->get_error_message() ) : $preview,
+			5 * MINUTE_IN_SECONDS
+		);
+
+		wp_safe_redirect(
+			add_query_arg(
+				array(
+					'page'           => self::PAGE_SLUG,
+					'tab'            => self::TAB_PRODUCTS,
+					'wksync_preview' => '1',
+				),
+				admin_url( 'admin.php' )
+			)
+		);
+
+		exit;
+	}
+
+	/**
+	 * Draw the preview button, and whatever the last press of it found.
+	 *
+	 * On the Products tab because that is where the settings it checks are: the shop
+	 * type two rows up decides which price it reports, and the manufacturer filter
+	 * above that decides which articles it sees at all.
+	 *
+	 * @return void
+	 */
+	protected function render_preview_section() {
+		?>
+		<h2><?php echo esc_html__( 'Preview the import', 'woo-kontor-sync-pro' ); ?></h2>
+		<p class="description">
+			<?php
+			echo esc_html(
+				sprintf(
+					/* translators: %d: number of articles read. */
+					__( 'Reads the first %d articles Kontor lists for these settings and says what a run would do with each. It writes nothing at all — no product, no category, no image.', 'woo-kontor-sync-pro' ),
+					ProductSync::PREVIEW_LIMIT
+				)
+			);
+			?>
+		</p>
+		<p class="description">
+			<?php echo esc_html__( 'Worth a press before the first run, and after changing the shop type or the manufacturers: both change what a successful run writes rather than whether it succeeds.', 'woo-kontor-sync-pro' ); ?>
+		</p>
+
+		<?php
+		/*
+		 * A link rather than a form, and not for tidiness: this panel is inside the
+		 * settings form, and HTML has no nested forms — a browser drops the inner tag
+		 * and the button submits the outer one, so pressing Preview would have saved the
+		 * settings and never reached the handler at all. A link cannot be swallowed that
+		 * way, and it is honest about what this is: the press reads Kontor and writes
+		 * nothing, so there is no state change for a POST to protect.
+		 */
+		?>
+		<p>
+			<a
+				class="button"
+				href="<?php echo esc_url( wp_nonce_url( add_query_arg( 'action', 'wksync_preview_products', admin_url( 'admin-post.php' ) ), 'wksync_preview_products' ) ); ?>"
+			><?php echo esc_html__( 'Preview the import', 'woo-kontor-sync-pro' ); ?></a>
+		</p>
+
+		<?php $this->render_preview_result(); ?>
+		<?php
+	}
+
+	/**
+	 * Print the stored preview, once.
+	 *
+	 * Read and dropped in the same breath, like the two push results: it describes the
+	 * catalogue as it was when the button was pressed, and a reload an hour later
+	 * showing it again would be stating something nobody has checked since.
+	 *
+	 * @return void
+	 */
+	protected function render_preview_result() {
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Display flag on our own redirect; the action itself was nonce-checked.
+		if ( ! isset( $_GET['wksync_preview'] ) ) {
+			return;
+		}
+
+		$key    = self::PREVIEW_RESULT . get_current_user_id();
+		$result = get_transient( $key );
+
+		if ( ! is_array( $result ) ) {
+			return;
+		}
+
+		delete_transient( $key );
+
+		if ( isset( $result['error'] ) ) {
+			printf(
+				'<div class="notice notice-error inline"><p>%s</p></div>',
+				esc_html( $result['error'] )
+			);
+
+			return;
+		}
+
+		$counts = $result['counts'];
+		?>
+		<p>
+			<strong>
+				<?php
+				echo esc_html(
+					sprintf(
+						/* translators: 1: created, 2: updated, 3: unchanged, 4: held back, 5: passed over. */
+						__( 'Of the articles read: %1$d would be created, %2$d updated, %3$d left unchanged, %4$d held back as drafts, %5$d passed over.', 'woo-kontor-sync-pro' ),
+						$counts['create'],
+						$counts['update'],
+						$counts['unchanged'],
+						$counts['withheld'],
+						$counts['skip']
+					)
+				);
+				?>
+			</strong>
+		</p>
+		<p class="description">
+			<?php
+			echo esc_html(
+				sprintf(
+					/* translators: 1: shop type, 2: shop type requested from Kontor, 3: the field prices are read from, 4: articles in the whole catalogue. */
+					__( 'Shop type %1$s, requested from Kontor as %2$s, priced from %3$s. Kontor lists %4$s articles in total for these settings.', 'woo-kontor-sync-pro' ),
+					$result['shoptype'],
+					$result['requested'],
+					$result['price'],
+					number_format_i18n( $result['total'] )
+				)
+			);
+			?>
+		</p>
+
+		<table class="widefat striped">
+			<thead>
+				<tr>
+					<th scope="col"><?php echo esc_html__( 'Article', 'woo-kontor-sync-pro' ); ?></th>
+					<th scope="col"><?php echo esc_html__( 'Name', 'woo-kontor-sync-pro' ); ?></th>
+					<th scope="col"><?php echo esc_html__( 'Price', 'woo-kontor-sync-pro' ); ?></th>
+					<th scope="col"><?php echo esc_html__( 'What would happen', 'woo-kontor-sync-pro' ); ?></th>
+				</tr>
+			</thead>
+			<tbody>
+				<?php foreach ( $result['rows'] as $row ) : ?>
+					<tr>
+						<td><code><?php echo esc_html( '' === $row['sku'] ? '—' : $row['sku'] ); ?></code></td>
+						<td><?php echo esc_html( $row['name'] ); ?></td>
+						<td><?php echo esc_html( $row['price'] ); ?></td>
+						<td>
+							<strong><?php echo esc_html( $this->describe_preview_outcome( $row['outcome'] ) ); ?></strong>
+							<p class="description"><?php echo esc_html( $row['detail'] ); ?></p>
+						</td>
+					</tr>
+				<?php endforeach; ?>
+			</tbody>
+		</table>
+		<?php
+	}
+
+	/**
+	 * One preview outcome, in a word.
+	 *
+	 * @param string $outcome Outcome key from ProductSync::preview().
+	 * @return string Label.
+	 */
+	protected function describe_preview_outcome( $outcome ) {
+		$labels = array(
+			'create'    => __( 'Created', 'woo-kontor-sync-pro' ),
+			'update'    => __( 'Updated', 'woo-kontor-sync-pro' ),
+			'unchanged' => __( 'Unchanged', 'woo-kontor-sync-pro' ),
+			'withheld'  => __( 'Held back', 'woo-kontor-sync-pro' ),
+			'skip'      => __( 'Passed over', 'woo-kontor-sync-pro' ),
+		);
+
+		return isset( $labels[ $outcome ] ) ? $labels[ $outcome ] : $outcome;
+	}
+
+	/**
 	 * Look for a new release now, rather than waiting for core's next check.
 	 *
 	 * Gated on update_plugins rather than this screen's own capability: a shop manager
@@ -1618,6 +1832,7 @@ class Settings {
 
 			<?php $this->render_queued_notice(); ?>
 			<?php $this->render_update_notice(); ?>
+			<?php $this->render_setup( $active ); ?>
 			<?php $this->render_tabs( $active ); ?>
 
 			<div class="wksync-panel" data-wksync-panel="<?php echo esc_attr( self::TAB_JOBS ); ?>">
@@ -1642,6 +1857,7 @@ class Settings {
 				<div class="wksync-panel" data-wksync-panel="<?php echo esc_attr( self::TAB_PRODUCTS ); ?>">
 					<?php $this->render_products_section( $settings ); ?>
 					<?php $this->render_storefront_section( $settings ); ?>
+					<?php $this->render_preview_section(); ?>
 				</div>
 
 				<div class="wksync-panel" data-wksync-panel="<?php echo esc_attr( self::TAB_CATEGORIES ); ?>">
@@ -1669,6 +1885,203 @@ class Settings {
 			</div>
 		</div>
 		<?php
+	}
+
+	/**
+	 * The steps between installing this plugin and it doing anything.
+	 *
+	 * A fresh install is an empty form with every schedule set to Never, and nothing on
+	 * the screen says which of those facts matter or in what order. Each step below is
+	 * something that must be true before the shop imports anything, and each is
+	 * answered from stored state rather than from a network call, so the list is
+	 * accurate on a page load and costs nothing.
+	 *
+	 * The last one is the surprise worth naming: Never is the documented default for
+	 * every job, so a shop that is otherwise configured still syncs only when somebody
+	 * presses Run now.
+	 *
+	 * @return array Steps, each with a label, whether it is done, and where to go.
+	 */
+	protected function setup_steps() {
+		$settings = self::get_settings();
+		$status   = Status::get( ProductSync::JOB );
+
+		$steps = array(
+			array(
+				'label' => __( 'Enter the Kontor API base URL and key', 'woo-kontor-sync-pro' ),
+				'done'  => '' !== trim( (string) $settings['api_base_url'] ) && '' !== trim( (string) $settings['api_key'] ),
+				'tab'   => self::TAB_CONNECTION,
+			),
+		);
+
+		/*
+		 * Only where something wants one. A shop that imports the catalogue and nothing
+		 * else is not missing a step by having no shop chosen — it is the correct
+		 * setting, and the same judgement Preflight makes.
+		 */
+		if ( self::orders_enabled( $settings ) || ! empty( $settings[ self::SYNC_CATEGORIES ] ) ) {
+			$steps[] = array(
+				'label' => __( 'Choose which Kontor shop this store is', 'woo-kontor-sync-pro' ),
+				'done'  => self::is_shop_id( trim( (string) $settings['shop_id'] ) ),
+				'tab'   => self::TAB_CONNECTION,
+			);
+		}
+
+		$steps[] = array(
+			'label' => __( 'Import the catalogue once, and check what it would do first', 'woo-kontor-sync-pro' ),
+			'done'  => 'success' === $status['state'],
+			'tab'   => self::TAB_PRODUCTS,
+		);
+
+		$steps[] = array(
+			'label' => __( 'Choose how often each job runs — they are all set to Never until you do', 'woo-kontor-sync-pro' ),
+			'done'  => $this->any_job_scheduled( $settings ),
+			'tab'   => self::TAB_JOBS,
+		);
+
+		return $steps;
+	}
+
+	/**
+	 * Whether any job has an interval at all.
+	 *
+	 * Read from the settings rather than the queue: this asks what the shop has asked
+	 * for, and whether the queue agrees is Health's question, answered where a
+	 * disagreement is worth acting on rather than in a list about getting started.
+	 *
+	 * @param array $settings Plugin settings.
+	 * @return bool True when at least one job is scheduled.
+	 */
+	protected function any_job_scheduled( array $settings ) {
+		foreach ( Scheduler::get_jobs() as $job ) {
+			if ( self::INTERVAL_NEVER !== absint( $settings[ $job['setting'] ] ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Draw the setup checklist, while there is still something on it to do.
+	 *
+	 * Above the tabs rather than on one of them, because its whole purpose is to be
+	 * read by somebody who does not yet know which tab they want.
+	 *
+	 * It goes away on its own once every step is done, and can be dismissed before
+	 * then — a shop that deliberately runs every job by hand would otherwise be told to
+	 * schedule one for ever. Dismissal is per user and per set of remaining steps, so
+	 * putting it away does not hide a step that appears later.
+	 *
+	 * @param string $active Tab currently showing, so Hide this comes back to it.
+	 * @return void
+	 */
+	protected function render_setup( $active ) {
+		$steps     = $this->setup_steps();
+		$remaining = array();
+
+		foreach ( $steps as $step ) {
+			if ( empty( $step['done'] ) ) {
+				$remaining[] = $step['label'];
+			}
+		}
+
+		if ( empty( $remaining ) || $this->setup_dismissed( $remaining ) ) {
+			return;
+		}
+
+		?>
+		<div class="notice notice-info wksync-setup">
+			<h2><?php echo esc_html__( 'Getting Kontor Sync running', 'woo-kontor-sync-pro' ); ?></h2>
+			<ol class="wksync-setup-steps">
+				<?php foreach ( $steps as $step ) : ?>
+					<li class="<?php echo empty( $step['done'] ) ? 'wksync-todo' : 'wksync-done'; ?>">
+						<?php if ( empty( $step['done'] ) ) : ?>
+							<a href="<?php echo esc_url( self::tab_url( $step['tab'] ) ); ?>"><?php echo esc_html( $step['label'] ); ?></a>
+						<?php else : ?>
+							<span><?php echo esc_html( $step['label'] ); ?></span>
+						<?php endif; ?>
+					</li>
+				<?php endforeach; ?>
+			</ol>
+			<p>
+				<a href="<?php echo esc_url( $this->setup_dismiss_url( $remaining, $active ) ); ?>">
+					<?php echo esc_html__( 'Hide this', 'woo-kontor-sync-pro' ); ?>
+				</a>
+			</p>
+		</div>
+		<?php
+	}
+
+	/**
+	 * What identifies the checklist as it currently stands.
+	 *
+	 * The steps still outstanding, and nothing else. Dismissing means "I know what is
+	 * left"; a step that becomes outstanding later is a different list and says so
+	 * again, which is what stops Hide this from being a permanent blindfold.
+	 *
+	 * @param array $remaining Labels of the steps still to do.
+	 * @return string Fingerprint.
+	 */
+	protected function setup_fingerprint( array $remaining ) {
+		return md5( implode( '|', $remaining ) );
+	}
+
+	/**
+	 * Whether this user has put away this exact checklist.
+	 *
+	 * @param array $remaining Labels of the steps still to do.
+	 * @return bool True when it has been dismissed.
+	 */
+	protected function setup_dismissed( array $remaining ) {
+		$stored = get_user_meta( get_current_user_id(), self::SETUP_DISMISSED_META, true );
+
+		return is_string( $stored ) && $stored === $this->setup_fingerprint( $remaining );
+	}
+
+	/**
+	 * The link that puts the checklist away.
+	 *
+	 * @param array  $remaining Labels of the steps still to do.
+	 * @param string $active    Tab to come back to.
+	 * @return string Admin URL.
+	 */
+	protected function setup_dismiss_url( array $remaining, $active ) {
+		return wp_nonce_url(
+			add_query_arg(
+				array(
+					'action' => 'wksync_dismiss_setup',
+					'steps'  => $this->setup_fingerprint( $remaining ),
+					'tab'    => $active,
+				),
+				admin_url( 'admin-post.php' )
+			),
+			'wksync_dismiss_setup'
+		);
+	}
+
+	/**
+	 * Remember that this checklist has been put away, and go back to it.
+	 *
+	 * @return void
+	 */
+	public function handle_dismiss_setup() {
+		check_admin_referer( 'wksync_dismiss_setup' );
+
+		if ( ! current_user_can( self::CAPABILITY ) ) {
+			wp_die( esc_html__( 'You do not have permission to do that.', 'woo-kontor-sync-pro' ) );
+		}
+
+		$steps = isset( $_GET['steps'] ) ? sanitize_text_field( wp_unslash( $_GET['steps'] ) ) : '';
+		$tab   = isset( $_GET['tab'] ) ? sanitize_key( wp_unslash( $_GET['tab'] ) ) : self::TAB_JOBS;
+
+		// A fingerprint is an md5 and nothing else is ever stored here.
+		if ( 1 === preg_match( '/^[0-9a-f]{32}$/', $steps ) ) {
+			update_user_meta( get_current_user_id(), self::SETUP_DISMISSED_META, $steps );
+		}
+
+		wp_safe_redirect( self::tab_url( isset( self::tabs()[ $tab ] ) ? $tab : self::TAB_JOBS ) );
+		exit;
 	}
 
 	/**

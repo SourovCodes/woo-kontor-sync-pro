@@ -1597,6 +1597,46 @@ Tools — each panel a `render_*_section()` of its own rather than seven hundred
 - **The redirects name their tab**: Run now comes back to Jobs, and both force pushes to Tools,
   where the reply they print is.
 
+**A fresh install is told what to do.** `setup_steps()` is a checklist above the tabs: enter the
+credentials, choose a shop where something needs one, import the catalogue once, and choose how
+often each job runs. Every step is answered from stored state, so the list costs a page load and
+nothing else.
+
+- **The last step is the surprise worth naming.** Never is the documented default for every job, so
+  a shop that is otherwise fully configured still syncs only when somebody presses Run now, and
+  nothing else on the screen says so.
+- **The shop step appears only where something wants one**, the same judgement `Preflight` makes: a
+  catalogue-only shop has the correct setting, not an unfinished one.
+- **It goes away on its own** once every step is done, and can be dismissed before then — a shop
+  that deliberately runs everything by hand would otherwise be told to schedule something for ever.
+  Dismissal is keyed on the steps still outstanding, so putting it away cannot hide a step that
+  becomes outstanding later.
+
+**`ProductSync::preview()` says what a run would do without doing any of it.** The settings that
+decide what a product sync writes are the ones hardest to check by reading them — the shop type
+picks which field the price comes from, the manufacturer filter decides which articles arrive at
+all — and getting one wrong is not an error but a successful run that prices the catalogue wrong or
+drafts a fifth of it.
+
+- **It writes nothing**, and that is the promise the feature rests on: no product saved, no term
+  created, no image queued, no run recorded. `test_a_preview_creates_no_products_terms_or_actions`
+  counts products and terms either side of a call.
+- **The category tree is read rather than reconciled.** Building it is what creates a shop's
+  categories, which is the one write the withheld decision would otherwise make on the way to an
+  answer — so `Categories` takes a `$read_only` flag and returns the Katids with a term ID of 0.
+  `has_category()` only asks whether a key is there, which is what keeps the withheld decision one
+  code path rather than a preview copy of it that could drift.
+- **It reads the row through the run's own methods** — `request_shoptype()`, `withheld_reason()`,
+  `hash()` — so it reports what would happen rather than a second opinion about it.
+- **`PREVIEW_LIMIT` (25) is a sample, not a page.** It is rendered as a table somebody reads, and it
+  is the whole cost of the feature: one request, no writes.
+- **The button is a link, not a form.** The panel sits inside the settings form, HTML has no nested
+  forms, and a browser drops the inner tag — so a form here would submit the outer one and pressing
+  Preview would save the settings and never reach the handler.
+- **`preview_reason()` is not `reason_for()`.** That one is the log wording and is bare English on
+  purpose, because a log is read by whoever supports the shop rather than whoever runs it. Reusing
+  it here put half an English sentence in the middle of a German one.
+
 ## Saying that a sync is broken
 
 Every other surface in this plugin has to be visited. A shop whose product sync had failed every

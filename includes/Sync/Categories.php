@@ -80,13 +80,32 @@ class Categories {
 	/**
 	 * Constructor.
 	 *
-	 * @param Client|null $client   Optional client override, mainly for tests.
-	 * @param array|null  $settings Optional settings override, mainly for tests.
+	 * @param Client|null $client    Optional client override, mainly for tests.
+	 * @param array|null  $settings  Optional settings override, mainly for tests.
+	 * @param bool        $read_only Whether to answer without creating or editing terms.
 	 */
-	public function __construct( $client = null, $settings = null ) {
-		$this->settings = null === $settings ? Settings::get_settings() : $settings;
-		$this->client   = null === $client ? new Client( $this->settings ) : $client;
+	public function __construct( $client = null, $settings = null, $read_only = false ) {
+		$this->settings  = null === $settings ? Settings::get_settings() : $settings;
+		$this->client    = null === $client ? new Client( $this->settings ) : $client;
+		$this->read_only = (bool) $read_only;
 	}
+
+	/**
+	 * Whether this instance may create and edit terms.
+	 *
+	 * Building the tree is a reconciliation: it creates the categories Kontor lists,
+	 * adopts the ones this shop already had and renames what moved. That is the right
+	 * thing on a run and the wrong thing entirely in a preview, which exists to say
+	 * what *would* happen without anything happening.
+	 *
+	 * Read-only, `map()` answers with the Katids Kontor lists and a term ID of 0 for
+	 * each. Nothing downstream minds: `has_category()` only asks whether a key is
+	 * there, which is what makes the withheld decision one code path rather than a
+	 * preview copy of it that could drift.
+	 *
+	 * @var bool
+	 */
+	private $read_only = false;
 
 	/**
 	 * The shop's tree, as a map of Katid to term ID.
@@ -169,6 +188,16 @@ class Categories {
 				'wksync_empty_category_tree',
 				__( 'Kontor returned no categories for this shop.', 'woo-kontor-sync-pro' )
 			);
+		}
+
+		/*
+		 * Everything above this point is a read of Kontor's tree; everything below it
+		 * writes terms. A preview stops here — the keys are the whole of what the
+		 * withheld decision reads, and creating a shop's categories is not something to
+		 * do on the way to telling somebody what a run would do.
+		 */
+		if ( $this->read_only ) {
+			return array_fill_keys( array_keys( $tree ), 0 );
 		}
 
 		$terms = $this->existing_terms();

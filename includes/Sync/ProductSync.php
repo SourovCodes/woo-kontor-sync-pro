@@ -253,6 +253,15 @@ class ProductSync {
 	const FINALISE_BATCH = 200;
 
 	/**
+	 * How many articles a preview reads.
+	 *
+	 * A sample rather than a page: this is rendered as a table somebody reads, and two
+	 * hundred rows is a scroll rather than an answer. It is also the whole cost of the
+	 * feature — one request, no writes — so there is no reason for it to be larger.
+	 */
+	const PREVIEW_LIMIT = 25;
+
+	/**
 	 * Largest number of pages one catalogue walk may request.
 	 *
 	 * The walk ends when a page comes back empty, which is the only answer that comes
@@ -373,11 +382,23 @@ class ProductSync {
 		}
 
 		if ( null === $this->categories ) {
-			$this->categories = new Categories( $this->client, $this->settings );
+			$this->categories = new Categories( $this->client, $this->settings, $this->read_only );
 		}
 
 		return $this->categories;
 	}
+
+	/**
+	 * Whether this instance is only allowed to look.
+	 *
+	 * Set for the whole of a preview. It reaches exactly one decision — that the
+	 * category tree is read rather than reconciled — because that is the only thing
+	 * the withheld logic does on the way to an answer that writes anything. Everything
+	 * else preview() simply does not call.
+	 *
+	 * @var bool
+	 */
+	private $read_only = false;
 
 	/**
 	 * Begin a run.
@@ -415,6 +436,194 @@ class ProductSync {
 				'run'     => $run,
 				'attempt' => 1,
 			)
+		);
+	}
+
+	/**
+	 * Say what a run would do to the first articles Kontor lists, without doing any of it.
+	 *
+	 * The settings that decide what a product sync writes are the ones hardest to check
+	 * by reading them: the shop type picks which field the price comes from, the
+	 * manufacturer filter decides which articles arrive at all, and the three
+	 * requirements decide which of those reach the shop. Getting one wrong is not an
+	 * error — it is a successful run that prices the catalogue wrong, or drafts a fifth
+	 * of it. This is the way to see that first.
+	 *
+	 * **Nothing is written.** No product is saved, no term created, no image queued and
+	 * no run recorded. The category tree is read rather than reconciled, which is the
+	 * one place the withheld decision would otherwise have written something; every
+	 * other write lives in import_article(), which this does not call.
+	 *
+	 * It reads the same row through the same methods the run uses — request_shoptype(),
+	 * withheld_reason(), hash() — so what it reports is what would happen rather than a
+	 * second opinion about it.
+	 *
+	 * @param int $limit Articles to look at.
+	 * @return array|WP_Error Counts and rows, or the failure that stopped it.
+	 */
+	public function preview( $limit = self::PREVIEW_LIMIT ) {
+		$limit = max( 1, min( self::PREVIEW_LIMIT, (int) $limit ) );
+
+		// Set for the whole call, so categories() builds a tree that only reads.
+		$this->read_only = true;
+
+		$ready = Preflight::check( self::JOB, $this->settings, $this->client );
+
+		if ( is_wp_error( $ready ) ) {
+			return $ready;
+		}
+
+		$response = $this->client->fetch_products( 0, $limit, $this->request_shoptype(), $this->manufacturers() );
+
+		if ( is_wp_error( $response ) ) {
+			return $response;
+		}
+
+		$categories = $this->categories();
+
+		if ( $categories ) {
+			$tree = $categories->map();
+
+			if ( is_wp_error( $tree ) ) {
+				return $tree;
+			}
+		}
+
+		$result = array(
+			'shoptype'  => $this->shoptype(),
+			'requested' => $this->request_shoptype(),
+			'price'     => $this->price_field(),
+			'total'     => isset( $response['meta']['totalCount'] ) ? (int) $response['meta']['totalCount'] : 0,
+			'counts'    => array(
+				'create'    => 0,
+				'update'    => 0,
+				'unchanged' => 0,
+				'withheld'  => 0,
+				'skip'      => 0,
+			),
+			'rows'      => array(),
+		);
+
+		foreach ( $response['data'] as $row ) {
+			if ( ! is_array( $row ) ) {
+				continue;
+			}
+
+			$result['rows'][] = $this->preview_row( $row, $result['counts'] );
+		}
+
+		return $result;
+	}
+
+	/**
+	 * Work out what one article would become, and count it.
+	 *
+	 * The order of the questions is import_article()'s own: an article with no usable
+	 * number is passed over before anything else is asked about it, a duplicate number
+	 * likewise, and only then does the shop's own judgement come into it.
+	 *
+	 * @param array $row    Article row from the feed.
+	 * @param array $counts Running totals, updated in place.
+	 * @return array What this article would become.
+	 */
+	protected function preview_row( array $row, array &$counts ) {
+		$sku      = $this->text( $row, 'Artnr', '' );
+		$name     = $this->text( $row, 'Bez1', '' );
+		$withheld = '';
+		$price    = $this->text( $row, $this->price_field(), '' );
+
+		if ( '' === $sku ) {
+			++$counts['skip'];
+
+			return array(
+				'sku'     => '',
+				'name'    => $name,
+				'price'   => $price,
+				'outcome' => 'skip',
+				'detail'  => __( 'Kontor lists no article number, so nothing could recognise it on the next run.', 'woo-kontor-sync-pro' ),
+			);
+		}
+
+		$products = $this->products_for_sku( $sku );
+
+		if ( count( $products ) > 1 ) {
+			++$counts['skip'];
+
+			return array(
+				'sku'     => $sku,
+				'name'    => $name,
+				'price'   => $price,
+				'outcome' => 'skip',
+				'detail'  => __( 'More than one product already has this article number, so the sync will not choose between them.', 'woo-kontor-sync-pro' ),
+			);
+		}
+
+		$withheld = $this->withheld_reason( $row );
+		$existing = empty( $products ) ? 0 : (int) $products[0];
+
+		if ( $withheld ) {
+			++$counts['withheld'];
+
+			return array(
+				'sku'     => $sku,
+				'name'    => $name,
+				'price'   => $price,
+				'outcome' => 'withheld',
+				'detail'  => sprintf(
+					/* translators: %s: the reason the article is held back. */
+					__( 'Imported as a draft: %s.', 'woo-kontor-sync-pro' ),
+					$this->preview_reason( $withheld )
+				),
+			);
+		}
+
+		if ( 0 === $existing ) {
+			++$counts['create'];
+
+			return array(
+				'sku'     => $sku,
+				'name'    => $name,
+				'price'   => $price,
+				'outcome' => 'create',
+				'detail'  => __( 'No product has this article number yet.', 'woo-kontor-sync-pro' ),
+			);
+		}
+
+		$product = wc_get_product( $existing );
+		$stamped = $product ? (string) $product->get_meta( self::META_SYNCED_AT ) : '';
+
+		if ( '' === $stamped ) {
+			++$counts['skip'];
+
+			return array(
+				'sku'     => $sku,
+				'name'    => $name,
+				'price'   => $price,
+				'outcome' => 'skip',
+				'detail'  => __( 'A product here already has this article number and this plugin did not import it, so it is left alone.', 'woo-kontor-sync-pro' ),
+			);
+		}
+
+		if ( $product && (string) $product->get_meta( self::META_HASH ) === $this->hash( $row ) ) {
+			++$counts['unchanged'];
+
+			return array(
+				'sku'     => $sku,
+				'name'    => $name,
+				'price'   => $price,
+				'outcome' => 'unchanged',
+				'detail'  => __( 'Nothing this sync reads has changed since the last run.', 'woo-kontor-sync-pro' ),
+			);
+		}
+
+		++$counts['update'];
+
+		return array(
+			'sku'     => $sku,
+			'name'    => $name,
+			'price'   => $price,
+			'outcome' => 'update',
+			'detail'  => __( 'The product exists and something this sync reads has changed.', 'woo-kontor-sync-pro' ),
 		);
 	}
 
@@ -1601,6 +1810,27 @@ class ProductSync {
 		);
 
 		return isset( $markers[ $withheld ] ) ? $markers[ $withheld ] : self::META_NO_IMAGE_DRAFTED;
+	}
+
+	/**
+	 * How a reason reads on the screen.
+	 *
+	 * Deliberately not `reason_for()`, which is the log wording and is bare English on
+	 * purpose: a log is read by whoever is supporting the shop rather than by whoever
+	 * runs it, and this plugin keeps its log in one language for that reason. Reusing
+	 * it here put half an English sentence in the middle of a German one.
+	 *
+	 * @param string $withheld Reason from withheld_reason().
+	 * @return string Sentence fragment naming the reason.
+	 */
+	protected function preview_reason( $withheld ) {
+		$reasons = array(
+			'inactive'    => __( 'Kontor has switched it off for the webshop', 'woo-kontor-sync-pro' ),
+			'no_image'    => __( 'Kontor lists no image for it', 'woo-kontor-sync-pro' ),
+			'no_category' => __( 'Kontor files it under no category', 'woo-kontor-sync-pro' ),
+		);
+
+		return isset( $reasons[ $withheld ] ) ? $reasons[ $withheld ] : $withheld;
 	}
 
 	/**

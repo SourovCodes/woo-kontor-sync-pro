@@ -11,6 +11,7 @@ use WC_Product_Simple;
 use WooKontorSync\Admin\HeldProducts;
 use WooKontorSync\Admin\Settings;
 use WooKontorSync\Sync\ProductSync;
+use WooKontorSync\Sync\Status;
 use WP_UnitTestCase;
 
 /**
@@ -630,6 +631,83 @@ class SettingsTest extends WP_UnitTestCase {
 		$this->assertSame( array(), Settings::shops_from_response( array() ) );
 		$this->assertSame( array(), Settings::shops_from_response( array( 'data' => array() ) ) );
 		$this->assertSame( array(), Settings::shops_from_response( array( 'data' => 'nonsense' ) ) );
+	}
+
+	/**
+	 * A fresh install is told what to do, in order.
+	 *
+	 * The screen otherwise opens as an empty form with every schedule set to Never, and
+	 * nothing on it says which of those facts matter or in what order.
+	 *
+	 * @return void
+	 */
+	public function test_a_fresh_install_gets_a_setup_checklist() {
+		wp_set_current_user( self::factory()->user->create( array( 'role' => 'administrator' ) ) );
+		update_option( Settings::OPTION_KEY, Settings::default_settings() );
+
+		$markup = $this->render_tab( '' );
+
+		$this->assertStringContainsString( 'wksync-setup', $markup );
+		$this->assertStringContainsString( 'API base URL and key', $markup );
+
+		// The step that is nobody's fault and everybody's surprise.
+		$this->assertStringContainsString( 'set to Never', $markup );
+	}
+
+	/**
+	 * A shop with everything done is not told how to start.
+	 *
+	 * @return void
+	 */
+	public function test_a_configured_shop_gets_no_checklist() {
+		wp_set_current_user( self::factory()->user->create( array( 'role' => 'administrator' ) ) );
+
+		update_option(
+			Settings::OPTION_KEY,
+			array_merge(
+				Settings::default_settings(),
+				array(
+					'api_base_url'        => 'https://erp.example.test/api/v1/kontor',
+					'api_key'             => 'test-key-123',
+					'shop_id'             => '3f2504e0-4f89-11d3-9a0c-0305e82c3301',
+					'stock_sync_interval' => 900,
+				)
+			)
+		);
+
+		Status::start( 'products' );
+		Status::finish( 'products', 'All good.' );
+
+		$this->assertStringNotContainsString( 'wksync-setup', $this->render_tab( '' ) );
+	}
+
+	/**
+	 * A catalogue-only shop is never told to choose a Kontor shop.
+	 *
+	 * The same judgement Preflight makes: an empty shop field is the correct setting
+	 * there, not an unfinished one.
+	 *
+	 * @return void
+	 */
+	public function test_the_checklist_does_not_ask_a_catalogue_only_shop_for_a_shop() {
+		wp_set_current_user( self::factory()->user->create( array( 'role' => 'administrator' ) ) );
+
+		update_option(
+			Settings::OPTION_KEY,
+			array_merge(
+				Settings::default_settings(),
+				array(
+					'api_base_url'        => 'https://erp.example.test/api/v1/kontor',
+					'api_key'             => 'test-key-123',
+					Settings::SYNC_ORDERS => false,
+				)
+			)
+		);
+
+		$markup = $this->render_tab( '' );
+
+		$this->assertStringContainsString( 'wksync-setup', $markup );
+		$this->assertStringNotContainsString( 'which Kontor shop', $markup );
 	}
 
 	/**
