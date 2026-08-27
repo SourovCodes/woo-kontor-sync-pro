@@ -13,6 +13,110 @@
 		}
 
 		/**
+		 * Show one panel and mark its tab.
+		 *
+		 * Hiding rather than unloading, always. Every field on this screen posts into
+		 * one option and the save reads an absent api_base_url as an empty one, so a
+		 * panel taken out of the document would take the API URL with it the next time
+		 * somebody pressed Save.
+		 */
+		( function () {
+			var wrap = document.querySelector( '.wksync-settings' );
+
+			if ( ! wrap ) {
+				return;
+			}
+
+			var tabs = Array.prototype.slice.call( wrap.querySelectorAll( '[data-wksync-tab]' ) );
+			var panels = Array.prototype.slice.call( wrap.querySelectorAll( '[data-wksync-panel]' ) );
+
+			if ( ! tabs.length || ! panels.length ) {
+				return;
+			}
+
+			// Only now does hiding begin. Before this line every panel is visible, which
+			// is what a browser with no JavaScript is left with.
+			wrap.classList.add( 'wksync-tabbed' );
+
+			/**
+			 * Bring one tab to the front.
+			 *
+			 * @param {string} key Tab key.
+			 */
+			function show( key ) {
+				var found = panels.some( function ( panel ) {
+					return panel.getAttribute( 'data-wksync-panel' ) === key;
+				} );
+
+				if ( ! found ) {
+					key = panels[ 0 ].getAttribute( 'data-wksync-panel' );
+				}
+
+				panels.forEach( function ( panel ) {
+					panel.classList.toggle( 'is-active', panel.getAttribute( 'data-wksync-panel' ) === key );
+				} );
+
+				tabs.forEach( function ( tab ) {
+					var current = tab.getAttribute( 'data-wksync-tab' ) === key;
+
+					tab.classList.toggle( 'nav-tab-active', current );
+					tab.setAttribute( 'aria-current', current ? 'page' : 'false' );
+				} );
+
+				// The Save button belongs to the form rather than to a tab, so it is shown
+				// only where something on screen actually posts into it.
+				wrap.classList.toggle(
+					'wksync-on-settings-tab',
+					null !== wrap.querySelector( '.wksync-panel.is-active input, .wksync-panel.is-active select' )
+						&& null !== wrap.querySelector( 'form[action$="options.php"] .wksync-panel.is-active' )
+				);
+			}
+
+			tabs.forEach( function ( tab ) {
+				tab.addEventListener( 'click', function ( event ) {
+					event.preventDefault();
+
+					var key = tab.getAttribute( 'data-wksync-tab' );
+
+					show( key );
+
+					/*
+					 * The referer field is written when the page renders, so it still names
+					 * whichever tab the URL carried then. options.php sends the save back to
+					 * it, and without this a save made from Orders would land on Jobs.
+					 *
+					 * Done before the address bar, and not after it: replaceState throws on
+					 * a cross-origin URL, and anything below a throw here would be a save
+					 * quietly returning to the wrong tab.
+					 */
+					var referer = wrap.querySelector( 'input[name="_wp_http_referer"]' );
+
+					if ( referer ) {
+						referer.value = tab.getAttribute( 'href' );
+					}
+
+					/*
+					 * The address bar is kept in step so the tab can be copied, bookmarked
+					 * and reloaded. Guarded because it is the convenience of the two: a
+					 * browser that refuses the history call should still switch tabs and
+					 * still save to the right one.
+					 */
+					try {
+						if ( window.history && window.history.replaceState ) {
+							window.history.replaceState( {}, '', tab.getAttribute( 'href' ) );
+						}
+					} catch ( error ) {
+						// Nothing to do about it, and nothing depends on it.
+					}
+				} );
+			} );
+
+			var initial = wrap.querySelector( '.nav-tab-active[data-wksync-tab]' );
+
+			show( initial ? initial.getAttribute( 'data-wksync-tab' ) : panels[ 0 ].getAttribute( 'data-wksync-panel' ) );
+		}() );
+
+		/**
 		 * Write a message into one of the result paragraphs.
 		 *
 		 * @param {Element} output  Paragraph to write into.

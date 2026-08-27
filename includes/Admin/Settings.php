@@ -40,6 +40,19 @@ class Settings {
 	const PAGE_SLUG = 'woo-kontor-sync';
 
 	/**
+	 * The screen's tabs.
+	 *
+	 * Keys rather than section titles, because they travel in a URL: a save comes back
+	 * to the tab it was made from, and a link elsewhere in wp-admin can point at one.
+	 */
+	const TAB_JOBS       = 'jobs';
+	const TAB_CONNECTION = 'connection';
+	const TAB_PRODUCTS   = 'products';
+	const TAB_CATEGORIES = 'categories';
+	const TAB_ORDERS     = 'orders';
+	const TAB_TOOLS      = 'tools';
+
+	/**
 	 * Capability required to view or change the settings.
 	 */
 	const CAPABILITY = 'manage_woocommerce';
@@ -1226,6 +1239,10 @@ class Settings {
 		$queued = Scheduler::trigger( $job );
 		$args   = array(
 			'page'          => self::PAGE_SLUG,
+
+			// Named rather than left to the default, so the row that was pressed is the
+			// one on screen when the notice about it appears.
+			'tab'           => self::TAB_JOBS,
 			'wksync_queued' => is_wp_error( $queued ) ? 'failed' : $job,
 		);
 
@@ -1336,6 +1353,11 @@ class Settings {
 			add_query_arg(
 				array(
 					'page'         => self::PAGE_SLUG,
+
+					// Back to the tab the button is on: the result is printed there, and
+					// landing on the jobs table would leave it unread behind a tab nobody
+					// had reason to open.
+					'tab'          => self::TAB_TOOLS,
 					'wksync_force' => '1',
 				),
 				admin_url( 'admin.php' )
@@ -1434,6 +1456,7 @@ class Settings {
 			add_query_arg(
 				array(
 					'page'            => self::PAGE_SLUG,
+					'tab'             => self::TAB_TOOLS,
 					'wksync_category' => '1',
 				),
 				admin_url( 'admin.php' )
@@ -1545,7 +1568,40 @@ class Settings {
 	}
 
 	/**
+	 * The screen's tabs, in the order they are shown.
+	 *
+	 * Jobs comes first because it is what somebody opening this screen on an ordinary
+	 * day came to see: what ran, how it went, and the button to run it again. The
+	 * settings behind it are read once during setup and then rarely, and the two
+	 * destructive tools are last, where nobody arrives by accident.
+	 *
+	 * @return array Tab key to label.
+	 */
+	public static function tabs() {
+		return array(
+			self::TAB_JOBS       => __( 'Jobs', 'woo-kontor-sync-pro' ),
+			self::TAB_CONNECTION => __( 'Connection', 'woo-kontor-sync-pro' ),
+			self::TAB_PRODUCTS   => __( 'Products', 'woo-kontor-sync-pro' ),
+			self::TAB_CATEGORIES => __( 'Categories', 'woo-kontor-sync-pro' ),
+			self::TAB_ORDERS     => __( 'Orders', 'woo-kontor-sync-pro' ),
+			self::TAB_TOOLS      => __( 'Tools', 'woo-kontor-sync-pro' ),
+		);
+	}
+
+	/**
 	 * Render the settings screen.
+	 *
+	 * **Every field is rendered on every load, whichever tab is showing.** The tabs are
+	 * a matter of which panel is visible and nothing more, because this screen posts one
+	 * option array and `sanitize()` reads what arrives: `api_base_url` and
+	 * `image_base_url` are taken as empty when they are absent, so a save made from a
+	 * tab that had not rendered them would wipe the API URL and stop the whole shop
+	 * syncing. Rendering server-side, one tab per request, is the version of this
+	 * feature that quietly destroys settings. It is the same reasoning that keeps the
+	 * shop row hidden rather than left out when nothing wants it.
+	 *
+	 * Without JavaScript every panel simply shows, which is exactly what this screen did
+	 * before the tabs existed.
 	 *
 	 * @return void
 	 */
@@ -1554,697 +1610,858 @@ class Settings {
 			wp_die( esc_html__( 'You do not have permission to manage these settings.', 'woo-kontor-sync-pro' ) );
 		}
 
-		$settings   = self::get_settings();
-		$orders     = self::orders_enabled( $settings );
-		$push_mode  = self::push_mode( $settings );
-		$categories = ! empty( $settings[ self::SYNC_CATEGORIES ] );
-		$has_shop   = '' !== trim( (string) $settings['shop_id'] ) && self::is_shop_id( $settings['shop_id'] );
+		$settings = self::get_settings();
+		$active   = $this->active_tab();
 		?>
-		<div class="wrap">
+		<div class="wrap wksync-settings">
 			<h1><?php echo esc_html__( 'Kontor Sync', 'woo-kontor-sync-pro' ); ?></h1>
 
 			<?php $this->render_queued_notice(); ?>
 			<?php $this->render_update_notice(); ?>
+			<?php $this->render_tabs( $active ); ?>
 
+			<div class="wksync-panel" data-wksync-panel="<?php echo esc_attr( self::TAB_JOBS ); ?>">
+				<h2><?php echo esc_html__( 'Scheduled jobs', 'woo-kontor-sync-pro' ); ?></h2>
+				<?php $this->render_jobs_table(); ?>
+			</div>
+
+			<?php
+			/*
+			 * One form over four panels. The settings tabs cannot each be a form of their
+			 * own: they save into a single option, so four forms would each post a quarter
+			 * of it and sanitize() would read the rest as absent.
+			 */
+			?>
 			<form action="options.php" method="post">
 				<?php settings_fields( self::OPTION_GROUP ); ?>
 
-				<h2><?php echo esc_html__( 'Connection', 'woo-kontor-sync-pro' ); ?></h2>
-				<table class="form-table" role="presentation">
-					<tr>
-						<th scope="row">
-							<label for="wksync-api-base-url"><?php echo esc_html__( 'API base URL', 'woo-kontor-sync-pro' ); ?></label>
-						</th>
-						<td>
-							<input
-								type="url"
-								class="regular-text code"
-								id="wksync-api-base-url"
-								name="<?php echo esc_attr( self::OPTION_KEY ); ?>[api_base_url]"
-								value="<?php echo esc_attr( $settings['api_base_url'] ); ?>"
-							/>
-							<p class="description"><?php echo esc_html__( 'The search endpoint is appended to this, so omit the trailing "/search".', 'woo-kontor-sync-pro' ); ?></p>
-						</td>
-					</tr>
-					<tr>
-						<th scope="row">
-							<label for="wksync-api-key"><?php echo esc_html__( 'API key', 'woo-kontor-sync-pro' ); ?></label>
-						</th>
-						<td>
-							<input
-								type="password"
-								class="regular-text"
-								id="wksync-api-key"
-								name="<?php echo esc_attr( self::OPTION_KEY ); ?>[api_key]"
-								value=""
-								autocomplete="new-password"
-							/>
-							<p class="description">
-								<?php
-								echo esc_html(
-									'' === $settings['api_key']
-										? __( 'No key stored yet. Sent as the x-api-key header.', 'woo-kontor-sync-pro' )
-										: __( 'A key is stored. Leave this field blank to keep it.', 'woo-kontor-sync-pro' )
-								);
-								?>
-							</p>
-						</td>
-					</tr>
-					<tr>
-						<th scope="row">
-							<label for="wksync-shoptype"><?php echo esc_html__( 'Shop type', 'woo-kontor-sync-pro' ); ?></label>
-						</th>
-						<td>
-							<select id="wksync-shoptype" name="<?php echo esc_attr( self::OPTION_KEY ); ?>[shoptype]">
-								<?php foreach ( self::shoptypes() as $value => $label ) : ?>
-									<option value="<?php echo esc_attr( $value ); ?>" <?php selected( $settings['shoptype'], $value ); ?>>
-										<?php echo esc_html( $label ); ?>
-									</option>
-								<?php endforeach; ?>
-							</select>
-							<p class="description"><?php echo esc_html__( 'Selects which price list is imported. The article list is the same for every shop type; only the selling price differs.', 'woo-kontor-sync-pro' ); ?></p>
-							<p class="description"><?php echo esc_html__( 'B2B also imports the retail price as a recommended retail price, stored on each product as _wksync_msrp. It is the figure a business can resell at, and it is left off any article Kontor lists no retail price for.', 'woo-kontor-sync-pro' ); ?></p>
-						</td>
-					</tr>
-					<tr>
-						<th scope="row"><?php echo esc_html__( 'Connection test', 'woo-kontor-sync-pro' ); ?></th>
-						<td>
-							<button type="button" class="button" id="wksync-test-connection">
-								<?php echo esc_html__( 'Test connection', 'woo-kontor-sync-pro' ); ?>
-							</button>
-							<p class="description" id="wksync-test-result" aria-live="polite"></p>
-						</td>
-					</tr>
-					<?php
-					/*
-					 * The shop sits here rather than under Orders because two unrelated
-					 * features now need it: the order side, and the category import, whose
-					 * tree is per-shop. One field in one place beats the same field rendered
-					 * twice and able to disagree with itself.
-					 *
-					 * Hidden rather than left out when neither wants it, so a shop that only
-					 * imports the catalogue is still never asked to choose one — and so the
-					 * field goes on submitting, which is what keeps a stored shop through a
-					 * save made with the row closed.
-					 */
-					?>
-					<tr id="wksync-shop-row" <?php echo ( $orders || $categories ) ? '' : 'hidden'; ?>>
-						<th scope="row">
-							<label for="wksync-shop-id"><?php echo esc_html__( 'Shop', 'woo-kontor-sync-pro' ); ?></label>
-						</th>
-						<td>
-							<select id="wksync-shop-id" name="<?php echo esc_attr( self::OPTION_KEY ); ?>[shop_id]">
-								<option value=""><?php echo esc_html__( '— No shop selected —', 'woo-kontor-sync-pro' ); ?></option>
-								<?php if ( '' !== $settings['shop_id'] ) : ?>
-									<option value="<?php echo esc_attr( $settings['shop_id'] ); ?>" selected>
-										<?php echo esc_html( '' === $settings['shop_name'] ? $settings['shop_id'] : $settings['shop_name'] ); ?>
-									</option>
-								<?php endif; ?>
-							</select>
-							<button type="button" class="button" id="wksync-fetch-shops">
-								<?php echo esc_html__( 'Fetch shops', 'woo-kontor-sync-pro' ); ?>
-							</button>
-							<input
-								type="hidden"
-								id="wksync-shop-name"
-								name="<?php echo esc_attr( self::OPTION_KEY ); ?>[shop_name]"
-								value="<?php echo esc_attr( $settings['shop_name'] ); ?>"
-							/>
-							<p class="description">
-								<?php echo esc_html__( 'Identifies this store in Kontor. The order, delivery and invoice jobs all need one, and so does the category import, because Kontor holds a separate category tree per shop. The stock sync does not use it at all.', 'woo-kontor-sync-pro' ); ?>
-							</p>
-							<p class="description" id="wksync-shops-result" aria-live="polite"></p>
-						</td>
-					</tr>
-				</table>
-
-				<h2><?php echo esc_html__( 'Products', 'woo-kontor-sync-pro' ); ?></h2>
-				<table class="form-table" role="presentation">
-					<tr>
-						<th scope="row"><?php echo esc_html__( 'Manufacturers', 'woo-kontor-sync-pro' ); ?></th>
-						<td>
-							<?php
-							$chosen = (array) $settings['manufacturer_ids'];
-
-							/*
-							 * Always submitted, so an empty selection can be told apart from a
-							 * submission that never had the field. Without it, choosing nothing
-							 * would look identical to a partial save and could never clear the
-							 * filter.
-							 */
-							?>
-							<input type="hidden" name="<?php echo esc_attr( self::OPTION_KEY ); ?>[manufacturer_choice]" value="1"/>
-
-							<?php
-							/*
-							 * Checkboxes rather than a multi-select. A multi-select cannot be
-							 * emptied without knowing to ctrl-click the last remaining item, and a
-							 * plain click on any option silently collapses the whole selection to
-							 * that one — so the control both hides the way out and destroys work on
-							 * the way in.
-							 */
-							?>
-							<div
-								id="wksync-manufacturer-list"
-								class="wksync-choice-list"
-								role="group"
-								aria-label="<?php echo esc_attr__( 'Manufacturers to import', 'woo-kontor-sync-pro' ); ?>"
-								data-empty="<?php echo esc_attr__( 'Every manufacturer is imported.', 'woo-kontor-sync-pro' ); ?>"
-								data-field="<?php echo esc_attr( self::OPTION_KEY . '[manufacturer_ids][]' ); ?>"
-							>
-								<?php foreach ( $chosen as $manufacturer_id ) : ?>
-									<?php $this->render_manufacturer_choice( $manufacturer_id, self::manufacturer_label( $settings, $manufacturer_id ) ); ?>
-								<?php endforeach; ?>
-							</div>
-
-							<p class="wksync-choice-actions">
-								<button type="button" class="button" id="wksync-fetch-manufacturers">
-									<?php echo esc_html__( 'Fetch manufacturers', 'woo-kontor-sync-pro' ); ?>
-								</button>
-								<button type="button" class="button" id="wksync-clear-manufacturers" <?php disabled( empty( $chosen ) ); ?>>
-									<?php echo esc_html__( 'Import everything', 'woo-kontor-sync-pro' ); ?>
-								</button>
-							</p>
-
-							<input
-								type="hidden"
-								id="wksync-manufacturer-names"
-								name="<?php echo esc_attr( self::OPTION_KEY ); ?>[manufacturer_names]"
-								value="<?php echo esc_attr( (string) wp_json_encode( (array) $settings['manufacturer_names'] ) ); ?>"
-							/>
-
-							<?php
-							/*
-							 * Rendered server-side as well as by the script, so the state is
-							 * readable before the script runs and if it never does.
-							 */
-							?>
-							<p class="description" id="wksync-manufacturers-summary" aria-live="polite">
-								<?php echo esc_html( self::manufacturer_summary( count( $chosen ) ) ); ?>
-							</p>
-							<p class="description">
-								<?php echo esc_html__( 'Tick the manufacturers to import. Fetch the list to add more; leave every box clear to import the whole catalogue.', 'woo-kontor-sync-pro' ); ?>
-							</p>
-							<p class="description">
-								<strong><?php echo esc_html__( 'Narrowing this drafts products.', 'woo-kontor-sync-pro' ); ?></strong>
-								<?php echo esc_html__( 'Articles the filter excludes are no longer in the feed, so the next product sync drafts the ones it previously imported. Widening the filter again republishes them.', 'woo-kontor-sync-pro' ); ?>
-							</p>
-							<p class="description" id="wksync-manufacturers-result" aria-live="polite"></p>
-						</td>
-					</tr>
-					<tr>
-						<th scope="row">
-							<label for="wksync-image-base-url"><?php echo esc_html__( 'Image base URL', 'woo-kontor-sync-pro' ); ?></label>
-						</th>
-						<td>
-							<input
-								type="url"
-								class="regular-text code"
-								id="wksync-image-base-url"
-								name="<?php echo esc_attr( self::OPTION_KEY ); ?>[image_base_url]"
-								value="<?php echo esc_attr( $settings['image_base_url'] ); ?>"
-							/>
-							<p class="description"><?php echo esc_html__( 'Kontor returns image filenames rather than URLs. Set the folder they live in to import product images; leave blank to skip images.', 'woo-kontor-sync-pro' ); ?></p>
-						</td>
-					</tr>
-					<tr>
-						<th scope="row"><?php echo esc_html__( 'Articles without images', 'woo-kontor-sync-pro' ); ?></th>
-						<td>
-							<?php
-							/*
-							 * The hidden field is what makes a cleared box mean "off". A browser
-							 * submits nothing for an unticked checkbox, and an absent field has
-							 * to keep the stored value, or any partial save would quietly
-							 * republish the whole set of articles this holds back.
-							 */
-							?>
-							<input type="hidden" name="<?php echo esc_attr( self::OPTION_KEY ); ?>[require_main_image]" value="0" />
-							<label for="wksync-require-main-image">
-								<input
-									type="checkbox"
-									id="wksync-require-main-image"
-									name="<?php echo esc_attr( self::OPTION_KEY ); ?>[require_main_image]"
-									value="1"
-									<?php checked( ! empty( $settings['require_main_image'] ) ); ?>
-								/>
-								<?php echo esc_html__( 'Only import articles that Kontor lists an image for', 'woo-kontor-sync-pro' ); ?>
-							</label>
-							<p class="description">
-								<?php echo esc_html__( 'An article with no image is passed over rather than created. The check is on what Kontor sends, not on the shop, so a product whose pictures are still downloading is never caught by it.', 'woo-kontor-sync-pro' ); ?>
-							</p>
-							<p class="description">
-								<strong><?php echo esc_html__( 'This drafts products already imported.', 'woo-kontor-sync-pro' ); ?></strong>
-								<?php echo esc_html__( 'A product this plugin imported whose article now arrives without an image is drafted, exactly as one Kontor stopped listing is. It is republished by itself as soon as the article has an image again, or when this setting is turned off.', 'woo-kontor-sync-pro' ); ?>
-							</p>
-						</td>
-					</tr>
-					<tr>
-						<th scope="row"><?php echo esc_html__( 'Sales quantities', 'woo-kontor-sync-pro' ); ?></th>
-						<td>
-							<?php
-							/*
-							 * Paired with a hidden zero for the same reason as the image
-							 * requirement above: a browser sends nothing for a cleared checkbox,
-							 * and an absent field has to keep the stored value.
-							 */
-							?>
-							<input type="hidden" name="<?php echo esc_attr( self::OPTION_KEY ); ?>[<?php echo esc_attr( self::ENFORCE_QUANTITIES ); ?>]" value="0" />
-							<label for="wksync-enforce-quantities">
-								<input
-									type="checkbox"
-									id="wksync-enforce-quantities"
-									name="<?php echo esc_attr( self::OPTION_KEY ); ?>[<?php echo esc_attr( self::ENFORCE_QUANTITIES ); ?>]"
-									value="1"
-									<?php checked( ! empty( $settings[ self::ENFORCE_QUANTITIES ] ) ); ?>
-								/>
-								<?php echo esc_html__( 'Hold customers to the quantities Kontor sells each article in', 'woo-kontor-sync-pro' ); ?>
-							</label>
-							<p class="description">
-								<?php echo esc_html__( 'Kontor states a smallest quantity and a step for every article, imported as _wksync_min_qty and _wksync_qty_step. An article sold in sixes with a step of two can then only be bought as 6, 8, 10 and so on — in the quantity box, in the cart and at checkout alike.', 'woo-kontor-sync-pro' ); ?>
-							</p>
-							<p class="description">
-								<?php echo esc_html__( 'Leave it clear to ignore them. The figures are still imported, so turning this on takes effect immediately rather than after the next product sync. Order screens and refunds are never restricted by it.', 'woo-kontor-sync-pro' ); ?>
-							</p>
-							<p class="description">
-								<?php echo esc_html__( 'Both figures are shown on each product\'s Inventory tab, where they are read-only: Kontor supplies them and every sync rewrites them, so they are changed in the ERP.', 'woo-kontor-sync-pro' ); ?>
-							</p>
-						</td>
-					</tr>
-					<tr>
-						<th scope="row"><?php echo esc_html__( 'Articles without stock records', 'woo-kontor-sync-pro' ); ?></th>
-						<td>
-							<?php
-							/*
-							 * Paired with a hidden zero for the same reason as the two above: a
-							 * browser sends nothing for a cleared checkbox, and an absent field
-							 * has to keep the stored value.
-							 */
-							?>
-							<input type="hidden" name="<?php echo esc_attr( self::OPTION_KEY ); ?>[<?php echo esc_attr( self::DRAFT_MISSING_STOCK ); ?>]" value="0" />
-							<label for="wksync-draft-missing-stock">
-								<input
-									type="checkbox"
-									id="wksync-draft-missing-stock"
-									name="<?php echo esc_attr( self::OPTION_KEY ); ?>[<?php echo esc_attr( self::DRAFT_MISSING_STOCK ); ?>]"
-									value="1"
-									<?php checked( ! empty( $settings[ self::DRAFT_MISSING_STOCK ] ) ); ?>
-								/>
-								<?php echo esc_html__( 'Draft imported products the stock feed does not carry', 'woo-kontor-sync-pro' ); ?>
-							</label>
-							<p class="description">
-								<?php echo esc_html__( 'Kontor\'s stock list is narrower than its catalogue: it holds no record at all for some articles the catalogue lists. Left clear, those products keep the level they last had and stay published, and whether Kontor still sells an article is left to the product sync to answer.', 'woo-kontor-sync-pro' ); ?>
-							</p>
-							<p class="description">
-								<strong><?php echo esc_html__( 'Ticking this hides a large part of the catalogue.', 'woo-kontor-sync-pro' ); ?></strong>
-								<?php echo esc_html__( 'On the account this was built against the catalogue lists 4386 articles and the stock feed carries 2945, so the first run after ticking it drafts some 1400 products. Each one comes back by itself as soon as a stock level for it arrives again.', 'woo-kontor-sync-pro' ); ?>
-							</p>
-							<p class="description">
-								<?php echo esc_html__( 'Clearing it again republishes what it drafted, on the next stock sync — unless the product sync is holding the product back for its own reason.', 'woo-kontor-sync-pro' ); ?>
-							</p>
-						</td>
-					</tr>
-					<tr>
-						<th scope="row"><?php echo esc_html__( 'Products Kontor does not list', 'woo-kontor-sync-pro' ); ?></th>
-						<td>
-							<?php
-							/*
-							 * Paired with a hidden zero for the same reason as the boxes above: a
-							 * browser sends nothing for a cleared checkbox, and an absent field
-							 * has to keep the stored value. It matters more here than anywhere
-							 * else on this screen, because the value being restored is the one
-							 * that takes products out of the shop.
-							 */
-							?>
-							<input type="hidden" name="<?php echo esc_attr( self::OPTION_KEY ); ?>[<?php echo esc_attr( self::TRASH_UNMANAGED ); ?>]" value="0" />
-							<label for="wksync-trash-unmanaged">
-								<input
-									type="checkbox"
-									id="wksync-trash-unmanaged"
-									name="<?php echo esc_attr( self::OPTION_KEY ); ?>[<?php echo esc_attr( self::TRASH_UNMANAGED ); ?>]"
-									value="1"
-									<?php checked( ! empty( $settings[ self::TRASH_UNMANAGED ] ) ); ?>
-								/>
-								<?php echo esc_html__( 'Move products this plugin did not import to the trash', 'woo-kontor-sync-pro' ); ?>
-							</label>
-							<p class="description">
-								<?php echo esc_html__( 'Leave it clear and a product this plugin never imported is left alone for ever, whoever made it and whatever its article number. Tick it only where the shop sells Kontor\'s catalogue and nothing besides.', 'woo-kontor-sync-pro' ); ?>
-							</p>
-							<p class="description">
-								<strong><?php echo esc_html__( 'This removes products from the shop.', 'woo-kontor-sync-pro' ); ?></strong>
-								<?php echo esc_html__( 'At the end of each product sync, every product with no article number of Kontor\'s — and every product whose article number the catalogue did not carry in that run — is moved to the trash, whether it is published, private or a draft. Products made by another plugin, by an importer or by hand all count.', 'woo-kontor-sync-pro' ); ?>
-							</p>
-							<p class="description">
-								<?php echo esc_html__( 'They go to the trash rather than being deleted, so Products → Trash is the way back and nothing is lost until the trash is emptied. Their images are kept in the media library either way, because a restored product needs them.', 'woo-kontor-sync-pro' ); ?>
-							</p>
-							<p class="description">
-								<?php echo esc_html__( 'Clearing this setting again stops the sweeping, but it does not empty the trash and it does not restore anything already trashed. Restoring is done in Products → Trash.', 'woo-kontor-sync-pro' ); ?>
-							</p>
-							<p class="description">
-								<?php echo esc_html__( 'A product whose article Kontor lists but is holding back — switched off for the webshop, or without an image — is never trashed by this. It was in the catalogue, which is the whole question being asked.', 'woo-kontor-sync-pro' ); ?>
-							</p>
-						</td>
-					</tr>
-					<tr>
-						<th scope="row">
-							<label for="wksync-product-sync-interval"><?php echo esc_html__( 'Product sync', 'woo-kontor-sync-pro' ); ?></label>
-						</th>
-						<td>
-							<?php
-							$this->render_interval_select(
-								'wksync-product-sync-interval',
-								'product_sync_interval',
-								self::product_sync_intervals(),
-								(int) $settings['product_sync_interval']
-							);
-							?>
-						</td>
-					</tr>
-					<tr>
-						<th scope="row">
-							<label for="wksync-stock-sync-interval"><?php echo esc_html__( 'Stock sync', 'woo-kontor-sync-pro' ); ?></label>
-						</th>
-						<td>
-							<?php
-							$this->render_interval_select(
-								'wksync-stock-sync-interval',
-								'stock_sync_interval',
-								self::stock_sync_intervals(),
-								(int) $settings['stock_sync_interval']
-							);
-							?>
-						</td>
-					</tr>
-				</table>
-
-				<h2><?php echo esc_html__( 'Categories', 'woo-kontor-sync-pro' ); ?></h2>
-				<table class="form-table" role="presentation">
-					<tr>
-						<th scope="row"><?php echo esc_html__( 'Categories from Kontor', 'woo-kontor-sync-pro' ); ?></th>
-						<td>
-							<input type="hidden" name="<?php echo esc_attr( self::OPTION_KEY ); ?>[<?php echo esc_attr( self::SYNC_CATEGORIES ); ?>]" value="0" />
-							<label for="wksync-sync-categories">
-								<input
-									type="checkbox"
-									id="wksync-sync-categories"
-									name="<?php echo esc_attr( self::OPTION_KEY ); ?>[<?php echo esc_attr( self::SYNC_CATEGORIES ); ?>]"
-									value="1"
-									<?php checked( $categories ); ?>
-								/>
-								<?php echo esc_html__( 'Let Kontor decide which categories a product is in', 'woo-kontor-sync-pro' ); ?>
-							</label>
-							<?php if ( $categories && ! $has_shop ) : ?>
-								<div class="notice notice-warning inline">
-									<p><?php echo esc_html__( 'Categories will not be imported until a shop is chosen above. Kontor holds a separate category tree per shop, and asks for one before it will list any.', 'woo-kontor-sync-pro' ); ?></p>
-								</div>
-							<?php endif; ?>
-							<p class="description">
-								<?php echo esc_html__( 'The category tree Kontor holds for the chosen shop becomes WooCommerce product categories, matched on Kontor\'s own category ID so that renaming or moving one in the ERP is followed here rather than duplicated. Each product is then filed as its article says.', 'woo-kontor-sync-pro' ); ?>
-							</p>
-							<p class="description">
-								<?php echo esc_html__( 'Categories you added in WooCommerce are left on their products untouched, and so is any category Kontor has stopped listing. Nothing here ever deletes a category.', 'woo-kontor-sync-pro' ); ?>
-							</p>
-							<p class="description">
-								<strong><?php echo esc_html__( 'Turning this on or off rewrites the whole catalogue on the next run.', 'woo-kontor-sync-pro' ); ?></strong>
-								<?php echo esc_html__( 'The category field joins the change check with it, so every article counts as changed once. That is the same cost as changing the shop type.', 'woo-kontor-sync-pro' ); ?>
-							</p>
-						</td>
-					</tr>
-				</table>
-
-				<div id="wksync-category-settings" <?php echo $categories ? '' : 'hidden'; ?>>
-					<table class="form-table" role="presentation">
-						<tr>
-							<th scope="row"><?php echo esc_html__( 'Articles with no category', 'woo-kontor-sync-pro' ); ?></th>
-							<td>
-								<input type="hidden" name="<?php echo esc_attr( self::OPTION_KEY ); ?>[<?php echo esc_attr( self::REQUIRE_CATEGORY ); ?>]" value="0" />
-								<label for="wksync-require-category">
-									<input
-										type="checkbox"
-										id="wksync-require-category"
-										name="<?php echo esc_attr( self::OPTION_KEY ); ?>[<?php echo esc_attr( self::REQUIRE_CATEGORY ); ?>]"
-										value="1"
-										<?php checked( ! empty( $settings[ self::REQUIRE_CATEGORY ] ) ); ?>
-									/>
-									<?php echo esc_html__( 'Hold them back as drafts', 'woo-kontor-sync-pro' ); ?>
-								</label>
-								<p class="description">
-									<?php echo esc_html__( 'An article Kontor files under no category is imported as a draft rather than put on sale, the same answer this plugin gives an article with no image. It keeps its price, its stock and its pictures, and a category added in Kontor publishes it on the next run.', 'woo-kontor-sync-pro' ); ?>
-								</p>
-								<p class="description">
-									<strong><?php echo esc_html__( 'This is usually a large number.', 'woo-kontor-sync-pro' ); ?></strong>
-									<?php echo esc_html__( 'On the account this was measured against, close to half the catalogue belonged to no category at all. Check the run summary before assuming something went wrong.', 'woo-kontor-sync-pro' ); ?>
-								</p>
-							</td>
-						</tr>
-					</table>
+				<div class="wksync-panel" data-wksync-panel="<?php echo esc_attr( self::TAB_CONNECTION ); ?>">
+					<?php $this->render_connection_section( $settings ); ?>
 				</div>
 
-				<h2><?php echo esc_html__( 'Product page', 'woo-kontor-sync-pro' ); ?></h2>
-				<p class="description">
-					<?php echo esc_html__( 'Both rows are added to the product meta block, beside the article number and the categories, and each is shown only on a product that has the figure.', 'woo-kontor-sync-pro' ); ?>
-				</p>
-				<table class="form-table" role="presentation">
-					<tr>
-						<th scope="row"><?php echo esc_html__( 'Recommended retail price', 'woo-kontor-sync-pro' ); ?></th>
-						<td>
-							<?php
-							/*
-							 * Paired with a hidden zero like every other checkbox here: a browser
-							 * sends nothing for a cleared box, and an absent field has to keep the
-							 * stored value.
-							 */
-							?>
-							<input type="hidden" name="<?php echo esc_attr( self::OPTION_KEY ); ?>[<?php echo esc_attr( self::SHOW_MSRP ); ?>]" value="0" />
-							<label for="wksync-show-msrp">
-								<input
-									type="checkbox"
-									id="wksync-show-msrp"
-									name="<?php echo esc_attr( self::OPTION_KEY ); ?>[<?php echo esc_attr( self::SHOW_MSRP ); ?>]"
-									value="1"
-									<?php checked( ! empty( $settings[ self::SHOW_MSRP ] ) ); ?>
-								/>
-								<?php echo esc_html__( 'Show the recommended retail price on the product page', 'woo-kontor-sync-pro' ); ?>
-							</label>
-							<p>
-								<label for="wksync-msrp-label"><?php echo esc_html__( 'Label', 'woo-kontor-sync-pro' ); ?></label>
-								<input
-									type="text"
-									class="regular-text"
-									id="wksync-msrp-label"
-									name="<?php echo esc_attr( self::OPTION_KEY ); ?>[<?php echo esc_attr( self::MSRP_LABEL ); ?>]"
-									value="<?php echo esc_attr( (string) $settings[ self::MSRP_LABEL ] ); ?>"
-									placeholder="<?php echo esc_attr( ProductMeta::msrp_label() ); ?>"
-								/>
-							</p>
-							<p class="description">
-								<?php echo esc_html__( 'Kontor supplies this figure on a wholesale shop only, where it sells at Ek and the UVP beside it is the price a business buying here can resell at. It is imported as _wksync_msrp and, until now, nothing rendered it.', 'woo-kontor-sync-pro' ); ?>
-							</p>
-							<p class="description">
-								<?php echo esc_html__( 'The label is shown in front of the amount. Leave it empty for the default wording in the shop\'s language, and remember that it is what the customer reads: the figure is stated raw, not as a saving, and Kontor lists a retail price no higher than the shop\'s own for a small number of articles.', 'woo-kontor-sync-pro' ); ?>
-							</p>
-						</td>
-					</tr>
-					<tr>
-						<th scope="row"><?php echo esc_html__( 'EAN', 'woo-kontor-sync-pro' ); ?></th>
-						<td>
-							<input type="hidden" name="<?php echo esc_attr( self::OPTION_KEY ); ?>[<?php echo esc_attr( self::SHOW_EAN ); ?>]" value="0" />
-							<label for="wksync-show-ean">
-								<input
-									type="checkbox"
-									id="wksync-show-ean"
-									name="<?php echo esc_attr( self::OPTION_KEY ); ?>[<?php echo esc_attr( self::SHOW_EAN ); ?>]"
-									value="1"
-									<?php checked( ! empty( $settings[ self::SHOW_EAN ] ) ); ?>
-								/>
-								<?php echo esc_html__( 'Show the EAN on the product page', 'woo-kontor-sync-pro' ); ?>
-							</label>
-							<p>
-								<label for="wksync-ean-label"><?php echo esc_html__( 'Label', 'woo-kontor-sync-pro' ); ?></label>
-								<input
-									type="text"
-									class="regular-text"
-									id="wksync-ean-label"
-									name="<?php echo esc_attr( self::OPTION_KEY ); ?>[<?php echo esc_attr( self::EAN_LABEL ); ?>]"
-									value="<?php echo esc_attr( (string) $settings[ self::EAN_LABEL ] ); ?>"
-									placeholder="<?php echo esc_attr( ProductMeta::ean_label() ); ?>"
-								/>
-							</p>
-							<p class="description">
-								<?php echo esc_html__( 'The EAN Kontor sends as Artean, held in WooCommerce\'s own GTIN field. EANs repeat across articles in the feed and WooCommerce refuses a duplicate, so a product whose EAN another already holds has none and shows no row.', 'woo-kontor-sync-pro' ); ?>
-							</p>
-						</td>
-					</tr>
-				</table>
+				<div class="wksync-panel" data-wksync-panel="<?php echo esc_attr( self::TAB_PRODUCTS ); ?>">
+					<?php $this->render_products_section( $settings ); ?>
+					<?php $this->render_storefront_section( $settings ); ?>
+				</div>
 
-				<h2><?php echo esc_html__( 'Orders', 'woo-kontor-sync-pro' ); ?></h2>
-				<table class="form-table" role="presentation">
-					<tr>
-						<th scope="row"><?php echo esc_html__( 'Orders with Kontor', 'woo-kontor-sync-pro' ); ?></th>
-						<td>
-							<?php
-							/*
-							 * Hidden field first, as everywhere else here: a browser submits
-							 * nothing for an unticked box, and an absent field keeps the stored
-							 * value, so "off" has to be a value that arrives.
-							 */
-							?>
-							<input type="hidden" name="<?php echo esc_attr( self::OPTION_KEY ); ?>[<?php echo esc_attr( self::SYNC_ORDERS ); ?>]" value="0" />
-							<label for="wksync-sync-orders">
-								<input
-									type="checkbox"
-									id="wksync-sync-orders"
-									name="<?php echo esc_attr( self::OPTION_KEY ); ?>[<?php echo esc_attr( self::SYNC_ORDERS ); ?>]"
-									value="1"
-									<?php checked( $orders ); ?>
-								/>
-								<?php echo esc_html__( 'Send orders to Kontor, and bring deliveries and invoices back', 'woo-kontor-sync-pro' ); ?>
-							</label>
-							<p class="description">
-								<?php echo esc_html__( 'Leave this off for a shop that only imports the catalogue. Nothing is sent at checkout and the three jobs below never run. Turning it back on restores the schedules exactly as they were.', 'woo-kontor-sync-pro' ); ?>
-							</p>
-						</td>
-					</tr>
-				</table>
+				<div class="wksync-panel" data-wksync-panel="<?php echo esc_attr( self::TAB_CATEGORIES ); ?>">
+					<?php $this->render_categories_section( $settings ); ?>
+				</div>
+
+				<div class="wksync-panel" data-wksync-panel="<?php echo esc_attr( self::TAB_ORDERS ); ?>">
+					<?php $this->render_orders_section( $settings ); ?>
+				</div>
 
 				<?php
 				/*
-				 * Rendered whether or not orders are switched on, and hidden rather than
-				 * left out, so ticking the box above reveals the rest without a save. The
-				 * fields still submit while hidden, which is what keeps a shop's stored
-				 * shop and intervals through a save made with the section closed.
+				 * Saving is a property of the form rather than of a tab, so the button is
+				 * hidden on the two panels that submit nothing into it — pressing Save on
+				 * the jobs table would be a button that appears to do nothing.
 				 */
 				?>
-				<div id="wksync-order-settings" <?php echo $orders ? '' : 'hidden'; ?>>
-					<table class="form-table" role="presentation">
-						<tr>
-							<th scope="row">
-								<label for="wksync-upload-user-id"><?php echo esc_html__( 'Upload user ID', 'woo-kontor-sync-pro' ); ?></label>
-							</th>
-							<td>
-								<?php
-								/*
-								 * Shown for reference only. It carries no name attribute, so it is
-								 * never submitted and sanitize() has nothing to validate — the value
-								 * lives in OrderSync::UPLOAD_USER_ID and cannot drift from what is
-								 * actually sent.
-								 */
-								?>
-								<input
-									type="text"
-									class="regular-text code"
-									id="wksync-upload-user-id"
-									value="<?php echo esc_attr( OrderSync::UPLOAD_USER_ID ); ?>"
-									readonly
-								/>
-								<p class="description"><?php echo esc_html__( 'Sent with every order upload as meta.userId. Fixed by agreement with Kontor and not editable here.', 'woo-kontor-sync-pro' ); ?></p>
-							</td>
-						</tr>
-						<tr>
-							<th scope="row">
-								<label for="wksync-order-push-mode"><?php echo esc_html__( 'Send orders', 'woo-kontor-sync-pro' ); ?></label>
-							</th>
-							<td>
-								<select id="wksync-order-push-mode" name="<?php echo esc_attr( self::OPTION_KEY ); ?>[<?php echo esc_attr( self::ORDER_PUSH_MODE ); ?>]">
-									<?php foreach ( self::order_push_modes() as $value => $label ) : ?>
-										<option value="<?php echo esc_attr( $value ); ?>" <?php selected( $push_mode, $value ); ?>>
-											<?php echo esc_html( $label ); ?>
-										</option>
-									<?php endforeach; ?>
-								</select>
-								<p class="description">
-									<?php echo esc_html__( 'Sending as they are paid reaches Kontor within a minute of checkout. Either way the sweep below catches whatever that moment missed, so this is a choice about the ordinary path rather than about reliability.', 'woo-kontor-sync-pro' ); ?>
-								</p>
-								<?php if ( self::PUSH_SWEEP === $push_mode && self::INTERVAL_NEVER === (int) $settings['order_sync_interval'] ) : ?>
-									<p class="description">
-										<strong><?php echo esc_html__( 'Nothing will send orders on its own.', 'woo-kontor-sync-pro' ); ?></strong>
-										<?php echo esc_html__( 'With the sweep below set to Never as well, an order reaches Kontor only when Run now is pressed.', 'woo-kontor-sync-pro' ); ?>
-									</p>
-								<?php endif; ?>
-							</td>
-						</tr>
-						<tr>
-							<th scope="row">
-								<label for="wksync-order-sync-interval"><?php echo esc_html__( 'Order sync', 'woo-kontor-sync-pro' ); ?></label>
-							</th>
-							<td>
-								<?php
-								$this->render_interval_select(
-									'wksync-order-sync-interval',
-									'order_sync_interval',
-									self::order_sync_intervals(),
-									(int) $settings['order_sync_interval']
-								);
-								?>
-								<p class="description"><?php echo esc_html__( 'A sweep for whatever the moment above missed — an order Kontor rejected, or one placed while the site could not reach it.', 'woo-kontor-sync-pro' ); ?></p>
-							</td>
-						</tr>
-						<tr>
-							<th scope="row">
-								<label for="wksync-delivery-sync-interval"><?php echo esc_html__( 'Delivery sync', 'woo-kontor-sync-pro' ); ?></label>
-							</th>
-							<td>
-								<?php
-								$this->render_interval_select(
-									'wksync-delivery-sync-interval',
-									'delivery_sync_interval',
-									self::delivery_sync_intervals(),
-									(int) $settings['delivery_sync_interval']
-								);
-								?>
-								<p class="description"><?php echo esc_html__( 'Pulls tracking details back from Kontor. An order Kontor reports as completed is completed here too, which emails the customer.', 'woo-kontor-sync-pro' ); ?></p>
-							</td>
-						</tr>
-						<tr>
-							<th scope="row">
-								<label for="wksync-invoice-sync-interval"><?php echo esc_html__( 'Invoice sync', 'woo-kontor-sync-pro' ); ?></label>
-							</th>
-							<td>
-								<?php
-								$this->render_interval_select(
-									'wksync-invoice-sync-interval',
-									'invoice_sync_interval',
-									self::invoice_sync_intervals(),
-									(int) $settings['invoice_sync_interval']
-								);
-								?>
-								<p class="description"><?php echo esc_html__( 'Downloads invoice PDFs from Kontor. Each invoice is stored privately, shown to the customer on their order, and attached to the order emails sent after it arrives.', 'woo-kontor-sync-pro' ); ?></p>
-							</td>
-						</tr>
-					</table>
+				<div class="wksync-save"><?php submit_button(); ?></div>
+			</form>
 
-					<?php
-					/*
-					 * The two mails these jobs can send are WooCommerce email types rather
-					 * than settings of this plugin's, so their switches, subjects and
-					 * headings all live where a shop manager already manages email. This
-					 * line is what stops that being the same as hiding them.
-					 */
-					?>
+			<div class="wksync-panel" data-wksync-panel="<?php echo esc_attr( self::TAB_TOOLS ); ?>">
+				<?php $this->render_category_push_section(); ?>
+				<?php $this->render_force_push_section(); ?>
+				<?php $this->render_updates_section(); ?>
+			</div>
+		</div>
+		<?php
+	}
+
+	/**
+	 * Which tab the request asked for.
+	 *
+	 * Anything unrecognised falls back to the first, so a stale bookmark or a typo
+	 * lands somewhere real rather than on a screen with every panel hidden.
+	 *
+	 * @return string Tab key.
+	 */
+	protected function active_tab() {
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Chooses which panel is visible; changes nothing.
+		$tab = isset( $_GET['tab'] ) ? sanitize_key( wp_unslash( $_GET['tab'] ) ) : '';
+
+		return isset( self::tabs()[ $tab ] ) ? $tab : self::TAB_JOBS;
+	}
+
+	/**
+	 * Draw the tab strip.
+	 *
+	 * Real links, carrying the tab in the URL, so a tab can be bookmarked and so the
+	 * strip works before the script has loaded — and so `options.php` can send a save
+	 * back to the tab it came from.
+	 *
+	 * @param string $active Tab currently showing.
+	 * @return void
+	 */
+	protected function render_tabs( $active ) {
+		?>
+		<nav class="nav-tab-wrapper wp-clearfix wksync-tabs" aria-label="<?php echo esc_attr__( 'Kontor Sync sections', 'woo-kontor-sync-pro' ); ?>">
+			<?php foreach ( self::tabs() as $key => $label ) : ?>
+				<a
+					class="nav-tab<?php echo $key === $active ? ' nav-tab-active' : ''; ?>"
+					href="<?php echo esc_url( self::tab_url( $key ) ); ?>"
+					data-wksync-tab="<?php echo esc_attr( $key ); ?>"
+					aria-current="<?php echo $key === $active ? 'page' : 'false'; ?>"
+				><?php echo esc_html( $label ); ?></a>
+			<?php endforeach; ?>
+		</nav>
+		<?php
+	}
+
+	/**
+	 * This screen, showing one tab.
+	 *
+	 * @param string $tab Tab key.
+	 * @return string Admin URL.
+	 */
+	public static function tab_url( $tab ) {
+		return add_query_arg(
+			array(
+				'page' => self::PAGE_SLUG,
+				'tab'  => $tab,
+			),
+			admin_url( 'admin.php' )
+		);
+	}
+
+	/**
+	 * Render the connection section.
+	 *
+	 * The API base URL, the key, the shop type and which Kontor shop this store is. The markup is unchanged from when every section was inlined in
+	 * render_page(); what moved is where it lives.
+	 *
+	 * @param array $settings Plugin settings.
+	 * @return void
+	 */
+	protected function render_connection_section( array $settings ) {
+		// Derived here rather than handed in: the section owns its own reading of the
+		// settings, so moving it cannot leave a caller computing something for it.
+		$orders     = self::orders_enabled( $settings );
+		$categories = ! empty( $settings[ self::SYNC_CATEGORIES ] );
+		?>
+		<h2><?php echo esc_html__( 'Connection', 'woo-kontor-sync-pro' ); ?></h2>
+		<table class="form-table" role="presentation">
+			<tr>
+				<th scope="row">
+					<label for="wksync-api-base-url"><?php echo esc_html__( 'API base URL', 'woo-kontor-sync-pro' ); ?></label>
+				</th>
+				<td>
+					<input
+						type="url"
+						class="regular-text code"
+						id="wksync-api-base-url"
+						name="<?php echo esc_attr( self::OPTION_KEY ); ?>[api_base_url]"
+						value="<?php echo esc_attr( $settings['api_base_url'] ); ?>"
+					/>
+					<p class="description"><?php echo esc_html__( 'The search endpoint is appended to this, so omit the trailing "/search".', 'woo-kontor-sync-pro' ); ?></p>
+				</td>
+			</tr>
+			<tr>
+				<th scope="row">
+					<label for="wksync-api-key"><?php echo esc_html__( 'API key', 'woo-kontor-sync-pro' ); ?></label>
+				</th>
+				<td>
+					<input
+						type="password"
+						class="regular-text"
+						id="wksync-api-key"
+						name="<?php echo esc_attr( self::OPTION_KEY ); ?>[api_key]"
+						value=""
+						autocomplete="new-password"
+					/>
 					<p class="description">
 						<?php
-						printf(
-							/* translators: %s: link to the WooCommerce email settings screen. */
-							esc_html__( 'The delivery and invoice syncs can also email the customer when tracking details or an invoice arrive. Both are switched off until you turn them on under %s.', 'woo-kontor-sync-pro' ),
-							sprintf(
-								'<a href="%1$s">%2$s</a>',
-								esc_url( admin_url( 'admin.php?page=wc-settings&tab=email' ) ),
-								esc_html__( 'WooCommerce → Settings → Emails', 'woo-kontor-sync-pro' )
-							)
+						echo esc_html(
+							'' === $settings['api_key']
+								? __( 'No key stored yet. Sent as the x-api-key header.', 'woo-kontor-sync-pro' )
+								: __( 'A key is stored. Leave this field blank to keep it.', 'woo-kontor-sync-pro' )
 						);
 						?>
 					</p>
-				</div>
+				</td>
+			</tr>
+			<tr>
+				<th scope="row">
+					<label for="wksync-shoptype"><?php echo esc_html__( 'Shop type', 'woo-kontor-sync-pro' ); ?></label>
+				</th>
+				<td>
+					<select id="wksync-shoptype" name="<?php echo esc_attr( self::OPTION_KEY ); ?>[shoptype]">
+						<?php foreach ( self::shoptypes() as $value => $label ) : ?>
+							<option value="<?php echo esc_attr( $value ); ?>" <?php selected( $settings['shoptype'], $value ); ?>>
+								<?php echo esc_html( $label ); ?>
+							</option>
+						<?php endforeach; ?>
+					</select>
+					<p class="description"><?php echo esc_html__( 'Selects which price list is imported. The article list is the same for every shop type; only the selling price differs.', 'woo-kontor-sync-pro' ); ?></p>
+					<p class="description"><?php echo esc_html__( 'B2B also imports the retail price as a recommended retail price, stored on each product as _wksync_msrp. It is the figure a business can resell at, and it is left off any article Kontor lists no retail price for.', 'woo-kontor-sync-pro' ); ?></p>
+				</td>
+			</tr>
+			<tr>
+				<th scope="row"><?php echo esc_html__( 'Connection test', 'woo-kontor-sync-pro' ); ?></th>
+				<td>
+					<button type="button" class="button" id="wksync-test-connection">
+						<?php echo esc_html__( 'Test connection', 'woo-kontor-sync-pro' ); ?>
+					</button>
+					<p class="description" id="wksync-test-result" aria-live="polite"></p>
+				</td>
+			</tr>
+			<?php
+			/*
+			 * The shop sits here rather than under Orders because two unrelated
+			 * features now need it: the order side, and the category import, whose
+			 * tree is per-shop. One field in one place beats the same field rendered
+			 * twice and able to disagree with itself.
+			 *
+			 * Hidden rather than left out when neither wants it, so a shop that only
+			 * imports the catalogue is still never asked to choose one — and so the
+			 * field goes on submitting, which is what keeps a stored shop through a
+			 * save made with the row closed.
+			 */
+			?>
+			<tr id="wksync-shop-row" <?php echo ( $orders || $categories ) ? '' : 'hidden'; ?>>
+				<th scope="row">
+					<label for="wksync-shop-id"><?php echo esc_html__( 'Shop', 'woo-kontor-sync-pro' ); ?></label>
+				</th>
+				<td>
+					<select id="wksync-shop-id" name="<?php echo esc_attr( self::OPTION_KEY ); ?>[shop_id]">
+						<option value=""><?php echo esc_html__( '— No shop selected —', 'woo-kontor-sync-pro' ); ?></option>
+						<?php if ( '' !== $settings['shop_id'] ) : ?>
+							<option value="<?php echo esc_attr( $settings['shop_id'] ); ?>" selected>
+								<?php echo esc_html( '' === $settings['shop_name'] ? $settings['shop_id'] : $settings['shop_name'] ); ?>
+							</option>
+						<?php endif; ?>
+					</select>
+					<button type="button" class="button" id="wksync-fetch-shops">
+						<?php echo esc_html__( 'Fetch shops', 'woo-kontor-sync-pro' ); ?>
+					</button>
+					<input
+						type="hidden"
+						id="wksync-shop-name"
+						name="<?php echo esc_attr( self::OPTION_KEY ); ?>[shop_name]"
+						value="<?php echo esc_attr( $settings['shop_name'] ); ?>"
+					/>
+					<p class="description">
+						<?php echo esc_html__( 'Identifies this store in Kontor. The order, delivery and invoice jobs all need one, and so does the category import, because Kontor holds a separate category tree per shop. The stock sync does not use it at all.', 'woo-kontor-sync-pro' ); ?>
+					</p>
+					<p class="description" id="wksync-shops-result" aria-live="polite"></p>
+				</td>
+			</tr>
+		</table>
+		<?php
+	}
 
-				<?php submit_button(); ?>
-			</form>
+	/**
+	 * Render the products section.
+	 *
+	 * What the catalogue import brings in and what it holds back. The markup is unchanged from when every section was inlined in
+	 * render_page(); what moved is where it lives.
+	 *
+	 * @param array $settings Plugin settings.
+	 * @return void
+	 */
+	protected function render_products_section( array $settings ) {
+		?>
+		<h2><?php echo esc_html__( 'Products', 'woo-kontor-sync-pro' ); ?></h2>
+		<table class="form-table" role="presentation">
+			<tr>
+				<th scope="row"><?php echo esc_html__( 'Manufacturers', 'woo-kontor-sync-pro' ); ?></th>
+				<td>
+					<?php
+					$chosen = (array) $settings['manufacturer_ids'];
 
-			<h2><?php echo esc_html__( 'Scheduled jobs', 'woo-kontor-sync-pro' ); ?></h2>
-			<?php $this->render_jobs_table(); ?>
+					/*
+					 * Always submitted, so an empty selection can be told apart from a
+					 * submission that never had the field. Without it, choosing nothing
+					 * would look identical to a partial save and could never clear the
+					 * filter.
+					 */
+					?>
+					<input type="hidden" name="<?php echo esc_attr( self::OPTION_KEY ); ?>[manufacturer_choice]" value="1"/>
 
-			<?php $this->render_category_push_section(); ?>
-			<?php $this->render_force_push_section(); ?>
+					<?php
+					/*
+					 * Checkboxes rather than a multi-select. A multi-select cannot be
+					 * emptied without knowing to ctrl-click the last remaining item, and a
+					 * plain click on any option silently collapses the whole selection to
+					 * that one — so the control both hides the way out and destroys work on
+					 * the way in.
+					 */
+					?>
+					<div
+						id="wksync-manufacturer-list"
+						class="wksync-choice-list"
+						role="group"
+						aria-label="<?php echo esc_attr__( 'Manufacturers to import', 'woo-kontor-sync-pro' ); ?>"
+						data-empty="<?php echo esc_attr__( 'Every manufacturer is imported.', 'woo-kontor-sync-pro' ); ?>"
+						data-field="<?php echo esc_attr( self::OPTION_KEY . '[manufacturer_ids][]' ); ?>"
+					>
+						<?php foreach ( $chosen as $manufacturer_id ) : ?>
+							<?php $this->render_manufacturer_choice( $manufacturer_id, self::manufacturer_label( $settings, $manufacturer_id ) ); ?>
+						<?php endforeach; ?>
+					</div>
 
-			<?php $this->render_updates_section(); ?>
+					<p class="wksync-choice-actions">
+						<button type="button" class="button" id="wksync-fetch-manufacturers">
+							<?php echo esc_html__( 'Fetch manufacturers', 'woo-kontor-sync-pro' ); ?>
+						</button>
+						<button type="button" class="button" id="wksync-clear-manufacturers" <?php disabled( empty( $chosen ) ); ?>>
+							<?php echo esc_html__( 'Import everything', 'woo-kontor-sync-pro' ); ?>
+						</button>
+					</p>
+
+					<input
+						type="hidden"
+						id="wksync-manufacturer-names"
+						name="<?php echo esc_attr( self::OPTION_KEY ); ?>[manufacturer_names]"
+						value="<?php echo esc_attr( (string) wp_json_encode( (array) $settings['manufacturer_names'] ) ); ?>"
+					/>
+
+					<?php
+					/*
+					 * Rendered server-side as well as by the script, so the state is
+					 * readable before the script runs and if it never does.
+					 */
+					?>
+					<p class="description" id="wksync-manufacturers-summary" aria-live="polite">
+						<?php echo esc_html( self::manufacturer_summary( count( $chosen ) ) ); ?>
+					</p>
+					<p class="description">
+						<?php echo esc_html__( 'Tick the manufacturers to import. Fetch the list to add more; leave every box clear to import the whole catalogue.', 'woo-kontor-sync-pro' ); ?>
+					</p>
+					<p class="description">
+						<strong><?php echo esc_html__( 'Narrowing this drafts products.', 'woo-kontor-sync-pro' ); ?></strong>
+						<?php echo esc_html__( 'Articles the filter excludes are no longer in the feed, so the next product sync drafts the ones it previously imported. Widening the filter again republishes them.', 'woo-kontor-sync-pro' ); ?>
+					</p>
+					<p class="description" id="wksync-manufacturers-result" aria-live="polite"></p>
+				</td>
+			</tr>
+			<tr>
+				<th scope="row">
+					<label for="wksync-image-base-url"><?php echo esc_html__( 'Image base URL', 'woo-kontor-sync-pro' ); ?></label>
+				</th>
+				<td>
+					<input
+						type="url"
+						class="regular-text code"
+						id="wksync-image-base-url"
+						name="<?php echo esc_attr( self::OPTION_KEY ); ?>[image_base_url]"
+						value="<?php echo esc_attr( $settings['image_base_url'] ); ?>"
+					/>
+					<p class="description"><?php echo esc_html__( 'Kontor returns image filenames rather than URLs. Set the folder they live in to import product images; leave blank to skip images.', 'woo-kontor-sync-pro' ); ?></p>
+				</td>
+			</tr>
+			<tr>
+				<th scope="row"><?php echo esc_html__( 'Articles without images', 'woo-kontor-sync-pro' ); ?></th>
+				<td>
+					<?php
+					/*
+					 * The hidden field is what makes a cleared box mean "off". A browser
+					 * submits nothing for an unticked checkbox, and an absent field has
+					 * to keep the stored value, or any partial save would quietly
+					 * republish the whole set of articles this holds back.
+					 */
+					?>
+					<input type="hidden" name="<?php echo esc_attr( self::OPTION_KEY ); ?>[require_main_image]" value="0" />
+					<label for="wksync-require-main-image">
+						<input
+							type="checkbox"
+							id="wksync-require-main-image"
+							name="<?php echo esc_attr( self::OPTION_KEY ); ?>[require_main_image]"
+							value="1"
+							<?php checked( ! empty( $settings['require_main_image'] ) ); ?>
+						/>
+						<?php echo esc_html__( 'Only import articles that Kontor lists an image for', 'woo-kontor-sync-pro' ); ?>
+					</label>
+					<p class="description">
+						<?php echo esc_html__( 'An article with no image is passed over rather than created. The check is on what Kontor sends, not on the shop, so a product whose pictures are still downloading is never caught by it.', 'woo-kontor-sync-pro' ); ?>
+					</p>
+					<p class="description">
+						<strong><?php echo esc_html__( 'This drafts products already imported.', 'woo-kontor-sync-pro' ); ?></strong>
+						<?php echo esc_html__( 'A product this plugin imported whose article now arrives without an image is drafted, exactly as one Kontor stopped listing is. It is republished by itself as soon as the article has an image again, or when this setting is turned off.', 'woo-kontor-sync-pro' ); ?>
+					</p>
+				</td>
+			</tr>
+			<tr>
+				<th scope="row"><?php echo esc_html__( 'Sales quantities', 'woo-kontor-sync-pro' ); ?></th>
+				<td>
+					<?php
+					/*
+					 * Paired with a hidden zero for the same reason as the image
+					 * requirement above: a browser sends nothing for a cleared checkbox,
+					 * and an absent field has to keep the stored value.
+					 */
+					?>
+					<input type="hidden" name="<?php echo esc_attr( self::OPTION_KEY ); ?>[<?php echo esc_attr( self::ENFORCE_QUANTITIES ); ?>]" value="0" />
+					<label for="wksync-enforce-quantities">
+						<input
+							type="checkbox"
+							id="wksync-enforce-quantities"
+							name="<?php echo esc_attr( self::OPTION_KEY ); ?>[<?php echo esc_attr( self::ENFORCE_QUANTITIES ); ?>]"
+							value="1"
+							<?php checked( ! empty( $settings[ self::ENFORCE_QUANTITIES ] ) ); ?>
+						/>
+						<?php echo esc_html__( 'Hold customers to the quantities Kontor sells each article in', 'woo-kontor-sync-pro' ); ?>
+					</label>
+					<p class="description">
+						<?php echo esc_html__( 'Kontor states a smallest quantity and a step for every article, imported as _wksync_min_qty and _wksync_qty_step. An article sold in sixes with a step of two can then only be bought as 6, 8, 10 and so on — in the quantity box, in the cart and at checkout alike.', 'woo-kontor-sync-pro' ); ?>
+					</p>
+					<p class="description">
+						<?php echo esc_html__( 'Leave it clear to ignore them. The figures are still imported, so turning this on takes effect immediately rather than after the next product sync. Order screens and refunds are never restricted by it.', 'woo-kontor-sync-pro' ); ?>
+					</p>
+					<p class="description">
+						<?php echo esc_html__( 'Both figures are shown on each product\'s Inventory tab, where they are read-only: Kontor supplies them and every sync rewrites them, so they are changed in the ERP.', 'woo-kontor-sync-pro' ); ?>
+					</p>
+				</td>
+			</tr>
+			<tr>
+				<th scope="row"><?php echo esc_html__( 'Articles without stock records', 'woo-kontor-sync-pro' ); ?></th>
+				<td>
+					<?php
+					/*
+					 * Paired with a hidden zero for the same reason as the two above: a
+					 * browser sends nothing for a cleared checkbox, and an absent field
+					 * has to keep the stored value.
+					 */
+					?>
+					<input type="hidden" name="<?php echo esc_attr( self::OPTION_KEY ); ?>[<?php echo esc_attr( self::DRAFT_MISSING_STOCK ); ?>]" value="0" />
+					<label for="wksync-draft-missing-stock">
+						<input
+							type="checkbox"
+							id="wksync-draft-missing-stock"
+							name="<?php echo esc_attr( self::OPTION_KEY ); ?>[<?php echo esc_attr( self::DRAFT_MISSING_STOCK ); ?>]"
+							value="1"
+							<?php checked( ! empty( $settings[ self::DRAFT_MISSING_STOCK ] ) ); ?>
+						/>
+						<?php echo esc_html__( 'Draft imported products the stock feed does not carry', 'woo-kontor-sync-pro' ); ?>
+					</label>
+					<p class="description">
+						<?php echo esc_html__( 'Kontor\'s stock list is narrower than its catalogue: it holds no record at all for some articles the catalogue lists. Left clear, those products keep the level they last had and stay published, and whether Kontor still sells an article is left to the product sync to answer.', 'woo-kontor-sync-pro' ); ?>
+					</p>
+					<p class="description">
+						<strong><?php echo esc_html__( 'Ticking this hides a large part of the catalogue.', 'woo-kontor-sync-pro' ); ?></strong>
+						<?php echo esc_html__( 'On the account this was built against the catalogue lists 4386 articles and the stock feed carries 2945, so the first run after ticking it drafts some 1400 products. Each one comes back by itself as soon as a stock level for it arrives again.', 'woo-kontor-sync-pro' ); ?>
+					</p>
+					<p class="description">
+						<?php echo esc_html__( 'Clearing it again republishes what it drafted, on the next stock sync — unless the product sync is holding the product back for its own reason.', 'woo-kontor-sync-pro' ); ?>
+					</p>
+				</td>
+			</tr>
+			<tr>
+				<th scope="row"><?php echo esc_html__( 'Products Kontor does not list', 'woo-kontor-sync-pro' ); ?></th>
+				<td>
+					<?php
+					/*
+					 * Paired with a hidden zero for the same reason as the boxes above: a
+					 * browser sends nothing for a cleared checkbox, and an absent field
+					 * has to keep the stored value. It matters more here than anywhere
+					 * else on this screen, because the value being restored is the one
+					 * that takes products out of the shop.
+					 */
+					?>
+					<input type="hidden" name="<?php echo esc_attr( self::OPTION_KEY ); ?>[<?php echo esc_attr( self::TRASH_UNMANAGED ); ?>]" value="0" />
+					<label for="wksync-trash-unmanaged">
+						<input
+							type="checkbox"
+							id="wksync-trash-unmanaged"
+							name="<?php echo esc_attr( self::OPTION_KEY ); ?>[<?php echo esc_attr( self::TRASH_UNMANAGED ); ?>]"
+							value="1"
+							<?php checked( ! empty( $settings[ self::TRASH_UNMANAGED ] ) ); ?>
+						/>
+						<?php echo esc_html__( 'Move products this plugin did not import to the trash', 'woo-kontor-sync-pro' ); ?>
+					</label>
+					<p class="description">
+						<?php echo esc_html__( 'Leave it clear and a product this plugin never imported is left alone for ever, whoever made it and whatever its article number. Tick it only where the shop sells Kontor\'s catalogue and nothing besides.', 'woo-kontor-sync-pro' ); ?>
+					</p>
+					<p class="description">
+						<strong><?php echo esc_html__( 'This removes products from the shop.', 'woo-kontor-sync-pro' ); ?></strong>
+						<?php echo esc_html__( 'At the end of each product sync, every product with no article number of Kontor\'s — and every product whose article number the catalogue did not carry in that run — is moved to the trash, whether it is published, private or a draft. Products made by another plugin, by an importer or by hand all count.', 'woo-kontor-sync-pro' ); ?>
+					</p>
+					<p class="description">
+						<?php echo esc_html__( 'They go to the trash rather than being deleted, so Products → Trash is the way back and nothing is lost until the trash is emptied. Their images are kept in the media library either way, because a restored product needs them.', 'woo-kontor-sync-pro' ); ?>
+					</p>
+					<p class="description">
+						<?php echo esc_html__( 'Clearing this setting again stops the sweeping, but it does not empty the trash and it does not restore anything already trashed. Restoring is done in Products → Trash.', 'woo-kontor-sync-pro' ); ?>
+					</p>
+					<p class="description">
+						<?php echo esc_html__( 'A product whose article Kontor lists but is holding back — switched off for the webshop, or without an image — is never trashed by this. It was in the catalogue, which is the whole question being asked.', 'woo-kontor-sync-pro' ); ?>
+					</p>
+				</td>
+			</tr>
+			<tr>
+				<th scope="row">
+					<label for="wksync-product-sync-interval"><?php echo esc_html__( 'Product sync', 'woo-kontor-sync-pro' ); ?></label>
+				</th>
+				<td>
+					<?php
+					$this->render_interval_select(
+						'wksync-product-sync-interval',
+						'product_sync_interval',
+						self::product_sync_intervals(),
+						(int) $settings['product_sync_interval']
+					);
+					?>
+				</td>
+			</tr>
+			<tr>
+				<th scope="row">
+					<label for="wksync-stock-sync-interval"><?php echo esc_html__( 'Stock sync', 'woo-kontor-sync-pro' ); ?></label>
+				</th>
+				<td>
+					<?php
+					$this->render_interval_select(
+						'wksync-stock-sync-interval',
+						'stock_sync_interval',
+						self::stock_sync_intervals(),
+						(int) $settings['stock_sync_interval']
+					);
+					?>
+				</td>
+			</tr>
+		</table>
+		<?php
+	}
+
+	/**
+	 * Render the categories section.
+	 *
+	 * Whether Kontor owns this shop’s product categories. The markup is unchanged from when every section was inlined in
+	 * render_page(); what moved is where it lives.
+	 *
+	 * @param array $settings Plugin settings.
+	 * @return void
+	 */
+	protected function render_categories_section( array $settings ) {
+		$categories = ! empty( $settings[ self::SYNC_CATEGORIES ] );
+		$has_shop   = '' !== trim( (string) $settings['shop_id'] ) && self::is_shop_id( $settings['shop_id'] );
+		?>
+		<h2><?php echo esc_html__( 'Categories', 'woo-kontor-sync-pro' ); ?></h2>
+		<table class="form-table" role="presentation">
+			<tr>
+				<th scope="row"><?php echo esc_html__( 'Categories from Kontor', 'woo-kontor-sync-pro' ); ?></th>
+				<td>
+					<input type="hidden" name="<?php echo esc_attr( self::OPTION_KEY ); ?>[<?php echo esc_attr( self::SYNC_CATEGORIES ); ?>]" value="0" />
+					<label for="wksync-sync-categories">
+						<input
+							type="checkbox"
+							id="wksync-sync-categories"
+							name="<?php echo esc_attr( self::OPTION_KEY ); ?>[<?php echo esc_attr( self::SYNC_CATEGORIES ); ?>]"
+							value="1"
+							<?php checked( $categories ); ?>
+						/>
+						<?php echo esc_html__( 'Let Kontor decide which categories a product is in', 'woo-kontor-sync-pro' ); ?>
+					</label>
+					<?php if ( $categories && ! $has_shop ) : ?>
+						<div class="notice notice-warning inline">
+							<p><?php echo esc_html__( 'Categories will not be imported until a shop is chosen above. Kontor holds a separate category tree per shop, and asks for one before it will list any.', 'woo-kontor-sync-pro' ); ?></p>
+						</div>
+					<?php endif; ?>
+					<p class="description">
+						<?php echo esc_html__( 'The category tree Kontor holds for the chosen shop becomes WooCommerce product categories, matched on Kontor\'s own category ID so that renaming or moving one in the ERP is followed here rather than duplicated. Each product is then filed as its article says.', 'woo-kontor-sync-pro' ); ?>
+					</p>
+					<p class="description">
+						<?php echo esc_html__( 'Categories you added in WooCommerce are left on their products untouched, and so is any category Kontor has stopped listing. Nothing here ever deletes a category.', 'woo-kontor-sync-pro' ); ?>
+					</p>
+					<p class="description">
+						<strong><?php echo esc_html__( 'Turning this on or off rewrites the whole catalogue on the next run.', 'woo-kontor-sync-pro' ); ?></strong>
+						<?php echo esc_html__( 'The category field joins the change check with it, so every article counts as changed once. That is the same cost as changing the shop type.', 'woo-kontor-sync-pro' ); ?>
+					</p>
+				</td>
+			</tr>
+		</table>
+
+		<div id="wksync-category-settings" <?php echo $categories ? '' : 'hidden'; ?>>
+			<table class="form-table" role="presentation">
+				<tr>
+					<th scope="row"><?php echo esc_html__( 'Articles with no category', 'woo-kontor-sync-pro' ); ?></th>
+					<td>
+						<input type="hidden" name="<?php echo esc_attr( self::OPTION_KEY ); ?>[<?php echo esc_attr( self::REQUIRE_CATEGORY ); ?>]" value="0" />
+						<label for="wksync-require-category">
+							<input
+								type="checkbox"
+								id="wksync-require-category"
+								name="<?php echo esc_attr( self::OPTION_KEY ); ?>[<?php echo esc_attr( self::REQUIRE_CATEGORY ); ?>]"
+								value="1"
+								<?php checked( ! empty( $settings[ self::REQUIRE_CATEGORY ] ) ); ?>
+							/>
+							<?php echo esc_html__( 'Hold them back as drafts', 'woo-kontor-sync-pro' ); ?>
+						</label>
+						<p class="description">
+							<?php echo esc_html__( 'An article Kontor files under no category is imported as a draft rather than put on sale, the same answer this plugin gives an article with no image. It keeps its price, its stock and its pictures, and a category added in Kontor publishes it on the next run.', 'woo-kontor-sync-pro' ); ?>
+						</p>
+						<p class="description">
+							<strong><?php echo esc_html__( 'This is usually a large number.', 'woo-kontor-sync-pro' ); ?></strong>
+							<?php echo esc_html__( 'On the account this was measured against, close to half the catalogue belonged to no category at all. Check the run summary before assuming something went wrong.', 'woo-kontor-sync-pro' ); ?>
+						</p>
+					</td>
+				</tr>
+			</table>
+		</div>
+		<?php
+	}
+
+	/**
+	 * Render the product page section.
+	 *
+	 * The two figures this plugin can add to the product meta block. The markup is unchanged from when every section was inlined in
+	 * render_page(); what moved is where it lives.
+	 *
+	 * @param array $settings Plugin settings.
+	 * @return void
+	 */
+	protected function render_storefront_section( array $settings ) {
+		?>
+		<h2><?php echo esc_html__( 'Product page', 'woo-kontor-sync-pro' ); ?></h2>
+		<p class="description">
+			<?php echo esc_html__( 'Both rows are added to the product meta block, beside the article number and the categories, and each is shown only on a product that has the figure.', 'woo-kontor-sync-pro' ); ?>
+		</p>
+		<table class="form-table" role="presentation">
+			<tr>
+				<th scope="row"><?php echo esc_html__( 'Recommended retail price', 'woo-kontor-sync-pro' ); ?></th>
+				<td>
+					<?php
+					/*
+					 * Paired with a hidden zero like every other checkbox here: a browser
+					 * sends nothing for a cleared box, and an absent field has to keep the
+					 * stored value.
+					 */
+					?>
+					<input type="hidden" name="<?php echo esc_attr( self::OPTION_KEY ); ?>[<?php echo esc_attr( self::SHOW_MSRP ); ?>]" value="0" />
+					<label for="wksync-show-msrp">
+						<input
+							type="checkbox"
+							id="wksync-show-msrp"
+							name="<?php echo esc_attr( self::OPTION_KEY ); ?>[<?php echo esc_attr( self::SHOW_MSRP ); ?>]"
+							value="1"
+							<?php checked( ! empty( $settings[ self::SHOW_MSRP ] ) ); ?>
+						/>
+						<?php echo esc_html__( 'Show the recommended retail price on the product page', 'woo-kontor-sync-pro' ); ?>
+					</label>
+					<p>
+						<label for="wksync-msrp-label"><?php echo esc_html__( 'Label', 'woo-kontor-sync-pro' ); ?></label>
+						<input
+							type="text"
+							class="regular-text"
+							id="wksync-msrp-label"
+							name="<?php echo esc_attr( self::OPTION_KEY ); ?>[<?php echo esc_attr( self::MSRP_LABEL ); ?>]"
+							value="<?php echo esc_attr( (string) $settings[ self::MSRP_LABEL ] ); ?>"
+							placeholder="<?php echo esc_attr( ProductMeta::msrp_label() ); ?>"
+						/>
+					</p>
+					<p class="description">
+						<?php echo esc_html__( 'Kontor supplies this figure on a wholesale shop only, where it sells at Ek and the UVP beside it is the price a business buying here can resell at. It is imported as _wksync_msrp and, until now, nothing rendered it.', 'woo-kontor-sync-pro' ); ?>
+					</p>
+					<p class="description">
+						<?php echo esc_html__( 'The label is shown in front of the amount. Leave it empty for the default wording in the shop\'s language, and remember that it is what the customer reads: the figure is stated raw, not as a saving, and Kontor lists a retail price no higher than the shop\'s own for a small number of articles.', 'woo-kontor-sync-pro' ); ?>
+					</p>
+				</td>
+			</tr>
+			<tr>
+				<th scope="row"><?php echo esc_html__( 'EAN', 'woo-kontor-sync-pro' ); ?></th>
+				<td>
+					<input type="hidden" name="<?php echo esc_attr( self::OPTION_KEY ); ?>[<?php echo esc_attr( self::SHOW_EAN ); ?>]" value="0" />
+					<label for="wksync-show-ean">
+						<input
+							type="checkbox"
+							id="wksync-show-ean"
+							name="<?php echo esc_attr( self::OPTION_KEY ); ?>[<?php echo esc_attr( self::SHOW_EAN ); ?>]"
+							value="1"
+							<?php checked( ! empty( $settings[ self::SHOW_EAN ] ) ); ?>
+						/>
+						<?php echo esc_html__( 'Show the EAN on the product page', 'woo-kontor-sync-pro' ); ?>
+					</label>
+					<p>
+						<label for="wksync-ean-label"><?php echo esc_html__( 'Label', 'woo-kontor-sync-pro' ); ?></label>
+						<input
+							type="text"
+							class="regular-text"
+							id="wksync-ean-label"
+							name="<?php echo esc_attr( self::OPTION_KEY ); ?>[<?php echo esc_attr( self::EAN_LABEL ); ?>]"
+							value="<?php echo esc_attr( (string) $settings[ self::EAN_LABEL ] ); ?>"
+							placeholder="<?php echo esc_attr( ProductMeta::ean_label() ); ?>"
+						/>
+					</p>
+					<p class="description">
+						<?php echo esc_html__( 'The EAN Kontor sends as Artean, held in WooCommerce\'s own GTIN field. EANs repeat across articles in the feed and WooCommerce refuses a duplicate, so a product whose EAN another already holds has none and shows no row.', 'woo-kontor-sync-pro' ); ?>
+					</p>
+				</td>
+			</tr>
+		</table>
+		<?php
+	}
+
+	/**
+	 * Render the orders section.
+	 *
+	 * The order push, the delivery import and the invoice import. The markup is unchanged from when every section was inlined in
+	 * render_page(); what moved is where it lives.
+	 *
+	 * @param array $settings Plugin settings.
+	 * @return void
+	 */
+	protected function render_orders_section( array $settings ) {
+		$orders    = self::orders_enabled( $settings );
+		$push_mode = self::push_mode( $settings );
+		?>
+		<h2><?php echo esc_html__( 'Orders', 'woo-kontor-sync-pro' ); ?></h2>
+		<table class="form-table" role="presentation">
+			<tr>
+				<th scope="row"><?php echo esc_html__( 'Orders with Kontor', 'woo-kontor-sync-pro' ); ?></th>
+				<td>
+					<?php
+					/*
+					 * Hidden field first, as everywhere else here: a browser submits
+					 * nothing for an unticked box, and an absent field keeps the stored
+					 * value, so "off" has to be a value that arrives.
+					 */
+					?>
+					<input type="hidden" name="<?php echo esc_attr( self::OPTION_KEY ); ?>[<?php echo esc_attr( self::SYNC_ORDERS ); ?>]" value="0" />
+					<label for="wksync-sync-orders">
+						<input
+							type="checkbox"
+							id="wksync-sync-orders"
+							name="<?php echo esc_attr( self::OPTION_KEY ); ?>[<?php echo esc_attr( self::SYNC_ORDERS ); ?>]"
+							value="1"
+							<?php checked( $orders ); ?>
+						/>
+						<?php echo esc_html__( 'Send orders to Kontor, and bring deliveries and invoices back', 'woo-kontor-sync-pro' ); ?>
+					</label>
+					<p class="description">
+						<?php echo esc_html__( 'Leave this off for a shop that only imports the catalogue. Nothing is sent at checkout and the three jobs below never run. Turning it back on restores the schedules exactly as they were.', 'woo-kontor-sync-pro' ); ?>
+					</p>
+				</td>
+			</tr>
+		</table>
+
+		<?php
+		/*
+		 * Rendered whether or not orders are switched on, and hidden rather than
+		 * left out, so ticking the box above reveals the rest without a save. The
+		 * fields still submit while hidden, which is what keeps a shop's stored
+		 * shop and intervals through a save made with the section closed.
+		 */
+		?>
+		<div id="wksync-order-settings" <?php echo $orders ? '' : 'hidden'; ?>>
+			<table class="form-table" role="presentation">
+				<tr>
+					<th scope="row">
+						<label for="wksync-upload-user-id"><?php echo esc_html__( 'Upload user ID', 'woo-kontor-sync-pro' ); ?></label>
+					</th>
+					<td>
+						<?php
+						/*
+						 * Shown for reference only. It carries no name attribute, so it is
+						 * never submitted and sanitize() has nothing to validate — the value
+						 * lives in OrderSync::UPLOAD_USER_ID and cannot drift from what is
+						 * actually sent.
+						 */
+						?>
+						<input
+							type="text"
+							class="regular-text code"
+							id="wksync-upload-user-id"
+							value="<?php echo esc_attr( OrderSync::UPLOAD_USER_ID ); ?>"
+							readonly
+						/>
+						<p class="description"><?php echo esc_html__( 'Sent with every order upload as meta.userId. Fixed by agreement with Kontor and not editable here.', 'woo-kontor-sync-pro' ); ?></p>
+					</td>
+				</tr>
+				<tr>
+					<th scope="row">
+						<label for="wksync-order-push-mode"><?php echo esc_html__( 'Send orders', 'woo-kontor-sync-pro' ); ?></label>
+					</th>
+					<td>
+						<select id="wksync-order-push-mode" name="<?php echo esc_attr( self::OPTION_KEY ); ?>[<?php echo esc_attr( self::ORDER_PUSH_MODE ); ?>]">
+							<?php foreach ( self::order_push_modes() as $value => $label ) : ?>
+								<option value="<?php echo esc_attr( $value ); ?>" <?php selected( $push_mode, $value ); ?>>
+									<?php echo esc_html( $label ); ?>
+								</option>
+							<?php endforeach; ?>
+						</select>
+						<p class="description">
+							<?php echo esc_html__( 'Sending as they are paid reaches Kontor within a minute of checkout. Either way the sweep below catches whatever that moment missed, so this is a choice about the ordinary path rather than about reliability.', 'woo-kontor-sync-pro' ); ?>
+						</p>
+						<?php if ( self::PUSH_SWEEP === $push_mode && self::INTERVAL_NEVER === (int) $settings['order_sync_interval'] ) : ?>
+							<p class="description">
+								<strong><?php echo esc_html__( 'Nothing will send orders on its own.', 'woo-kontor-sync-pro' ); ?></strong>
+								<?php echo esc_html__( 'With the sweep below set to Never as well, an order reaches Kontor only when Run now is pressed.', 'woo-kontor-sync-pro' ); ?>
+							</p>
+						<?php endif; ?>
+					</td>
+				</tr>
+				<tr>
+					<th scope="row">
+						<label for="wksync-order-sync-interval"><?php echo esc_html__( 'Order sync', 'woo-kontor-sync-pro' ); ?></label>
+					</th>
+					<td>
+						<?php
+						$this->render_interval_select(
+							'wksync-order-sync-interval',
+							'order_sync_interval',
+							self::order_sync_intervals(),
+							(int) $settings['order_sync_interval']
+						);
+						?>
+						<p class="description"><?php echo esc_html__( 'A sweep for whatever the moment above missed — an order Kontor rejected, or one placed while the site could not reach it.', 'woo-kontor-sync-pro' ); ?></p>
+					</td>
+				</tr>
+				<tr>
+					<th scope="row">
+						<label for="wksync-delivery-sync-interval"><?php echo esc_html__( 'Delivery sync', 'woo-kontor-sync-pro' ); ?></label>
+					</th>
+					<td>
+						<?php
+						$this->render_interval_select(
+							'wksync-delivery-sync-interval',
+							'delivery_sync_interval',
+							self::delivery_sync_intervals(),
+							(int) $settings['delivery_sync_interval']
+						);
+						?>
+						<p class="description"><?php echo esc_html__( 'Pulls tracking details back from Kontor. An order Kontor reports as completed is completed here too, which emails the customer.', 'woo-kontor-sync-pro' ); ?></p>
+					</td>
+				</tr>
+				<tr>
+					<th scope="row">
+						<label for="wksync-invoice-sync-interval"><?php echo esc_html__( 'Invoice sync', 'woo-kontor-sync-pro' ); ?></label>
+					</th>
+					<td>
+						<?php
+						$this->render_interval_select(
+							'wksync-invoice-sync-interval',
+							'invoice_sync_interval',
+							self::invoice_sync_intervals(),
+							(int) $settings['invoice_sync_interval']
+						);
+						?>
+						<p class="description"><?php echo esc_html__( 'Downloads invoice PDFs from Kontor. Each invoice is stored privately, shown to the customer on their order, and attached to the order emails sent after it arrives.', 'woo-kontor-sync-pro' ); ?></p>
+					</td>
+				</tr>
+			</table>
+
+			<?php
+			/*
+			 * The two mails these jobs can send are WooCommerce email types rather
+			 * than settings of this plugin's, so their switches, subjects and
+			 * headings all live where a shop manager already manages email. This
+			 * line is what stops that being the same as hiding them.
+			 */
+			?>
+			<p class="description">
+				<?php
+				printf(
+					/* translators: %s: link to the WooCommerce email settings screen. */
+					esc_html__( 'The delivery and invoice syncs can also email the customer when tracking details or an invoice arrive. Both are switched off until you turn them on under %s.', 'woo-kontor-sync-pro' ),
+					sprintf(
+						'<a href="%1$s">%2$s</a>',
+						esc_url( admin_url( 'admin.php?page=wc-settings&tab=email' ) ),
+						esc_html__( 'WooCommerce → Settings → Emails', 'woo-kontor-sync-pro' )
+					)
+				);
+				?>
+			</p>
 		</div>
 		<?php
 	}

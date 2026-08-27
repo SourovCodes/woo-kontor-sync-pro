@@ -633,6 +633,107 @@ class SettingsTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Every tab renders every field, whichever one is showing.
+	 *
+	 * **This is the load-bearing property of the tabs**, not a detail of them. The
+	 * screen posts one option array and `sanitize()` reads what arrives: `api_base_url`
+	 * and `image_base_url` are taken as empty when absent, so a tab that rendered only
+	 * its own panel would wipe the API URL — and stop the shop syncing entirely — the
+	 * first time somebody saved from anywhere else. The tabs hide panels; they must
+	 * never leave one out.
+	 *
+	 * @return void
+	 */
+	public function test_every_tab_submits_the_whole_settings_form() {
+		wp_set_current_user( self::factory()->user->create( array( 'role' => 'administrator' ) ) );
+
+		$fields = array();
+
+		foreach ( array_keys( Settings::tabs() ) as $tab ) {
+			$fields[ $tab ] = $this->field_names( $this->render_tab( $tab ) );
+
+			$this->assertContains(
+				'woo_kontor_sync_settings[api_base_url]',
+				$fields[ $tab ],
+				$tab . ' does not carry the API base URL, so saving from it would clear it'
+			);
+			$this->assertContains(
+				'woo_kontor_sync_settings[image_base_url]',
+				$fields[ $tab ],
+				$tab . ' does not carry the image base URL'
+			);
+		}
+
+		// Not merely present on each: identical on all of them.
+		$this->assertCount( 1, array_unique( array_map( 'wp_json_encode', $fields ) ) );
+	}
+
+	/**
+	 * A tab nobody registered falls back to the first rather than hiding everything.
+	 *
+	 * @return void
+	 */
+	public function test_an_unknown_tab_falls_back_to_the_first() {
+		wp_set_current_user( self::factory()->user->create( array( 'role' => 'administrator' ) ) );
+
+		$markup = $this->render_tab( 'not-a-tab' );
+
+		$this->assertStringContainsString( 'data-wksync-tab="jobs"', $markup );
+		$this->assertMatchesRegularExpression( '/nav-tab-active[^>]*data-wksync-tab="jobs"/', $markup );
+	}
+
+	/**
+	 * Every tab has a panel, and every panel a tab.
+	 *
+	 * A tab with no panel behind it shows an empty screen; a panel no tab reaches is
+	 * unreachable once the script starts hiding them.
+	 *
+	 * @return void
+	 */
+	public function test_the_tabs_and_the_panels_match() {
+		wp_set_current_user( self::factory()->user->create( array( 'role' => 'administrator' ) ) );
+
+		$markup = $this->render_tab( '' );
+
+		preg_match_all( '/data-wksync-panel="([a-z]+)"/', $markup, $panels );
+
+		$this->assertSame( array_keys( Settings::tabs() ), $panels[1] );
+	}
+
+	/**
+	 * Render the screen with one tab requested.
+	 *
+	 * @param string $tab Tab key.
+	 * @return string Markup.
+	 */
+	private function render_tab( $tab ) {
+		$_GET['tab'] = $tab;
+
+		ob_start();
+		( new Settings() )->render_page();
+		$markup = (string) ob_get_clean();
+
+		unset( $_GET['tab'] );
+
+		return $markup;
+	}
+
+	/**
+	 * The names of every field in some markup, sorted.
+	 *
+	 * @param string $markup Rendered screen.
+	 * @return string[] Field names.
+	 */
+	private function field_names( $markup ) {
+		preg_match_all( '/name="([^"]+)"/', $markup, $matches );
+
+		$names = array_values( array_unique( $matches[1] ) );
+		sort( $names );
+
+		return $names;
+	}
+
+	/**
 	 * The screen says where the two customer emails are switched on.
 	 *
 	 * They are WooCommerce email types rather than settings of this plugin's, which is

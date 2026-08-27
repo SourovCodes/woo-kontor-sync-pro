@@ -1560,6 +1560,43 @@ calling it queues real work: it is not a way to test whether a job would be allo
 - Credentials live in a single autoloaded-`no` option and are never echoed back into an admin field
   in plaintext.
 
+## The settings screen
+
+`Admin\Settings` renders one page in six tabs — Jobs, Connection, Products, Categories, Orders,
+Tools — each panel a `render_*_section()` of its own rather than seven hundred lines inlined in
+`render_page()`.
+
+- **The tabs hide panels; they never leave one out.** This is the load-bearing property, not a
+  detail of the implementation. The screen posts a single option array and `sanitize()` reads what
+  arrives — and `api_base_url` and `image_base_url` are taken as **empty when absent**, unlike every
+  other field, which keeps its stored value. So the obvious version of this feature, rendering one
+  tab per request, would wipe the API URL and stop the shop syncing the first time anybody saved
+  from a different tab. `test_every_tab_submits_the_whole_settings_form` is the guard, and it
+  compares the whole field set rather than spot-checking.
+  - It is the same reasoning that keeps the shop row `hidden` rather than left out when neither
+    orders nor categories want it.
+  - **Four settings panels, one form.** A form per tab would post a quarter of the option each time
+    and `sanitize()` would read the rest as absent — the same failure by another route.
+- **Without JavaScript every panel shows**, which is exactly what the screen did before the tabs
+  existed. The class that does the hiding is added by the script, so the fallback is the old page
+  rather than a blank one.
+- **Jobs is first and is where the screen opens.** It is what somebody arriving on an ordinary day
+  came for: what ran, how it went, and the button to run it again. The settings behind it are read
+  during setup and then rarely. **Tools is last**, where nobody reaches the two destructive pushes
+  by accident.
+- **The Save button belongs to the form, not to a tab**, so it is hidden on Jobs and Tools, which
+  put nothing into it. A Save button that appears to do nothing is worse than none.
+- **A save returns to the tab it was made from.** `settings_fields()` writes `_wp_http_referer` when
+  the page renders, so it names whichever tab the URL carried then; the script rewrites it when a
+  tab is clicked. That update happens **before** the address-bar update and not after it —
+  `replaceState` throws on a cross-origin URL, and anything below a throw there is a save quietly
+  returning to the wrong tab. The history call itself is guarded and is the convenience of the two.
+- **The tabs are real links carrying `tab=` in the URL**, so one can be bookmarked, `Settings::tab_url()`
+  can point at one from elsewhere, and the strip works before the script has loaded. An unrecognised
+  value falls back to the first tab rather than leaving every panel hidden.
+- **The redirects name their tab**: Run now comes back to Jobs, and both force pushes to Tools,
+  where the reply they print is.
+
 ## Saying that a sync is broken
 
 Every other surface in this plugin has to be visited. A shop whose product sync had failed every
