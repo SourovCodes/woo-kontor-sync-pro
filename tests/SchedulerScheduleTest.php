@@ -77,6 +77,43 @@ class SchedulerScheduleTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A recurring action that is executing is never cancelled.
+	 *
+	 * Action Scheduler queues a recurring action's next occurrence at the *end* of the
+	 * current run, so for the whole length of a run the only recurring action on the
+	 * hook is the running one. Cancel it and the job ends up with two: sync_schedules()
+	 * sees nothing queued and adds one, and the action still executing then adds
+	 * another of its own — schedule_next_instance() only declines to repeat an action
+	 * whose status is FAILED, and a cancelled one repeats like any other. The shop
+	 * would sync twice as often, for ever.
+	 *
+	 * @return void
+	 */
+	public function test_a_running_schedule_survives_a_settings_save() {
+		$this->store_interval( 'stock_sync_interval', 900 );
+
+		$store = ActionScheduler::store();
+		$id    = (int) as_schedule_recurring_action( time() + 900, 900, Scheduler::ACTION_SYNC_STOCK, array(), Scheduler::GROUP );
+
+		// The state a recurring job is in for the whole length of its own run.
+		$store->log_execution( $id );
+
+		$this->assertSame( ActionScheduler_Store::STATUS_RUNNING, $store->get_status( $id ) );
+
+		$this->store_interval( 'stock_sync_interval', HOUR_IN_SECONDS );
+		( new Scheduler() )->reschedule();
+
+		$this->assertSame(
+			ActionScheduler_Store::STATUS_RUNNING,
+			$store->get_status( $id ),
+			'the running action was cancelled, so it will queue a second recurring action when it finishes'
+		);
+
+		// And nothing was queued beside it, because it still counts as scheduled.
+		$this->assertSame( 0, $this->recurring_count( Scheduler::ACTION_SYNC_STOCK ) );
+	}
+
+	/**
 	 * Saving the settings does not throw away a Run now somebody has just started.
 	 *
 	 * `reschedule()` reached for `as_unschedule_all_actions()`, which takes everything

@@ -156,6 +156,59 @@ class PreviewTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * The read-only promise does not depend on the instance being fresh.
+	 *
+	 * The tree is memoised on first call and takes the flag at that moment, so an
+	 * instance that had already built a writing one would go on using it — and the
+	 * preview would reconcile the shop's categories. The inverse is worse: an instance
+	 * left read-only after a preview would stop reconciling on a real run, and with the
+	 * category requirement on that drafts the shop.
+	 *
+	 * @return void
+	 */
+	public function test_a_preview_neither_inherits_nor_leaves_behind_a_tree() {
+		$this->configure( array( Settings::SYNC_CATEGORIES => true ) );
+		$this->serve_categories();
+
+		$sync = $this->sync( array( Settings::SYNC_CATEGORIES => true ) );
+
+		// Build a writing tree first, exactly as a run would.
+		$this->assertIsArray( $sync->categories_for_test()->map() );
+
+		$terms = count(
+			(array) get_terms(
+				array(
+					'taxonomy'   => 'product_cat',
+					'hide_empty' => false,
+					'fields'     => 'ids',
+				)
+			)
+		);
+
+		$sync->preview();
+
+		$this->assertSame(
+			$terms,
+			count(
+				(array) get_terms(
+					array(
+						'taxonomy'   => 'product_cat',
+						'hide_empty' => false,
+						'fields'     => 'ids',
+					)
+				)
+			),
+			'the preview reused a writing tree and created terms'
+		);
+
+		// And the instance is handed back able to reconcile again.
+		$again = $sync->categories_for_test();
+
+		$this->assertIsArray( $again->map() );
+		$this->assertFalse( $again->is_read_only(), 'the instance was left read-only after the preview' );
+	}
+
+	/**
 	 * An article nothing here has yet reads as one that would be created.
 	 *
 	 * @return void

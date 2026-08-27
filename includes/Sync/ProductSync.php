@@ -389,6 +389,18 @@ class ProductSync {
 	}
 
 	/**
+	 * The category tree this instance would use, for tests.
+	 *
+	 * `categories()` is protected and the read-only guarantee is a property of when it
+	 * is called, which is not observable from outside without this.
+	 *
+	 * @return Categories|null
+	 */
+	public function categories_for_test() {
+		return $this->categories();
+	}
+
+	/**
 	 * Whether this instance is only allowed to look.
 	 *
 	 * Set for the whole of a preview. It reaches exactly one decision — that the
@@ -462,10 +474,33 @@ class ProductSync {
 	 * @return array|WP_Error Counts and rows, or the failure that stopped it.
 	 */
 	public function preview( $limit = self::PREVIEW_LIMIT ) {
-		$limit = max( 1, min( self::PREVIEW_LIMIT, (int) $limit ) );
+		/*
+		 * The flag and the memo are set together, and put back together. categories()
+		 * memoises on first call and passes the flag in at that moment, so setting the
+		 * flag alone would leave the promise resting on this instance never having built
+		 * a tree before — and leave the more dangerous inverse behind afterwards, where a
+		 * run on the same instance would quietly stop reconciling and, with the category
+		 * requirement on, draft the shop. try/finally so every return path restores it.
+		 */
+		$this->read_only  = true;
+		$this->categories = null;
 
-		// Set for the whole call, so categories() builds a tree that only reads.
-		$this->read_only = true;
+		try {
+			return $this->preview_catalogue( $limit );
+		} finally {
+			$this->read_only  = false;
+			$this->categories = null;
+		}
+	}
+
+	/**
+	 * The preview itself, once the instance has been put in read-only mode.
+	 *
+	 * @param int $limit Articles to look at.
+	 * @return array|WP_Error Counts and rows, or the failure that stopped it.
+	 */
+	private function preview_catalogue( $limit ) {
+		$limit = max( 1, min( self::PREVIEW_LIMIT, (int) $limit ) );
 
 		$ready = Preflight::check( self::JOB, $this->settings, $this->client );
 

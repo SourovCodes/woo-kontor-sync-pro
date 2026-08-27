@@ -1220,6 +1220,13 @@ calling it queues real work: it is not a way to test whether a job would be allo
     start, before a single chunk is queued.
   - **`Deactivator` and `uninstall.php` drop them by name.** The uninstall used to call
     `delete_expired_transients()`, which by definition never caught the ones that mattered.
+  - **Upgrading across this change costs one run**, and deliberately no more. The payload moved
+    from a transient to an option with no fallback read, so a chunked run whose files are replaced
+    mid-flight finds nothing on its next chunk and fails once, with an accurate message, closing
+    its status cleanly. A legacy read was considered and rejected: the precedent for keeping one
+    (`Scheduler::ACTION_LEGACY_STOCK_FINALISE`) exists for a *stranded* run — six hours of a
+    phantom — and this is a clean failure the next scheduled run corrects. **Deploy while nothing
+    is running** and it costs nothing at all.
   **All five jobs chain**, including the order sweep: `OrderSync::start()` fixes the list of pending
   orders, caches the IDs in a transient and queues `ACTION_SYNC_ORDERS_BATCH`, and
   `send_batch()` sends one batch per action. It used to send every batch inside the action that
@@ -1293,6 +1300,20 @@ calling it queues real work: it is not a way to test whether a job would be allo
   a cancelled async action leaves nothing behind to notice, and on a shop whose queue runs behind
   the window between pressing Run now and pressing Save is not milliseconds. `unschedule_all()` is
   the one place that still empties the whole group, which is right: it runs on deactivation.
+  - **It cancels a *pending* recurring action and never one that is executing**, and that is the
+    load-bearing half. Action Scheduler queues the next occurrence at the *end* of a run, so for
+    the whole length of a run the only recurring action on the hook is the running one. Cancel it
+    and the job ends up with two: `sync_schedules()` finds nothing queued and adds one, and the
+    action still executing then adds another of its own, because `schedule_next_instance()` only
+    declines to repeat an action whose status is **FAILED** — a cancelled one repeats like any
+    other. The shop then syncs twice as often for ever, which is the very failure
+    `has_recurring()` counts in-progress actions to avoid.
+    `test_a_running_schedule_survives_a_settings_save` is the guard.
+  - `as_unschedule_all_actions()` never had *that* problem: it resolves to `as_unschedule_action()`,
+    which queries pending actions alone. Its problem was the opposite one.
+  - The cost is that changing an interval while that job is running leaves the old interval until
+    the run finishes: the running action repeats on its own schedule and `sync_schedules()`
+    correctly leaves it alone. That is what happened before `cancel_recurring()` existed.
 - **Whether a job is scheduled is `Scheduler::has_recurring()`, never
   `as_next_scheduled_action()`.** That function collapses three different states into two return
   values: a timestamp for a scheduled action, but a bare `true` both for an action already

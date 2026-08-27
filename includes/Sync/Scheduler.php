@@ -547,33 +547,36 @@ class Scheduler {
 	 * @return \ActionScheduler_Action|null The recurring action, or null when none is queued.
 	 */
 	private static function recurring_action( $hook ) {
-		$id = self::recurring_action_id( $hook );
+		$found = self::find_recurring( $hook );
 
-		if ( 0 === $id ) {
-			return null;
-		}
-
-		$action = \ActionScheduler::store()->fetch_action( $id );
-
-		return $action instanceof \ActionScheduler_Action ? $action : null;
+		return null === $found ? null : $found['action'];
 	}
 
 	/**
-	 * The id of the recurring action queued for one job hook, if there is one.
+	 * The recurring action queued for one job hook, with its id, if there is one.
 	 *
-	 * Kept apart from the action itself because cancelling needs the id and nothing
-	 * else — an `ActionScheduler_Action` does not carry its own — and because
-	 * `as_unschedule_all_actions()` is the wrong tool for the job. That cancels every
-	 * action on the hook, which includes whatever Run now has queued: pressing Save on
-	 * the settings screen would quietly throw away the manual run somebody had started
-	 * a moment before, and setting a job to Never would do the same.
+	 * Both are returned together because an `ActionScheduler_Action` does not carry its
+	 * own id and cancelling needs one, and asking twice would mean fetching the same
+	 * row twice on a path that already costs a scan.
 	 *
-	 * @param string $hook Action hook.
-	 * @return int The action id, or 0 when no recurring action is queued.
+	 * The statuses matter and differ by caller. Reading whether a job is scheduled has
+	 * to count an action that is executing, or a job would read as unscheduled for the
+	 * whole length of its own run. Cancelling one must not — see cancel_recurring().
+	 *
+	 * @param string   $hook     Action hook.
+	 * @param string[] $statuses Statuses to consider; pending and running when empty.
+	 * @return array|null Array with "id" and "action", or null when none is queued.
 	 */
-	private static function recurring_action_id( $hook ) {
+	private static function find_recurring( $hook, array $statuses = array() ) {
 		if ( ! class_exists( '\ActionScheduler' ) || ! class_exists( '\ActionScheduler_Store' ) ) {
-			return 0;
+			return null;
+		}
+
+		if ( empty( $statuses ) ) {
+			$statuses = array(
+				\ActionScheduler_Store::STATUS_PENDING,
+				\ActionScheduler_Store::STATUS_RUNNING,
+			);
 		}
 
 		$store = \ActionScheduler::store();
@@ -582,10 +585,7 @@ class Scheduler {
 			array(
 				'hook'     => $hook,
 				'group'    => self::GROUP,
-				'status'   => array(
-					\ActionScheduler_Store::STATUS_PENDING,
-					\ActionScheduler_Store::STATUS_RUNNING,
-				),
+				'status'   => $statuses,
 				'orderby'  => 'date',
 				'order'    => 'ASC',
 				'per_page' => self::RECURRING_LOOKUP,
@@ -602,27 +602,50 @@ class Scheduler {
 			$schedule = $action->get_schedule();
 
 			if ( $schedule && $schedule->is_recurring() ) {
-				return (int) $id;
+				return array(
+					'id'     => (int) $id,
+					'action' => $action,
+				);
 			}
 		}
 
-		return 0;
+		return null;
 	}
 
 	/**
 	 * Cancel a job's recurring action, leaving everything else on the hook alone.
 	 *
+	 * **Pending only, and never one that is executing.** Action Scheduler queues a
+	 * recurring action's next occurrence at the *end* of the current run, so for the
+	 * whole length of a run the only recurring action on the hook is the running one.
+	 * Cancelling that leaves the job with two: `sync_schedules()` sees nothing queued
+	 * and adds one, and the action still executing then adds another of its own, since
+	 * `schedule_next_instance()` only declines to repeat an action whose status is
+	 * FAILED — a cancelled one repeats like any other. The shop would then sync twice
+	 * as often, for ever, which is the failure `has_recurring()` counts in-progress
+	 * actions to avoid in the first place.
+	 *
+	 * `as_unschedule_all_actions()` never had this problem, because it resolves to
+	 * `as_unschedule_action()`, which queries pending actions alone. Its problem was
+	 * the opposite one — it took the manual runs with it.
+	 *
+	 * The cost is that changing an interval while that job is running leaves the old
+	 * interval in place: the running action repeats itself on its own schedule and
+	 * `sync_schedules()` correctly leaves it alone. That is exactly what happened
+	 * before this method existed, and the next run after that one is queued at the new
+	 * interval by the reconciliation.
+	 *
 	 * @param string $hook Action hook.
 	 * @return bool True when a recurring action was cancelled.
 	 */
 	public static function cancel_recurring( $hook ) {
-		$id = self::recurring_action_id( $hook );
+		$found = self::find_recurring( $hook, array( \ActionScheduler_Store::STATUS_PENDING ) );
 
-		if ( 0 === $id ) {
+		if ( null === $found ) {
 			return false;
 		}
 
-		\ActionScheduler::store()->cancel_action( $id );
+		\ActionScheduler::store()->cancel_action( $found['id'] );
 
 		return true;
 	}

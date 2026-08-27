@@ -108,6 +108,15 @@ class Categories {
 	private $read_only = false;
 
 	/**
+	 * Whether this instance may only read.
+	 *
+	 * @return bool True when it will not create or edit terms.
+	 */
+	public function is_read_only() {
+		return $this->read_only;
+	}
+
+	/**
 	 * The shop's tree, as a map of Katid to term ID.
 	 *
 	 * Keys are lower-cased, because nothing guarantees that the spelling on an article
