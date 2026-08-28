@@ -52,8 +52,9 @@ class OrderNotificationsTest extends WP_UnitTestCase {
 		parent::set_up();
 
 		$this->announced = array(
-			'invoice'  => array(),
-			'tracking' => array(),
+			'invoice'   => array(),
+			'corrected' => array(),
+			'tracking'  => array(),
 		);
 
 		$this->rebuild_mailer();
@@ -62,6 +63,15 @@ class OrderNotificationsTest extends WP_UnitTestCase {
 			'woo_kontor_sync_invoice_downloaded',
 			function ( $order_id, $document_id ) {
 				$this->announced['invoice'][] = array( $order_id, $document_id );
+			},
+			10,
+			2
+		);
+
+		add_action(
+			'woo_kontor_sync_invoice_corrected',
+			function ( $order_id, $document_id ) {
+				$this->announced['corrected'][] = array( $order_id, $document_id );
 			},
 			10,
 			2
@@ -114,6 +124,7 @@ class OrderNotificationsTest extends WP_UnitTestCase {
 		}
 
 		remove_all_actions( 'woo_kontor_sync_invoice_downloaded' );
+		remove_all_actions( 'woo_kontor_sync_invoice_corrected' );
 		remove_all_actions( 'woo_kontor_sync_tracking_received' );
 		remove_all_filters( 'pre_http_request' );
 		delete_option( Storage::OPTION_DIR );
@@ -258,17 +269,19 @@ class OrderNotificationsTest extends WP_UnitTestCase {
 	/**
 	 * Download one invoice onto an order.
 	 *
-	 * @param WC_Order $order Order the invoice belongs to.
-	 * @param string   $id    Kontor document id.
+	 * @param WC_Order $order  Order the invoice belongs to.
+	 * @param string   $id     Kontor document id.
+	 * @param string   $number Belegnr, which is what decides which invoice is current.
+	 * @param string   $date   Issue date.
 	 * @return array Counters from the run.
 	 */
-	private function invoice( $order, $id = self::DOCUMENT_ID ) {
+	private function invoice( $order, $id = self::DOCUMENT_ID, $number = '141542', $date = '2025-08-05' ) {
 		return ( new InvoiceSync( null, $this->settings() ) )->apply(
 			array(
 				array(
 					'id'           => $id,
-					'number'       => '141542',
-					'date'         => '2025-08-05',
+					'number'       => $number,
+					'date'         => $date,
 					'order_number' => (string) $order->get_order_number(),
 				),
 			)
@@ -389,22 +402,52 @@ class OrderNotificationsTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * A second, genuinely different invoice announces itself too.
+	 * A second invoice is announced as a correction, not as another arrival.
 	 *
-	 * An order can be invoiced more than once, and the second document is a new
-	 * record rather than a correction of the first.
+	 * Kontor corrects an invoice by issuing a replacement and saying nothing about the
+	 * document it replaces, so a second arrival is the only signal there is. Sending
+	 * "your invoice is ready" a second time is what left a customer holding two
+	 * identical-looking links and no way to tell which one they owed.
 	 *
 	 * @return void
 	 */
-	public function test_a_second_invoice_announces_itself() {
+	public function test_a_second_invoice_announces_a_correction() {
 		$this->fake_api();
 
 		$order = $this->make_order();
 
 		$this->invoice( $order );
-		$this->invoice( wc_get_order( $order->get_id() ), 'f1c0c0de-0000-4000-8000-00000000beef' );
+		$this->invoice( wc_get_order( $order->get_id() ), 'f1c0c0de-0000-4000-8000-00000000beef', '141675', '2025-08-09' );
 
-		$this->assertCount( 2, $this->announced['invoice'] );
+		$this->assertCount( 1, $this->announced['invoice'] );
+		$this->assertCount( 1, $this->announced['corrected'] );
+		$this->assertSame( 'f1c0c0de-0000-4000-8000-00000000beef', $this->announced['corrected'][0][1] );
+	}
+
+	/**
+	 * An invoice that arrives already superseded announces nothing at all.
+	 *
+	 * The listing comes back newest first, so on a first import the replacement is
+	 * downloaded before the document it replaces. Announcing that second arrival would
+	 * tell the customer about a cancelled invoice, which is worse than silence — and
+	 * announcing it as a *correction* would be worse still, since it is the thing
+	 * being corrected.
+	 *
+	 * @return void
+	 */
+	public function test_an_invoice_that_arrives_already_superseded_announces_nothing() {
+		$this->fake_api();
+
+		$order = $this->make_order();
+
+		$this->invoice( $order, self::DOCUMENT_ID, '141675', '2025-08-09' );
+
+		$before = count( $this->announced['invoice'] );
+
+		$this->invoice( wc_get_order( $order->get_id() ), 'f1c0c0de-0000-4000-8000-00000000beef', '141638', '2025-08-05' );
+
+		$this->assertCount( $before, $this->announced['invoice'] );
+		$this->assertCount( 0, $this->announced['corrected'] );
 	}
 
 	/**

@@ -2,14 +2,14 @@
 # This file is distributed under the GPL-2.0-or-later.
 msgid ""
 msgstr ""
-"Project-Id-Version: Woo Kontor Sync Pro 0.29.0\n"
+"Project-Id-Version: Woo Kontor Sync Pro 0.30.0\n"
 "Report-Msgid-Bugs-To: https://wordpress.org/support/plugin/woo-kontor-sync-pro\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"POT-Creation-Date: 2026-08-27T14:02:49+00:00\n"
+"POT-Creation-Date: 2026-08-28T13:14:59+00:00\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "X-Generator: WP-CLI 2.12.0\n"
 "X-Domain: woo-kontor-sync-pro\n"
@@ -126,35 +126,47 @@ msgstr ""
 msgid "You do not have permission to do that."
 msgstr ""
 
-#: includes/Admin/OrderActions.php:91
-msgid "Email the invoice to the customer again"
+#: includes/Admin/OrderActions.php:94
+msgid "Email the corrected-invoice notice to the customer again"
 msgstr ""
 
 #: includes/Admin/OrderActions.php:95
+msgid "Email the invoice to the customer again"
+msgstr ""
+
+#: includes/Admin/OrderActions.php:99
 msgid "Email the tracking details to the customer again"
 msgstr ""
 
-#: includes/Admin/OrderActions.php:105
+#: includes/Admin/OrderActions.php:109
 msgid "Send this order to Kontor again"
 msgstr ""
 
-#: includes/Admin/OrderActions.php:121
+#: includes/Admin/OrderActions.php:133
+msgid "Kontor corrected-invoice email sent to the customer."
+msgstr ""
+
+#: includes/Admin/OrderActions.php:134
+msgid "The Kontor corrected-invoice email could not be sent."
+msgstr ""
+
+#: includes/Admin/OrderActions.php:143
 msgid "Kontor invoice email sent to the customer."
 msgstr ""
 
-#: includes/Admin/OrderActions.php:122
+#: includes/Admin/OrderActions.php:144
 msgid "The Kontor invoice email could not be sent."
 msgstr ""
 
-#: includes/Admin/OrderActions.php:136
+#: includes/Admin/OrderActions.php:158
 msgid "Kontor tracking email sent to the customer."
 msgstr ""
 
-#: includes/Admin/OrderActions.php:137
+#: includes/Admin/OrderActions.php:159
 msgid "The Kontor tracking email could not be sent."
 msgstr ""
 
-#: includes/Admin/OrderActions.php:161
+#: includes/Admin/OrderActions.php:183
 msgid "Queued to be sent to Kontor again."
 msgstr ""
 
@@ -227,9 +239,9 @@ msgid "Refused %d times, so the sweep has stopped sending it. Use \"Send this or
 msgstr ""
 
 #: includes/Admin/OrderPanel.php:291
-#: includes/Frontend/Invoices.php:63
-#: includes/Frontend/Invoices.php:112
-#: includes/Frontend/Invoices.php:132
+#: includes/Frontend/Invoices.php:118
+#: includes/Frontend/Invoices.php:172
+#: includes/Frontend/Invoices.php:197
 msgid "Invoices"
 msgstr ""
 
@@ -241,8 +253,20 @@ msgstr ""
 msgid "Run the invoice sync"
 msgstr ""
 
-#: includes/Admin/OrderPanel.php:316
-#: includes/Frontend/Invoices.php:71
+#: includes/Admin/OrderPanel.php:327
+#: includes/Frontend/Invoices.php:88
+msgid "Current invoice (valid)"
+msgstr ""
+
+#: includes/Admin/OrderPanel.php:328
+#: includes/Frontend/Invoices.php:92
+msgid "Cancelled invoice (no longer valid)"
+msgid_plural "Cancelled invoices (no longer valid)"
+msgstr[0] ""
+msgstr[1] ""
+
+#: includes/Admin/OrderPanel.php:337
+#: includes/Frontend/Invoices.php:130
 msgid "Download PDF"
 msgstr ""
 
@@ -1518,6 +1542,42 @@ msgstr ""
 msgid "Your invoice is attached to this email, and you can download it again from the links below."
 msgstr ""
 
+#: includes/Emails/WKSYNC_Customer_Invoice_Corrected.php:37
+msgid "Kontor corrected invoice"
+msgstr ""
+
+#: includes/Emails/WKSYNC_Customer_Invoice_Corrected.php:38
+msgid "Sent to the customer when Kontor issues an invoice that replaces one already held for their order. Switch this on only after the first invoice import has finished: Kontor lists the shop's whole invoice history on every run, so the first pass sees every correction ever issued and would mail all of them at once."
+msgstr ""
+
+#: includes/Emails/WKSYNC_Customer_Invoice_Corrected.php:58
+msgid "Correction to your invoice - please use the current invoice"
+msgstr ""
+
+#: includes/Emails/WKSYNC_Customer_Invoice_Corrected.php:67
+msgid "We have corrected your invoice"
+msgstr ""
+
+#: includes/Emails/WKSYNC_Customer_Invoice_Corrected.php:76
+msgid "Unfortunately, because of a technical fault, the invoice originally issued for your order used an incorrect VAT rate - and in a few cases two different rates."
+msgstr ""
+
+#: includes/Emails/WKSYNC_Customer_Invoice_Corrected.php:92
+msgid "We have therefore corrected the invoice. The previous invoice has been cancelled and a new, corrected invoice has been issued."
+msgstr ""
+
+#: includes/Emails/WKSYNC_Customer_Invoice_Corrected.php:93
+msgid "Please note: only the newly issued invoice is valid. You can disregard the invoice issued before it."
+msgstr ""
+
+#: includes/Emails/WKSYNC_Customer_Invoice_Corrected.php:94
+msgid "If you have already paid the original invoice and the correction leaves a difference, please settle only the outstanding difference."
+msgstr ""
+
+#: includes/Emails/WKSYNC_Customer_Invoice_Corrected.php:95
+msgid "The technical fault has since been found and fixed. We apologise for the confusion and thank you for your understanding."
+msgstr ""
+
 #: includes/Emails/WKSYNC_Customer_Tracking.php:31
 msgid "Kontor shipment tracking"
 msgstr ""
@@ -1538,18 +1598,18 @@ msgstr ""
 msgid "Your order has been handed to the carrier. The tracking details are below."
 msgstr ""
 
-#: includes/Emails/WKSYNC_Order_Email.php:246
+#: includes/Emails/WKSYNC_Order_Email.php:266
 msgid "Hi,"
 msgstr ""
 
 #. translators: %s: customer's first name.
-#: includes/Emails/WKSYNC_Order_Email.php:250
+#: includes/Emails/WKSYNC_Order_Email.php:270
 #, php-format
 msgid "Hi %s,"
 msgstr ""
 
 #. translators: 1: invoice label with its number and date, 2: download URL.
-#: includes/Frontend/Invoices.php:137
+#: includes/Frontend/Invoices.php:208
 #, php-format
 msgid "%1$s: %2$s"
 msgstr ""
@@ -1763,16 +1823,16 @@ msgstr ""
 msgid "Quantity step this product may be bought in. One when there is no step, or when the shop is not enforcing them."
 msgstr ""
 
-#: includes/Sync/Categories.php:143
+#: includes/Sync/Categories.php:152
 #: includes/Sync/CategoryPush.php:102
 msgid "WooCommerce product categories are not available."
 msgstr ""
 
-#: includes/Sync/Categories.php:152
+#: includes/Sync/Categories.php:161
 msgid "No Kontor shop has been selected, so there is no category tree to import."
 msgstr ""
 
-#: includes/Sync/Categories.php:189
+#: includes/Sync/Categories.php:198
 msgid "Kontor returned no categories for this shop."
 msgstr ""
 
@@ -1826,46 +1886,46 @@ msgstr ""
 msgid "%1$d orders updated, %2$d completed, %3$d partially completed, %4$d not found locally."
 msgstr ""
 
-#: includes/Sync/InvoiceSync.php:158
+#: includes/Sync/InvoiceSync.php:268
 msgid "Invoice"
 msgstr ""
 
 #. translators: %s: invoice number.
-#: includes/Sync/InvoiceSync.php:163
+#: includes/Sync/InvoiceSync.php:273
 #, php-format
 msgid "Invoice %s"
 msgstr ""
 
 #. translators: 1: invoice number, 2: date the invoice was issued.
-#: includes/Sync/InvoiceSync.php:175
+#: includes/Sync/InvoiceSync.php:285
 #, php-format
 msgid "Invoice %1$s of %2$s"
 msgstr ""
 
-#: includes/Sync/InvoiceSync.php:215
+#: includes/Sync/InvoiceSync.php:325
 msgid "Kontor reported no invoices for this shop."
 msgstr ""
 
-#: includes/Sync/InvoiceSync.php:228
+#: includes/Sync/InvoiceSync.php:338
 msgid "The invoice listing could not be stored for the run to work through."
 msgstr ""
 
-#: includes/Sync/InvoiceSync.php:260
+#: includes/Sync/InvoiceSync.php:370
 msgid "The stored invoice listing could not be read, so the run was stopped part-way."
 msgstr ""
 
-#: includes/Sync/InvoiceSync.php:369
+#: includes/Sync/InvoiceSync.php:479
 msgid "Kontor returned a document that could not be decoded."
 msgstr ""
 
 #. translators: %s: invoice number as issued by Kontor.
-#: includes/Sync/InvoiceSync.php:403
+#: includes/Sync/InvoiceSync.php:513
 #, php-format
 msgid "Invoice %s downloaded from Kontor."
 msgstr ""
 
 #. translators: 1: invoices downloaded, 2: invoices that failed, 3: invoice rows with no matching order.
-#: includes/Sync/InvoiceSync.php:544
+#: includes/Sync/InvoiceSync.php:708
 #, php-format
 msgid "%1$d invoices downloaded, %2$d failed, %3$d not found locally."
 msgstr ""
@@ -1943,103 +2003,103 @@ msgstr ""
 msgid "No Kontor shop has been selected. Choose one on the settings screen before syncing orders."
 msgstr ""
 
-#: includes/Sync/ProductSync.php:543
+#: includes/Sync/ProductSync.php:578
 msgid "Kontor lists no article number, so nothing could recognise it on the next run."
 msgstr ""
 
-#: includes/Sync/ProductSync.php:557
+#: includes/Sync/ProductSync.php:592
 msgid "More than one product already has this article number, so the sync will not choose between them."
 msgstr ""
 
 #. translators: %s: the reason the article is held back.
-#: includes/Sync/ProductSync.php:574
+#: includes/Sync/ProductSync.php:609
 #, php-format
 msgid "Imported as a draft: %s."
 msgstr ""
 
-#: includes/Sync/ProductSync.php:588
+#: includes/Sync/ProductSync.php:623
 msgid "No product has this article number yet."
 msgstr ""
 
-#: includes/Sync/ProductSync.php:603
+#: includes/Sync/ProductSync.php:638
 msgid "A product here already has this article number and this plugin did not import it, so it is left alone."
 msgstr ""
 
-#: includes/Sync/ProductSync.php:615
+#: includes/Sync/ProductSync.php:650
 msgid "Nothing this sync reads has changed since the last run."
 msgstr ""
 
-#: includes/Sync/ProductSync.php:626
+#: includes/Sync/ProductSync.php:661
 msgid "The product exists and something this sync reads has changed."
 msgstr ""
 
-#: includes/Sync/ProductSync.php:666
+#: includes/Sync/ProductSync.php:701
 msgid "The catalogue did not end. The run was stopped rather than draft the articles it never reached."
 msgstr ""
 
 #. translators: 1: number of attempts made, 2: the reason the last one failed.
-#: includes/Sync/ProductSync.php:834
+#: includes/Sync/ProductSync.php:869
 #, php-format
 msgid "Gave up after %1$d attempts: %2$s"
 msgstr ""
 
 #. translators: 1: articles this run read, 2: articles the last completed run read.
-#: includes/Sync/ProductSync.php:929
+#: includes/Sync/ProductSync.php:964
 #, php-format
 msgid "Kontor listed %1$d articles, down from %2$d. Nothing was drafted: run the sync again, and if the catalogue really has shrunk the next run will go ahead."
 msgstr ""
 
 #. translators: 1: created count, 2: updated count, 3: unchanged count, 4: drafted count.
-#: includes/Sync/ProductSync.php:1259
+#: includes/Sync/ProductSync.php:1294
 #, php-format
 msgid "%1$d created, %2$d updated, %3$d unchanged, %4$d drafted."
 msgstr ""
 
 #. translators: %d: number of articles Kontor listed no image for.
-#: includes/Sync/ProductSync.php:1277
+#: includes/Sync/ProductSync.php:1312
 #, php-format
 msgid "Held %d back as drafts for having no image."
 msgstr ""
 
 #. translators: %d: number of articles Kontor files under no category.
-#: includes/Sync/ProductSync.php:1293
+#: includes/Sync/ProductSync.php:1328
 #, php-format
 msgid "Held %d back as drafts for belonging to no category."
 msgstr ""
 
 #. translators: %d: number of articles Kontor has switched off for the webshop.
-#: includes/Sync/ProductSync.php:1309
+#: includes/Sync/ProductSync.php:1344
 #, php-format
 msgid "Held %d back as drafts, switched off for the webshop in Kontor."
 msgstr ""
 
 #. translators: %d: number of products moved to the trash for not being in Kontor's catalogue.
-#: includes/Sync/ProductSync.php:1324
+#: includes/Sync/ProductSync.php:1359
 #, php-format
 msgid "Moved %d to the trash that Kontor does not list."
 msgstr ""
 
 #. translators: %d: number of the shop's own products whose article Kontor is holding back.
-#: includes/Sync/ProductSync.php:1342
+#: includes/Sync/ProductSync.php:1377
 #, php-format
 msgid "Left %d alone that Kontor is holding back but this plugin did not import."
 msgstr ""
 
 #. translators: 1: articles with no article number, 2: articles whose article number matched more than one product.
-#: includes/Sync/ProductSync.php:1358
+#: includes/Sync/ProductSync.php:1393
 #, php-format
 msgid "Passed over %1$d with no article number and %2$d matching more than one product; see the log."
 msgstr ""
 
-#: includes/Sync/ProductSync.php:1828
+#: includes/Sync/ProductSync.php:1863
 msgid "Kontor has switched it off for the webshop"
 msgstr ""
 
-#: includes/Sync/ProductSync.php:1829
+#: includes/Sync/ProductSync.php:1864
 msgid "Kontor lists no image for it"
 msgstr ""
 
-#: includes/Sync/ProductSync.php:1830
+#: includes/Sync/ProductSync.php:1865
 msgid "Kontor files it under no category"
 msgstr ""
 
@@ -2074,26 +2134,26 @@ msgstr ""
 msgid "Downloads invoice PDFs from Kontor and files them against their orders."
 msgstr ""
 
-#: includes/Sync/Scheduler.php:893
+#: includes/Sync/Scheduler.php:916
 msgid "an unknown error"
 msgstr ""
 
 #. translators: %s: error message.
-#: includes/Sync/Scheduler.php:898
+#: includes/Sync/Scheduler.php:921
 #, php-format
 msgid "The run stopped because a background task failed: %s"
 msgstr ""
 
-#: includes/Sync/Scheduler.php:911
+#: includes/Sync/Scheduler.php:934
 msgid "The run stopped because a background task took too long and was abandoned."
 msgstr ""
 
-#: includes/Sync/Scheduler.php:923
+#: includes/Sync/Scheduler.php:946
 msgid "a fatal error"
 msgstr ""
 
 #. translators: %s: error message.
-#: includes/Sync/Scheduler.php:928
+#: includes/Sync/Scheduler.php:951
 #, php-format
 msgid "The run stopped because a background task ended unexpectedly: %s"
 msgstr ""
