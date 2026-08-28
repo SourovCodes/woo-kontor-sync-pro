@@ -425,6 +425,53 @@ class OrderNotificationsTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * An order that already holds both invoices announces nothing on the next run.
+	 *
+	 * This is the upgrade path on a live shop, and the one worth being sure of: the
+	 * production site was already holding the corrected invoice and the one it replaced
+	 * on 18 orders before any of this shipped. Every run sees the shop's whole invoice
+	 * history, so if a stored document could still announce itself, deploying would
+	 * mail every one of those customers at once.
+	 *
+	 * @return void
+	 */
+	public function test_an_order_already_holding_both_invoices_announces_nothing() {
+		$this->fake_api();
+
+		$order = $this->make_order();
+
+		// As the live shop already has them: the original, then its replacement.
+		$this->invoice( $order, self::DOCUMENT_ID, '141638', '2026-08-24' );
+		$this->invoice( wc_get_order( $order->get_id() ), 'f1c0c0de-0000-4000-8000-00000000beef', '141675', '2026-08-28' );
+
+		$this->announced['invoice']   = array();
+		$this->announced['corrected'] = array();
+
+		// The next run, seeing the whole history again exactly as the listing returns it.
+		$counts = ( new InvoiceSync( null, $this->settings() ) )->apply(
+			array(
+				array(
+					'id'           => 'f1c0c0de-0000-4000-8000-00000000beef',
+					'number'       => '141675',
+					'date'         => '2026-08-28',
+					'order_number' => (string) $order->get_order_number(),
+				),
+				array(
+					'id'           => self::DOCUMENT_ID,
+					'number'       => '141638',
+					'date'         => '2026-08-24',
+					'order_number' => (string) $order->get_order_number(),
+				),
+			)
+		);
+
+		$this->assertSame( 2, $counts['unchanged'] );
+		$this->assertSame( 0, $counts['downloaded'] );
+		$this->assertSame( array(), $this->announced['invoice'] );
+		$this->assertSame( array(), $this->announced['corrected'] );
+	}
+
+	/**
 	 * An invoice that arrives already superseded announces nothing at all.
 	 *
 	 * The listing comes back newest first, so on a first import the replacement is
