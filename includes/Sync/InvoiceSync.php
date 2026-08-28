@@ -114,6 +114,116 @@ class InvoiceSync {
 		return array_reverse( $invoices );
 	}
 
+
+	/**
+	 * Split an order's invoices into the one that counts and the ones it replaced.
+	 *
+	 * Kontor says nothing whatever about supersession. The invoice row carries "id",
+	 * "Belegname", "Belegnr", "Datum", "Auftrnr" and "ordernumber" and no status of any
+	 * kind; every row on the account this was built against reads "Rechnung", there is
+	 * no cancellation entity behind /search — storno, gutschrift, creditnotes, belege
+	 * and documents all answer ERR-500 — and the cancelled document's own PDF does not
+	 * contain the word. So the only signal available is that an order has more than one
+	 * invoice, and the rule is that the highest Belegnr is the live one.
+	 *
+	 * **That is an inference, and it is worth being honest about which way it can be
+	 * wrong.** A second invoice for one order could in principle be a genuine second
+	 * document — a part-delivery billed separately — in which case this labels a valid
+	 * invoice as cancelled, which is a confident false statement about a financial
+	 * record rather than a missing one. Measured against the live account before it was
+	 * written: 8 orders carried two invoices, and in every pair the two documents billed
+	 * the *identical* line items, quantities and unit prices, differing only in the
+	 * totals and the VAT rate — corrections, not part-deliveries. `partially_completed`
+	 * is meanwhile the commonest order status there (15 of 35) and those orders carry
+	 * one invoice each, so Kontor does not issue an invoice per part-delivery on this
+	 * account. Should that ever change, this is the assumption to revisit first.
+	 *
+	 * Ordered on Belegnr rather than on the order the entries were stored in, because
+	 * storage follows the feed and the feed comes back newest first — so on a first
+	 * import the replacement is downloaded and appended *before* the document it
+	 * replaced. Belegnr is Kontor's own issue sequence and is the only field that
+	 * survives that. It is compared numerically where both sides are numeric, and the
+	 * date is the tiebreak.
+	 *
+	 * @param array $invoices Invoices as for_order() returns them.
+	 * @return array List of invoices, each with a "current" boolean added, newest first.
+	 */
+	public static function classify( array $invoices ) {
+		if ( empty( $invoices ) ) {
+			return array();
+		}
+
+		usort( $invoices, array( __CLASS__, 'compare_issue' ) );
+
+		$classified = array();
+
+		foreach ( $invoices as $position => $invoice ) {
+			$invoice['current'] = 0 === $position;
+			$classified[]       = $invoice;
+		}
+
+		return $classified;
+	}
+
+	/**
+	 * Order two invoices with the most recently issued first.
+	 *
+	 * @param array $a First invoice.
+	 * @param array $b Second invoice.
+	 * @return int Negative when $a was issued later, positive when $b was.
+	 */
+	protected static function compare_issue( array $a, array $b ) {
+		$a_number = isset( $a['number'] ) ? (string) $a['number'] : '';
+		$b_number = isset( $b['number'] ) ? (string) $b['number'] : '';
+
+		if ( is_numeric( $a_number ) && is_numeric( $b_number ) && $a_number !== $b_number ) {
+			return ( (float) $b_number <=> (float) $a_number );
+		}
+
+		$a_date = isset( $a['date'] ) ? (string) $a['date'] : '';
+		$b_date = isset( $b['date'] ) ? (string) $b['date'] : '';
+
+		if ( $a_date !== $b_date ) {
+			return strcmp( $b_date, $a_date );
+		}
+
+		return strcmp( $b_number, $a_number );
+	}
+
+	/**
+	 * The invoice that is currently valid for an order.
+	 *
+	 * @param mixed $order Value that may be an order.
+	 * @return array|null The live invoice, or null when the order holds none.
+	 */
+	public static function current_for_order( $order ) {
+		$invoices = self::classify( self::for_order( $order ) );
+
+		return empty( $invoices ) ? null : $invoices[0];
+	}
+
+	/**
+	 * The invoices an order once had and no longer counts.
+	 *
+	 * @param mixed $order Value that may be an order.
+	 * @return array List of superseded invoices, most recently issued first.
+	 */
+	public static function superseded_for_order( $order ) {
+		$invoices = self::classify( self::for_order( $order ) );
+
+		return array_values( array_slice( $invoices, 1 ) );
+	}
+
+	/**
+	 * Whether an order's invoice has been replaced by a corrected one.
+	 *
+	 * @param mixed $order Value that may be an order.
+	 * @return bool True when more than one invoice is held.
+	 */
+	public static function has_correction( $order ) {
+		return count( self::for_order( $order ) ) > 1;
+	}
+
 	/**
 	 * Find one of an order's invoices by its Kontor document id.
 	 *
@@ -407,6 +517,56 @@ class InvoiceSync {
 
 		$order->save();
 
+		$this->announce( $order, (string) $row['id'] );
+	}
+
+	/**
+	 * Tell the shop what kind of invoice has just arrived.
+	 *
+	 * Three outcomes, and which one fires is decided by classify() *after* the save,
+	 * against everything the order now holds — never by whether the order had an
+	 * invoice a moment ago. The listing comes back newest first, so on a first import
+	 * a correction is downloaded and stored before the document it replaces, and
+	 * "did this order already have one" would call the older arrival the correction.
+	 *
+	 * A document that arrives already superseded announces nothing at all. It is a
+	 * cancelled invoice, and there is no version of telling a customer about one that
+	 * leaves them better off.
+	 *
+	 * @param WC_Order $order       Order the invoice belongs to.
+	 * @param string   $document_id Kontor document id that was just filed.
+	 * @return void
+	 */
+	protected function announce( $order, $document_id ) {
+		$invoices = self::classify( self::for_order( $order ) );
+
+		if ( empty( $invoices ) || (string) $invoices[0]['id'] !== $document_id ) {
+			return;
+		}
+
+		if ( count( $invoices ) > 1 ) {
+			/**
+			 * Fires when a downloaded invoice replaces one the order already held.
+			 *
+			 * Kontor states no such thing; see classify() for what this is inferred
+			 * from and how it can be wrong. Fired instead of, never as well as,
+			 * woo_kontor_sync_invoice_downloaded — the two are different messages to
+			 * the same customer and sending both would be worse than sending neither.
+			 *
+			 * Registered as a WooCommerce transactional email action, so the mailer is
+			 * instantiated before anything listens for it. Scalars only, for the reason
+			 * given on the hook below.
+			 *
+			 * @since 0.30.0
+			 *
+			 * @param int    $order_id    Order the invoice belongs to.
+			 * @param string $document_id Kontor document id of the corrected invoice.
+			 */
+			do_action( 'woo_kontor_sync_invoice_corrected', (int) $order->get_id(), $document_id );
+
+			return;
+		}
+
 		/**
 		 * Fires when an invoice the order did not hold has been downloaded and filed.
 		 *
@@ -420,12 +580,16 @@ class InvoiceSync {
 		 * free to defer a transactional email and replay it from a queue, and an order
 		 * object carried across that gap would be a stale copy.
 		 *
+		 * Since 0.30.0 this is the *first* invoice's hook rather than every invoice's:
+		 * a replacement fires woo_kontor_sync_invoice_corrected and an already-
+		 * superseded arrival fires nothing.
+		 *
 		 * @since 0.20.0
 		 *
 		 * @param int    $order_id    Order the invoice belongs to.
 		 * @param string $document_id Kontor document id.
 		 */
-		do_action( 'woo_kontor_sync_invoice_downloaded', (int) $order->get_id(), (string) $row['id'] );
+		do_action( 'woo_kontor_sync_invoice_downloaded', (int) $order->get_id(), $document_id );
 	}
 
 	/**

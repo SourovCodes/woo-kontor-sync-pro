@@ -970,10 +970,45 @@ of them wrong produces silently wrong data rather than an error:
     What makes the job incremental is the **document id recorded on the order**; without it each run
     would re-download everything. An order can be invoiced more than once, so `_wksync_invoices`
     holds a *list*, and nothing already downloaded is ever replaced or deleted — an invoice is a
-    financial record, and a second one is a new document rather than a correction of the last.
+    financial record, and the corrected one is a second document rather than an edit of the first.
   - A recorded invoice whose file has been deleted counts as **still held**. Re-downloading it is
     the obvious alternative, but it would mean a shop that deliberately purged old invoices got
     them all back on the next run.
+  - **A second invoice supersedes the first, and that is inferred rather than told.** Kontor
+    corrects an invoice by issuing a replacement and saying nothing whatever about the document it
+    replaces: the row carries `id`, `Belegname`, `Belegnr`, `Datum`, `Auftrnr` and `ordernumber` and
+    no status of any kind, every row on the account reads `Belegname: "Rechnung"`, and there is no
+    cancellation entity behind `/search` — `storno`, `gutschrift`, `creditnotes`, `belege` and
+    `documents` all answer ERR-500. **The Stornobeleg cannot be fetched**, so it is not offered.
+    `InvoiceSync::classify()` is the one place that decides which invoice counts, and everything
+    else reads it.
+    - **The highest `Belegnr` wins, never the storage order.** The listing comes back *newest
+      first*, so on a first import the replacement is downloaded and appended **before** the
+      document it replaces — anything reading position gets it exactly backwards and tells every
+      affected customer to use the cancelled invoice. `Belegnr` is Kontor's own issue sequence and
+      is the only field that survives that; the date is the tiebreak.
+    - **This is the assumption to revisit first if anything here misbehaves.** A second invoice
+      could in principle be a genuine part-delivery document, in which case this labels a valid
+      invoice cancelled — a confident false statement about a financial record, which is worse than
+      the ambiguity it replaces. Measured against the live account before it was written: 8 orders
+      carried two invoices and **every pair billed the identical line items, quantities and unit
+      prices**, differing only in the totals and the VAT rate, and the superseded document's own
+      lines did not sum to its own stated total. `partially_completed` is meanwhile the commonest
+      order status there (15 of 35) and those orders carry **one** invoice each, so Kontor does not
+      invoice per part-delivery on this account.
+    - **The cause of the batch that produced this feature was our own.** Every superseded invoice
+      carries a drifted rate — 8.11, 8.12, 8.13, 8.17 — and every replacement 8.10: the
+      `tax ÷ total × 100` derivation this plugin sent before 0.22.3, described under `taxRate`
+      above. A shop still below that version will keep generating corrections.
+    - **The superseded invoice stays downloadable, under a heading saying it is not valid.**
+      Somebody who has already paid against it needs it for their own records, and hiding it would
+      take that away to solve a labelling problem. It is **not attached to any email**, though —
+      two PDFs in one mail puts the reader straight back to guessing.
+    - **An order with one invoice reads exactly as it always did**, with no headings at all. Naming
+      a lone invoice "the valid one" invites the reader to hunt for the other one.
+    - **`Frontend\Invoices` and `Admin\OrderPanel` say the same thing in the same words**, for the
+      reason `InvoiceSync::label()` is a public static: a shop manager answering "which of these do
+      I owe?" is reading one screen while the customer reads the other.
 - **Invoice PDFs cannot go in the media library.** They carry a customer's name, address and what
   they bought, and everything under `wp-content/uploads` is served straight off disk to anyone
   holding the URL. `Invoices\Storage` writes them to a directory whose name carries a per-site
@@ -1423,9 +1458,9 @@ calling it queues real work: it is not a way to test whether a job would be allo
   background job the delivery sync runs in. Admin copies of the emails are skipped. Remember that
   `provider` and `trackinginfo` arrive as `null` rather than absent, so a synced but unshipped order
   has the meta present and empty; the tracking number is what decides there is anything to show.
-- **Two customer emails cover what nothing else says**, `Emails\CustomerInvoice` and
-  `Emails\CustomerTracking`, both real `WC_Email` types registered through
-  `woocommerce_email_classes`. Everything before this told a customer nothing about an invoice or
+- **Three customer emails cover what nothing else says**, `WKSYNC_Customer_Invoice`,
+  `WKSYNC_Customer_Invoice_Corrected` and `WKSYNC_Customer_Tracking`, all real `WC_Email` types
+  registered through `woocommerce_email_classes`. Everything before this told a customer nothing about an invoice or
   about a shipment that did not complete the order: the invoice arrives hours later in a job of its
   own, long after the confirmation mail, and reached anybody only if some later order email happened
   to be sent.
@@ -1487,6 +1522,26 @@ calling it queues real work: it is not a way to test whether a job would be allo
   - **No plugin filter for "should this send".** WooCommerce already fires
     `woocommerce_email_enabled_{$id}` with the order, which is the hook a WooCommerce developer
     looks for and one fewer published API to keep working.
+  - **A corrected invoice is its own email type**, `WKSYNC_Customer_Invoice_Corrected`, fired by
+    `woo_kontor_sync_invoice_corrected` **instead of** the arrival hook and never as well as it.
+    Sending "your invoice is ready" a second time is exactly what left a customer holding two
+    identical-looking links and no way to tell which they owed. It is a separate class rather than a
+    variable subject line because WooCommerce stores the subject and heading as options a shop
+    manager edits, and one class can only ever have one of each. Its wording — subject, heading and
+    five paragraphs — was supplied by the shop and is carried verbatim in the German catalogues; the
+    English source strings are the translation, not the other way round.
+    - **`WKSYNC_Order_Email::paragraphs()` exists for it.** Every other mail here says one thing and
+      `intro()` is the whole of it; a correction has to say what went wrong, which document counts,
+      what to do about money already paid, and that it is fixed. The base returns
+      `array( $this->intro() )` so the other two are unchanged.
+    - **An invoice that arrives already superseded announces nothing at all** — not the arrival hook
+      and not the correction hook. It is a cancelled document, and there is no version of telling a
+      customer about one that leaves them better off. This is the case the newest-first listing
+      produces on every first import.
+    - **`Admin\OrderActions`' invoice entry sends whichever mail matches the order**, and renames
+      itself to say so. Pressing it is how a shop manager reaches the customers whose correction went
+      out before this existed, and sending them the arrival mail again would repeat the original
+      problem.
   - **Orders that already carry their tracking or their invoice are never announced**, and there is
     deliberately **no bulk backfill**. That falls straight out of the stored meta being the record —
     the first run after the upgrade matches on every order the syncs have already touched — and it

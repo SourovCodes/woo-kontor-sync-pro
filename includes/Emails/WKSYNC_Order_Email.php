@@ -100,6 +100,20 @@ abstract class WKSYNC_Order_Email extends WC_Email {
 	abstract protected function intro();
 
 	/**
+	 * The body text, one entry per paragraph.
+	 *
+	 * Most of these mails say one thing and intro() is the whole of it. A correction
+	 * notice is not one sentence — it has to say what went wrong, which document now
+	 * counts, and what to do about a payment already made — so the body is a list here
+	 * and a subclass with more than one paragraph overrides this instead of intro().
+	 *
+	 * @return array List of paragraphs, as plain text.
+	 */
+	protected function paragraphs() {
+		return array( $this->intro() );
+	}
+
+	/**
 	 * Send the email in answer to the sync.
 	 *
 	 * @param int   $order_id Order something arrived for.
@@ -181,7 +195,10 @@ abstract class WKSYNC_Order_Email extends WC_Email {
 		do_action( 'woocommerce_email_header', $this->get_heading(), $this );
 
 		printf( '<p>%s</p>', esc_html( $this->greeting() ) );
-		printf( '<p>%s</p>', esc_html( $this->intro() ) );
+
+		foreach ( $this->paragraphs() as $paragraph ) {
+			printf( '<p>%s</p>', esc_html( $paragraph ) );
+		}
 
 		do_action( 'woocommerce_email_order_details', $this->object, false, false, $this );
 		do_action( 'woocommerce_email_order_meta', $this->object, false, false, $this );
@@ -213,7 +230,10 @@ abstract class WKSYNC_Order_Email extends WC_Email {
 
 		echo esc_html( wp_strip_all_tags( $this->get_heading() ) ) . "\n\n";
 		echo esc_html( $this->greeting() ) . "\n\n";
-		echo esc_html( $this->intro() ) . "\n\n";
+
+		foreach ( $this->paragraphs() as $paragraph ) {
+			echo esc_html( $paragraph ) . "\n\n";
+		}
 
 		// phpcs:disable WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound, WooCommerce.Commenting.CommentHooks.MissingHookComment -- WooCommerce's own email hooks, fired in the same order and with the same arguments as its own templates. Prefixing or documenting them here would describe somebody else's contract.
 		do_action( 'woocommerce_email_order_details', $this->object, false, true, $this );

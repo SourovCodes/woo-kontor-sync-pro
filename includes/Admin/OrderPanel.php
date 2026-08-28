@@ -306,9 +306,30 @@ class OrderPanel {
 			return;
 		}
 
+		$invoices = InvoiceSync::classify( $invoices );
+		$replaced = count( $invoices ) > 1;
+
 		// Stacked rather than tabulated: the side column is narrow enough that a label
 		// and a link side by side would wrap into each other.
 		foreach ( $invoices as $invoice ) {
+			/*
+			 * Said the same way here as on the customer's own order page, and for the
+			 * same reason. A shop manager answering "which of these two do I owe?" is
+			 * looking at this panel while the customer looks at that page, and the two
+			 * disagreeing about which invoice counts would be worse than neither saying.
+			 * An order with one invoice is left unqualified, as it always was.
+			 */
+			if ( $replaced ) {
+				printf(
+					'<p><strong>%s</strong></p>',
+					esc_html(
+						$invoice['current']
+							? __( 'Current invoice (valid)', 'woo-kontor-sync-pro' )
+							: __( 'Cancelled invoice (no longer valid)', 'woo-kontor-sync-pro' )
+					)
+				);
+			}
+
 			printf(
 				'<p>%1$s<br/><a href="%2$s">%3$s</a></p>',
 				esc_html( InvoiceSync::label( $invoice ) ),

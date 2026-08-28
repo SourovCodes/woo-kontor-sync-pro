@@ -19,6 +19,7 @@
         "classmap": [
             "includes/Emails/WKSYNC_Order_Email.php",
             "includes/Emails/WKSYNC_Customer_Invoice.php",
+            "includes/Emails/WKSYNC_Customer_Invoice_Corrected.php",
             "includes/Emails/WKSYNC_Customer_Tracking.php"
         ]
     },

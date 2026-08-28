@@ -14,13 +14,14 @@ namespace WooKontorSync\Emails;
  * second time and PHP fatals on the redeclaration rather than on the missing class.
  */
 use WKSYNC_Customer_Invoice;
+use WKSYNC_Customer_Invoice_Corrected;
 use WKSYNC_Customer_Tracking;
 use WKSYNC_Order_Email;
 
 defined( 'ABSPATH' ) || exit;
 
 /**
- * Puts both emails in front of WooCommerce.
+ * Puts this plugin's emails in front of WooCommerce.
  *
  * Two filters, and the second one is the half that is easy to miss and impossible to
  * notice missing. woocommerce_email_classes is what lists the emails on
@@ -49,6 +50,11 @@ class Emails {
 	const INVOICE_KEY = WKSYNC_Customer_Invoice::class;
 
 	/**
+	 * The key the corrected-invoice email is listed under.
+	 */
+	const INVOICE_CORRECTED_KEY = WKSYNC_Customer_Invoice_Corrected::class;
+
+	/**
 	 * The key the tracking email is listed under.
 	 */
 	const TRACKING_KEY = WKSYNC_Customer_Tracking::class;
@@ -57,6 +63,11 @@ class Emails {
 	 * Fired when the invoice sync files a document the order did not hold.
 	 */
 	const INVOICE_ARRIVED = 'woo_kontor_sync_invoice_downloaded';
+
+	/**
+	 * Fired when the invoice sync files a document replacing one already held.
+	 */
+	const INVOICE_CORRECTED = 'woo_kontor_sync_invoice_corrected';
 
 	/**
 	 * Fired when the delivery sync learns a tracking number the order did not have.
@@ -74,9 +85,9 @@ class Emails {
 	}
 
 	/**
-	 * Add both emails to WooCommerce's list.
+	 * Add this plugin's emails to WooCommerce's list.
 	 *
-	 * This is the first and only place either class is referenced. That matters: they
+	 * This is the first and only place any of the classes is referenced. That matters: they
 	 * extend WC_Email, which WooCommerce declares late, and PSR-4 loads a class when it
 	 * is first referenced rather than when the file is imported. Constructing one any
 	 * earlier than this callback is a fatal error, not a load-order inconvenience.
@@ -93,24 +104,25 @@ class Emails {
 	 * because `WC_Email_Customer_Invoice` survives both functions unchanged.
 	 *
 	 * @param array $emails Emails WooCommerce has collected.
-	 * @return array Emails, with both of this plugin's added.
+	 * @return array Emails, with this plugin's own added.
 	 */
 	public function add_classes( $emails ) {
 		if ( ! is_array( $emails ) ) {
 			$emails = array();
 		}
 
-		$emails[ self::INVOICE_KEY ]  = new WKSYNC_Customer_Invoice();
-		$emails[ self::TRACKING_KEY ] = new WKSYNC_Customer_Tracking();
+		$emails[ self::INVOICE_KEY ]           = new WKSYNC_Customer_Invoice();
+		$emails[ self::INVOICE_CORRECTED_KEY ] = new WKSYNC_Customer_Invoice_Corrected();
+		$emails[ self::TRACKING_KEY ]          = new WKSYNC_Customer_Tracking();
 
 		return $emails;
 	}
 
 	/**
-	 * Have WooCommerce treat both arrival hooks as transactional email triggers.
+	 * Have WooCommerce treat every arrival hook as a transactional email trigger.
 	 *
 	 * @param array $actions Hook names WooCommerce will listen for.
-	 * @return array Hook names, with both of this plugin's added.
+	 * @return array Hook names, with this plugin's own added.
 	 */
 	public function add_actions( $actions ) {
 		if ( ! is_array( $actions ) ) {
@@ -118,6 +130,7 @@ class Emails {
 		}
 
 		$actions[] = self::INVOICE_ARRIVED;
+		$actions[] = self::INVOICE_CORRECTED;
 		$actions[] = self::TRACKING_ARRIVED;
 
 		return $actions;
@@ -130,7 +143,7 @@ class Emails {
 	 * shop's own settings for it — the subject and heading a shop manager may have
 	 * rewritten, and the email type they chose.
 	 *
-	 * @param string $key One of INVOICE_KEY or TRACKING_KEY.
+	 * @param string $key One of INVOICE_KEY, INVOICE_CORRECTED_KEY or TRACKING_KEY.
 	 * @return WKSYNC_Order_Email|null The email, or null when WooCommerce does not hold it.
 	 */
 	public static function get( $key ) {

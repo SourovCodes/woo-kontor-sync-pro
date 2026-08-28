@@ -86,9 +86,13 @@ class OrderActions {
 		}
 
 		// for_order() drops entries whose file has gone from disk, so this offers the
-		// mail exactly when there is a PDF to attach to it.
+		// mail exactly when there is a PDF to attach to it. The entry names which of
+		// the two mails it will send, because they say very different things and the
+		// person pressing it should not have to work out which one this order gets.
 		if ( ! empty( InvoiceSync::for_order( $order ) ) ) {
-			$actions[ self::SEND_INVOICE ] = __( 'Email the invoice to the customer again', 'woo-kontor-sync-pro' );
+			$actions[ self::SEND_INVOICE ] = InvoiceSync::has_correction( $order )
+				? __( 'Email the corrected-invoice notice to the customer again', 'woo-kontor-sync-pro' )
+				: __( 'Email the invoice to the customer again', 'woo-kontor-sync-pro' );
 		}
 
 		if ( '' !== trim( (string) $order->get_meta( DeliverySync::META_TRACKING ) ) ) {
@@ -115,6 +119,24 @@ class OrderActions {
 	 * @return void
 	 */
 	public function send_invoice( $order ) {
+		/*
+		 * Whichever mail matches the order as it stands now. An order whose invoice has
+		 * been replaced must not be sent "your invoice is ready": that is the wording
+		 * that left the customer unable to tell the two documents apart in the first
+		 * place, and pressing this is often exactly how a shop manager repairs one of
+		 * the orders that went out before the correction was noticed.
+		 */
+		if ( InvoiceSync::has_correction( $order ) ) {
+			$this->resend(
+				$order,
+				Emails::INVOICE_CORRECTED_KEY,
+				__( 'Kontor corrected-invoice email sent to the customer.', 'woo-kontor-sync-pro' ),
+				__( 'The Kontor corrected-invoice email could not be sent.', 'woo-kontor-sync-pro' )
+			);
+
+			return;
+		}
+
 		$this->resend(
 			$order,
 			Emails::INVOICE_KEY,
