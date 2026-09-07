@@ -2,14 +2,14 @@
 # This file is distributed under the GPL-2.0-or-later.
 msgid ""
 msgstr ""
-"Project-Id-Version: Woo Kontor Sync Pro 0.30.0\n"
+"Project-Id-Version: Woo Kontor Sync Pro 0.32.0\n"
 "Report-Msgid-Bugs-To: https://wordpress.org/support/plugin/woo-kontor-sync-pro\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"POT-Creation-Date: 2026-09-07T08:53:36+00:00\n"
+"POT-Creation-Date: 2026-09-07T10:54:55+00:00\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "X-Generator: WP-CLI 2.12.0\n"
 "X-Domain: woo-kontor-sync-pro\n"
@@ -126,47 +126,47 @@ msgstr ""
 msgid "You do not have permission to do that."
 msgstr ""
 
-#: includes/Admin/OrderActions.php:94
+#: includes/Admin/OrderActions.php:99
 msgid "Email the corrected-invoice notice to the customer again"
 msgstr ""
 
-#: includes/Admin/OrderActions.php:95
+#: includes/Admin/OrderActions.php:100
 msgid "Email the invoice to the customer again"
 msgstr ""
 
-#: includes/Admin/OrderActions.php:99
+#: includes/Admin/OrderActions.php:104
 msgid "Email the tracking details to the customer again"
 msgstr ""
 
-#: includes/Admin/OrderActions.php:109
+#: includes/Admin/OrderActions.php:114
 msgid "Send this order to Kontor again"
 msgstr ""
 
-#: includes/Admin/OrderActions.php:133
+#: includes/Admin/OrderActions.php:138
 msgid "Kontor corrected-invoice email sent to the customer."
 msgstr ""
 
-#: includes/Admin/OrderActions.php:134
+#: includes/Admin/OrderActions.php:139
 msgid "The Kontor corrected-invoice email could not be sent."
 msgstr ""
 
-#: includes/Admin/OrderActions.php:143
+#: includes/Admin/OrderActions.php:148
 msgid "Kontor invoice email sent to the customer."
 msgstr ""
 
-#: includes/Admin/OrderActions.php:144
+#: includes/Admin/OrderActions.php:149
 msgid "The Kontor invoice email could not be sent."
 msgstr ""
 
-#: includes/Admin/OrderActions.php:158
+#: includes/Admin/OrderActions.php:163
 msgid "Kontor tracking email sent to the customer."
 msgstr ""
 
-#: includes/Admin/OrderActions.php:159
+#: includes/Admin/OrderActions.php:164
 msgid "The Kontor tracking email could not be sent."
 msgstr ""
 
-#: includes/Admin/OrderActions.php:183
+#: includes/Admin/OrderActions.php:188
 msgid "Queued to be sent to Kontor again."
 msgstr ""
 
@@ -214,21 +214,21 @@ msgstr ""
 msgid "Nothing reported yet"
 msgstr ""
 
-#: includes/Admin/OrderPanel.php:177
-#: includes/Admin/OrderPanel.php:193
-#: includes/Admin/OrderPanel.php:200
-#: includes/Frontend/Tracking.php:98
-#: includes/Frontend/Tracking.php:151
+#: includes/Admin/OrderPanel.php:179
+#: includes/Admin/OrderPanel.php:192
+#: includes/Admin/OrderPanel.php:199
+#: includes/Frontend/Tracking.php:88
+#: includes/Frontend/Tracking.php:143
 msgid "Tracking number"
 msgstr ""
 
-#: includes/Admin/OrderPanel.php:178
+#: includes/Admin/OrderPanel.php:180
 msgid "Nothing shipped yet"
 msgstr ""
 
-#: includes/Admin/OrderPanel.php:187
-#: includes/Frontend/Tracking.php:93
-#: includes/Frontend/Tracking.php:148
+#: includes/Admin/OrderPanel.php:188
+#: includes/Frontend/Tracking.php:83
+#: includes/Frontend/Tracking.php:140
 msgid "Carrier"
 msgstr ""
 
@@ -1632,30 +1632,30 @@ msgstr ""
 msgid "%1$s is sold in multiples of %2$s."
 msgstr ""
 
-#: includes/Frontend/Tracking.php:88
-#: includes/Frontend/Tracking.php:145
-#: includes/Frontend/Tracking.php:171
+#: includes/Frontend/Tracking.php:77
+#: includes/Frontend/Tracking.php:136
+#: includes/Frontend/Tracking.php:164
 msgid "Shipment tracking"
 msgstr ""
 
-#: includes/Frontend/Tracking.php:156
+#: includes/Frontend/Tracking.php:148
 msgid "Track your shipment"
 msgstr ""
 
 #. translators: %s: shipping carrier name.
-#: includes/Frontend/Tracking.php:176
+#: includes/Frontend/Tracking.php:175
 #, php-format
 msgid "Carrier: %s"
 msgstr ""
 
 #. translators: %s: parcel tracking number.
-#: includes/Frontend/Tracking.php:183
+#: includes/Frontend/Tracking.php:182
 #, php-format
 msgid "Tracking number: %s"
 msgstr ""
 
 #. translators: %s: URL of the carrier's tracking page.
-#: includes/Frontend/Tracking.php:190
+#: includes/Frontend/Tracking.php:189
 #, php-format
 msgid "Track your shipment: %s"
 msgstr ""
@@ -1848,98 +1848,98 @@ msgstr ""
 msgid "No Kontor shop has been selected. Choose one before sending categories."
 msgstr ""
 
-#: includes/Sync/DeliverySync.php:156
+#: includes/Sync/DeliverySync.php:172
 msgid "Kontor reported no orders for this shop."
 msgstr ""
 
-#: includes/Sync/DeliverySync.php:169
+#: includes/Sync/DeliverySync.php:185
 msgid "The delivery rows could not be stored for the run to work through."
 msgstr ""
 
-#: includes/Sync/DeliverySync.php:201
+#: includes/Sync/DeliverySync.php:217
 msgid "The stored delivery rows could not be read, so the run was stopped part-way."
 msgstr ""
 
-#: includes/Sync/DeliverySync.php:287
+#: includes/Sync/DeliverySync.php:303
 msgid "Kontor reports this order as completed."
 msgstr ""
 
-#: includes/Sync/DeliverySync.php:299
+#: includes/Sync/DeliverySync.php:315
 msgid "Kontor reports this order as partially completed."
 msgstr ""
 
 #. translators: 1: shipping provider, 2: tracking number.
-#: includes/Sync/DeliverySync.php:404
+#: includes/Sync/DeliverySync.php:440
 #, php-format
 msgid "Kontor tracking: %1$s %2$s"
 msgstr ""
 
-#: includes/Sync/DeliverySync.php:405
+#: includes/Sync/DeliverySync.php:441
 msgid "unknown carrier"
 msgstr ""
 
 #. translators: 1: orders updated, 2: orders completed, 3: orders partially completed, 4: order numbers with no matching order.
-#: includes/Sync/DeliverySync.php:518
+#: includes/Sync/DeliverySync.php:686
 #, php-format
 msgid "%1$d orders updated, %2$d completed, %3$d partially completed, %4$d not found locally."
 msgstr ""
 
-#: includes/Sync/InvoiceSync.php:337
+#: includes/Sync/InvoiceSync.php:340
 msgid "Invoice"
 msgstr ""
 
 #. translators: %s: invoice number.
-#: includes/Sync/InvoiceSync.php:342
+#: includes/Sync/InvoiceSync.php:345
 #, php-format
 msgid "Invoice %s"
 msgstr ""
 
 #. translators: 1: invoice number, 2: date the invoice was issued.
-#: includes/Sync/InvoiceSync.php:354
+#: includes/Sync/InvoiceSync.php:357
 #, php-format
 msgid "Invoice %1$s of %2$s"
 msgstr ""
 
-#: includes/Sync/InvoiceSync.php:394
+#: includes/Sync/InvoiceSync.php:397
 msgid "Kontor reported no invoices for this shop."
 msgstr ""
 
-#: includes/Sync/InvoiceSync.php:407
+#: includes/Sync/InvoiceSync.php:410
 msgid "The invoice listing could not be stored for the run to work through."
 msgstr ""
 
-#: includes/Sync/InvoiceSync.php:473
+#: includes/Sync/InvoiceSync.php:476
 msgid "The stored invoice listing could not be read, so the run was stopped part-way."
 msgstr ""
 
-#: includes/Sync/InvoiceSync.php:488
+#: includes/Sync/InvoiceSync.php:491
 msgid "The stored invoice listing was written by an earlier version of the plugin, so the run was stopped part-way. The next run will fetch it again."
 msgstr ""
 
-#: includes/Sync/InvoiceSync.php:718
+#: includes/Sync/InvoiceSync.php:721
 msgid "Kontor returned a document that could not be decoded."
 msgstr ""
 
 #. translators: %s: invoice number as issued by Kontor.
-#: includes/Sync/InvoiceSync.php:753
+#: includes/Sync/InvoiceSync.php:756
 #, php-format
 msgid "Invoice %s downloaded from Kontor."
 msgstr ""
 
 #. translators: %s: invoice number as issued by Kontor.
-#: includes/Sync/InvoiceSync.php:799
+#: includes/Sync/InvoiceSync.php:802
 #, php-format
 msgid "Invoice %s has been cancelled in Kontor."
 msgstr ""
 
 #. translators: 1: invoices downloaded, 2: invoices that failed, 3: invoice rows with no matching order.
-#: includes/Sync/InvoiceSync.php:994
+#: includes/Sync/InvoiceSync.php:997
 #, php-format
 msgid "%1$d invoices downloaded, %2$d failed, %3$d not found locally."
 msgstr ""
 
 #. translators: %d: invoices whose status changed in Kontor.
-#: includes/Sync/InvoiceSync.php:1008
+#: includes/Sync/InvoiceSync.php:1011
 #, php-format
 msgid "%d invoice changed status in Kontor."
 msgid_plural "%d invoices changed status in Kontor."

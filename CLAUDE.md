@@ -916,13 +916,36 @@ of them wrong produces silently wrong data rather than an error:
     reached by a genuinely untaxed line, where its zero is the right answer.
 - **`provider` and `trackinginfo` arrive as `null`, not absent** — confirmed against live data, where
   all 7 rows for one shop had both null. Anything reading them has to treat null as empty.
-- **One tracking number per order, and it is always the first.** Kontor confirmed this on 7 September
-  2026: an order shipped in several parcels reports the tracking number of the first parcel and no
-  way to reach the others. It bites hardest where it matters most — `partially_completed` is the
-  commonest order status on the account, and those are precisely the orders that ship in parts. The
-  practical effects: a customer can track the first parcel only, and `DeliverySync::announce_tracking()`
-  never fires a second time for that order, because the number it compares against does not change
-  when a later parcel ships. Nothing here can be improved without a second field from Kontor.
+- **One tracking number per row, and *which* one is not stable.** Kontor described this on
+  7 September 2026 as returning "only one, but always the first". It is neither. Order 15339 shipped
+  in two parcels — `…344001` and `…344002` — and the entity returned them **alternately, one per
+  hourly delivery run, for eleven days**. Four consecutive calls the same afternoon all returned
+  `…344001`, so it is not per-call randomness either; something upstream reorders between runs.
+  - **That cost one customer 33 emails.** `announce_tracking()` compared the reported number against
+    the single stored one, so every swing read as a parcel that had just shipped, and `apply_row()`
+    overwrote the number, rewrote three meta rows, saved the order and added a note each time. The
+    order was `partially_completed` throughout, which is the status that carries no mail of its own
+    and therefore the one this announcement exists for.
+  - **`DeliverySync::META_SHIPMENTS` (`_wksync_shipments`) is the answer, and it only ever grows.**
+    A list of `provider` / `number` / `url`, oldest first. A number we have not seen is another
+    parcel; one we have seen is the same parcels described differently. `record_shipment()` is the
+    one place that decides, `announce_tracking()` fires on growth alone, and a listing that swings
+    back to a parcel already recorded now changes nothing at all — no meta write, no note, no mail.
+  - **The three singular keys survive as "the most recent parcel"** and are only rewritten when one
+    arrives, so everything reading them before 0.32.0 still works and the flip-flop no longer
+    touches them.
+  - **Seeding is silent, and seeding means adopting a number an earlier version announced** — not
+    merely "this order had no list yet". An order that has never carried a tracking number has told
+    the customer nothing, so its first parcel is news and must announce; that is the ordinary case
+    and most of what the job is for. An order that already carries the old single meta has been
+    mailed about it once, so reading it into the list is bookkeeping. The cost is one missed
+    announcement on the single run that migrates an order whose second parcel arrives in that same
+    run — which is exactly what 15339 needed, and cheaper than mailing a back catalogue.
+  - **Every parcel is shown**, through `DeliverySync::shipments()`, on the order page, in the order
+    emails in both HTML and plain text, and on the admin panel — one reader, so the shop manager and
+    the customer cannot be looking at different numbers. Before this the shop displayed whichever
+    parcel Kontor had mentioned last, so a customer could lose the link to one they had already been
+    told about.
 - **An order the upsert reply says nothing about is counted as failed.** Nothing is written on it, so
   the next sweep sends it again; leaving it out of the counts instead would report a batch of
   twenty-five as "five sent" and give nobody a reason to look.

@@ -66,6 +66,22 @@ class DeliverySync {
 	const META_TRACKING_URL = '_wksync_tracking_url';
 
 	/**
+	 * Every parcel Kontor has ever reported for an order.
+	 *
+	 * A list of arrays with "provider", "number" and "url" keys, oldest first, and it
+	 * only ever grows. The three singular keys above name the most recent parcel and are
+	 * what everything read before 0.32.0; this is the record.
+	 *
+	 * It exists because the listing carries one tracking number per order and Kontor is
+	 * not consistent about which. Order 15339 on the live account shipped in two parcels
+	 * and the entity alternated between them, one per hourly run, for eleven days —
+	 * so the old code overwrote the stored number each time, read the overwrite as a
+	 * parcel that had just shipped, and sent the customer **33 tracking emails**. Kontor
+	 * described this as returning "only one, but always the first"; it is neither.
+	 */
+	const META_SHIPMENTS = '_wksync_shipments';
+
+	/**
 	 * The status Kontor reports for a finished order.
 	 */
 	const STATUS_COMPLETED = 'completed';
@@ -257,13 +273,13 @@ class DeliverySync {
 			}
 
 			/*
-			 * Read before apply_row() writes over it. Its own answer cannot be used: it
-			 * reports whether any of four fields moved, so a status that changed or an
-			 * Auftrnr backfilled is indistinguishable there from a parcel being sent.
+			 * apply_row()'s own answer cannot decide whether to announce: it reports that
+			 * any of four fields moved, so a status that changed or an Auftrnr backfilled
+			 * is indistinguishable there from a parcel being sent. record_shipment() is
+			 * what knows, and hands its verdict back through $shipment.
 			 */
-			$before = trim( (string) $order->get_meta( self::META_TRACKING ) );
-
-			$changed = $this->apply_row( $order, $row );
+			$shipment = array();
+			$changed  = $this->apply_row( $order, $row, $shipment );
 
 			if ( ! $changed ) {
 				++$counts['unchanged'];
@@ -304,7 +320,7 @@ class DeliverySync {
 
 			// After the transition, so anything listening describes the order as it now
 			// stands rather than as it stood a line ago.
-			$this->announce_tracking( $order, $before, $row, $target );
+			$this->announce_tracking( $order, $shipment, $row, $target );
 		}
 
 		return $counts;
@@ -315,38 +331,45 @@ class DeliverySync {
 	 *
 	 * Three conditions, and each one is load-bearing:
 	 *
-	 * - There is a tracking number at all. Kontor sends provider and trackinginfo as
-	 *   null rather than omitting them, so a synced but unshipped order carries the
-	 *   meta present and empty on every run.
-	 * - It is not the number the order already had. The stored meta is the whole
-	 *   idempotency mechanism: apply_row() writes it before this runs, so a repeat run
-	 *   — or Action Scheduler retrying a chunk that died after the save — reads the
-	 *   same value and says nothing. There is deliberately no separate "announced"
-	 *   marker: a second record could disagree with the first, and then neither is
-	 *   trustworthy.
+	 * - A parcel this order has not carried before. The stored list is the whole
+	 *   idempotency mechanism: record_shipment() writes it before this runs, so a repeat
+	 *   run — or Action Scheduler retrying a chunk that died after the save — finds the
+	 *   number already there and says nothing. There is deliberately no separate
+	 *   "announced" marker: a second record could disagree with the first, and then
+	 *   neither is trustworthy.
+	 *
+	 *   Until 0.32.0 this compared the reported number against the single stored one,
+	 *   which is not the same question and is the bug that mailed order 15339 thirty-
+	 *   three times: Kontor alternated between that order's two parcels, and every flip
+	 *   read as a number the order did not have. A list only ever grows, so a listing
+	 *   that swings back to a parcel already recorded is silence.
+	 * - The list was not seeded by this very run. An order that already carried a
+	 *   tracking number when this version landed has been announced once already, by the
+	 *   version before it; adopting that number into the list is bookkeeping rather than
+	 *   news. Same rule as an invoice status seen for the first time.
 	 * - The order is not being completed by this run. That transition fires
 	 *   WooCommerce's own completion mail, which already carries these details —
-	 *   apply_row() wrote the meta before the status moved, so Frontend\Tracking
-	 *   renders into it. Announcing here as well would tell the customer twice,
-	 *   seconds apart.
+	 *   apply_row() wrote the meta before the status moved, so Frontend\Tracking renders
+	 *   into it. Announcing here as well would tell the customer twice, seconds apart.
 	 *
 	 * The partial-completion path is deliberately not excluded. That status carries no
 	 * email by design, which is exactly the gap this fills: part of the order has
-	 * shipped and nothing else would ever say so.
+	 * shipped and nothing else would ever say so. It is also the case that produces
+	 * several parcels in the first place.
 	 *
-	 * @param WC_Order $order  Order the row was applied to.
-	 * @param string   $before Tracking number the order carried before this run.
-	 * @param array    $row    Normalised delivery row.
-	 * @param string   $target Status this run moved the order to, if any.
+	 * @param WC_Order $order    Order the row was applied to.
+	 * @param array    $shipment Verdict from record_shipment().
+	 * @param array    $row      Normalised delivery row.
+	 * @param string   $target   Status this run moved the order to, if any.
 	 * @return void
 	 */
-	protected function announce_tracking( $order, $before, array $row, $target ) {
-		if ( '' === $row['tracking'] || $before === $row['tracking'] || 'completed' === $target ) {
+	protected function announce_tracking( $order, array $shipment, array $row, $target ) {
+		if ( empty( $shipment['grew'] ) || ! empty( $shipment['seeded'] ) || 'completed' === $target ) {
 			return;
 		}
 
 		/**
-		 * Fires when Kontor reports a tracking number the order did not have.
+		 * Fires when Kontor reports a parcel the order has not carried before.
 		 *
 		 * Registered as a WooCommerce transactional email action, so the mailer is
 		 * instantiated before anything listens for it. Scalars only: WooCommerce is
@@ -364,19 +387,30 @@ class DeliverySync {
 	/**
 	 * Write one row's details onto an order.
 	 *
-	 * @param WC_Order $order Order to update.
-	 * @param array    $row   Normalised delivery row.
+	 * @param WC_Order $order    Order to update.
+	 * @param array    $row      Normalised delivery row.
+	 * @param array    $shipment Filled in with record_shipment()'s verdict, by reference,
+	 *                           because apply_row()'s own answer cannot tell a parcel
+	 *                           from a status change and announce_tracking() needs both.
 	 * @return bool True when something actually changed.
 	 */
-	protected function apply_row( $order, array $row ) {
-		$fields = array(
-			self::META_STATUS       => $row['status'],
-			self::META_PROVIDER     => $row['provider'],
-			self::META_TRACKING     => $row['tracking'],
-			self::META_TRACKING_URL => $row['tracking_url'],
-		);
+	protected function apply_row( $order, array $row, &$shipment = null ) {
+		$changed  = false;
+		$shipment = $this->record_shipment( $order, $row );
 
-		$changed = false;
+		$fields = array( self::META_STATUS => $row['status'] );
+
+		/*
+		 * The singular keys name the most recent parcel, so they are only rewritten when
+		 * one arrives. A listing that swings back to a parcel already recorded leaves
+		 * them where they are — otherwise every flip would rewrite three meta rows, save
+		 * the order and add a note, for no new information.
+		 */
+		if ( empty( $shipment['known'] ) ) {
+			$fields[ self::META_PROVIDER ]     = $row['provider'];
+			$fields[ self::META_TRACKING ]     = $row['tracking'];
+			$fields[ self::META_TRACKING_URL ] = $row['tracking_url'];
+		}
 
 		foreach ( $fields as $meta_key => $value ) {
 			if ( (string) $order->get_meta( $meta_key ) === $value ) {
@@ -397,7 +431,9 @@ class DeliverySync {
 			return false;
 		}
 
-		if ( '' !== $row['tracking'] ) {
+		// Only a parcel this order has not carried before is worth a note. Kontor
+		// alternating between two of them is not eleven days of shipments.
+		if ( ! empty( $shipment['grew'] ) ) {
 			$order->add_order_note(
 				sprintf(
 					/* translators: 1: shipping provider, 2: tracking number. */
@@ -411,6 +447,138 @@ class DeliverySync {
 		$order->save();
 
 		return true;
+	}
+
+	/**
+	 * Record the parcel a row reports, and say whether it is one we had not seen.
+	 *
+	 * The list only ever grows. Kontor sends one tracking number per order and is not
+	 * consistent about which of an order's parcels it picks, so the only safe reading of
+	 * a number we have not seen is "another parcel", and of one we have is "the same
+	 * parcels, described differently". Removing the old one — which is what writing a
+	 * single meta key amounted to — loses a parcel the customer may already be tracking.
+	 *
+	 * **Seeding is silent.** An order that already carried a tracking number when this
+	 * version landed has been announced once by the version before it, so adopting that
+	 * number into a fresh list is bookkeeping, not news. A second parcel that happens to
+	 * arrive in the same run is adopted silently too: the cost is one missed
+	 * announcement, once, on the run that migrates the order, and the alternative is
+	 * mailing customers about parcels that shipped weeks ago.
+	 *
+	 * @param WC_Order $order Order to record against.
+	 * @param array    $row   Normalised delivery row.
+	 * @return array "grew", "known" and "seeded" booleans.
+	 */
+	protected function record_shipment( $order, array $row ) {
+		$verdict = array(
+			'grew'   => false,
+			'known'  => false,
+			'seeded' => false,
+		);
+
+		if ( '' === $row['tracking'] ) {
+			return $verdict;
+		}
+
+		$stored    = $order->get_meta( self::META_SHIPMENTS );
+		$shipments = is_array( $stored ) ? $stored : array();
+		$seeding   = empty( $shipments );
+
+		if ( $seeding ) {
+			$legacy = trim( (string) $order->get_meta( self::META_TRACKING ) );
+
+			/*
+			 * Seeded means "a parcel an earlier version already announced was adopted",
+			 * not merely "this order had no list yet". An order that has never carried a
+			 * tracking number has told the customer nothing, so its first parcel is news
+			 * and must announce — which is the ordinary case and most of what this job
+			 * exists for.
+			 */
+			if ( '' !== $legacy ) {
+				$verdict['seeded'] = true;
+
+				$shipments[] = array(
+					'provider' => trim( (string) $order->get_meta( self::META_PROVIDER ) ),
+					'number'   => $legacy,
+					'url'      => trim( (string) $order->get_meta( self::META_TRACKING_URL ) ),
+				);
+			}
+		}
+
+		foreach ( $shipments as $shipped ) {
+			if ( is_array( $shipped ) && isset( $shipped['number'] ) && (string) $shipped['number'] === $row['tracking'] ) {
+				if ( ! empty( $verdict['seeded'] ) ) {
+					$order->update_meta_data( self::META_SHIPMENTS, array_values( $shipments ) );
+				}
+
+				$verdict['known'] = true;
+
+				return $verdict;
+			}
+		}
+
+		$shipments[] = array(
+			'provider' => $row['provider'],
+			'number'   => $row['tracking'],
+			'url'      => $row['tracking_url'],
+		);
+
+		$order->update_meta_data( self::META_SHIPMENTS, array_values( $shipments ) );
+
+		$verdict['grew'] = true;
+
+		return $verdict;
+	}
+
+	/**
+	 * Every parcel an order carries, oldest first.
+	 *
+	 * The one place anything displaying tracking reads it, so the order page, the order
+	 * emails and the admin panel cannot disagree about how many parcels there are.
+	 *
+	 * Falls back to the three singular meta keys for an order the delivery sync has not
+	 * touched since 0.32.0, which is every order on the day this ships. Kontor sends
+	 * provider and trackinginfo as null rather than omitting them, so an order synced but
+	 * not yet shipped has that meta present and empty; the number is what decides there
+	 * is anything to show.
+	 *
+	 * @param mixed $order Value that may be an order.
+	 * @return array List of parcels, each with "provider", "number" and "url".
+	 */
+	public static function shipments( $order ) {
+		if ( ! $order instanceof WC_Order ) {
+			return array();
+		}
+
+		$stored     = $order->get_meta( self::META_SHIPMENTS );
+		$shipments  = array();
+		$candidates = is_array( $stored ) && ! empty( $stored ) ? $stored : array(
+			array(
+				'provider' => $order->get_meta( self::META_PROVIDER ),
+				'number'   => $order->get_meta( self::META_TRACKING ),
+				'url'      => $order->get_meta( self::META_TRACKING_URL ),
+			),
+		);
+
+		foreach ( $candidates as $parcel ) {
+			if ( ! is_array( $parcel ) ) {
+				continue;
+			}
+
+			$number = isset( $parcel['number'] ) ? trim( (string) $parcel['number'] ) : '';
+
+			if ( '' === $number ) {
+				continue;
+			}
+
+			$shipments[] = array(
+				'provider' => isset( $parcel['provider'] ) ? trim( (string) $parcel['provider'] ) : '',
+				'number'   => $number,
+				'url'      => isset( $parcel['url'] ) ? trim( (string) $parcel['url'] ) : '',
+			);
+		}
+
+		return $shipments;
 	}
 
 	/**

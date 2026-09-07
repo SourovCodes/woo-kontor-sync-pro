@@ -43,31 +43,20 @@ class Tracking {
 	}
 
 	/**
-	 * The tracking details for an order, or null when there are none to show.
+	 * Every parcel an order carries, oldest first.
 	 *
-	 * Provider and tracking number arrive as null rather than absent from Kontor, so
-	 * an order that has been synced but not yet shipped has the meta present and
-	 * empty. The tracking number is what decides there is anything worth showing.
+	 * Read through DeliverySync::shipments(), which is the one place that decides how
+	 * many parcels there are, so this page and the admin panel cannot disagree about it.
+	 * An order can have several: a partial delivery ships what it has and the rest
+	 * follows, and before 0.32.0 the shop showed only whichever one Kontor mentioned
+	 * last, which is how a customer ended up unable to track a parcel they had been
+	 * told about the week before.
 	 *
 	 * @param mixed $order Value the hook passed, which is not always an order.
-	 * @return array|null Provider, number and URL, or null.
+	 * @return array List of parcels, each with "provider", "number" and "url".
 	 */
 	protected function details( $order ) {
-		if ( ! $order instanceof WC_Order ) {
-			return null;
-		}
-
-		$number = trim( (string) $order->get_meta( DeliverySync::META_TRACKING ) );
-
-		if ( '' === $number ) {
-			return null;
-		}
-
-		return array(
-			'provider' => trim( (string) $order->get_meta( DeliverySync::META_PROVIDER ) ),
-			'number'   => $number,
-			'url'      => trim( (string) $order->get_meta( DeliverySync::META_TRACKING_URL ) ),
-		);
+		return DeliverySync::shipments( $order );
 	}
 
 	/**
@@ -77,9 +66,9 @@ class Tracking {
 	 * @return void
 	 */
 	public function render_order_details( $order ) {
-		$details = $this->details( $order );
+		$parcels = $this->details( $order );
 
-		if ( null === $details ) {
+		if ( empty( $parcels ) ) {
 			return;
 		}
 
@@ -88,24 +77,26 @@ class Tracking {
 			<h2><?php echo esc_html__( 'Shipment tracking', 'woo-kontor-sync-pro' ); ?></h2>
 			<table class="woocommerce-table shop_table wksync-tracking-table">
 				<tbody>
-					<?php if ( '' !== $details['provider'] ) : ?>
+					<?php foreach ( $parcels as $parcel ) : ?>
+						<?php if ( '' !== $parcel['provider'] ) : ?>
+							<tr>
+								<th scope="row"><?php echo esc_html__( 'Carrier', 'woo-kontor-sync-pro' ); ?></th>
+								<td><?php echo esc_html( $parcel['provider'] ); ?></td>
+							</tr>
+						<?php endif; ?>
 						<tr>
-							<th scope="row"><?php echo esc_html__( 'Carrier', 'woo-kontor-sync-pro' ); ?></th>
-							<td><?php echo esc_html( $details['provider'] ); ?></td>
+							<th scope="row"><?php echo esc_html__( 'Tracking number', 'woo-kontor-sync-pro' ); ?></th>
+							<td>
+								<?php if ( '' !== $parcel['url'] ) : ?>
+									<a href="<?php echo esc_url( $parcel['url'] ); ?>" target="_blank" rel="noopener nofollow">
+										<?php echo esc_html( $parcel['number'] ); ?>
+									</a>
+								<?php else : ?>
+									<?php echo esc_html( $parcel['number'] ); ?>
+								<?php endif; ?>
+							</td>
 						</tr>
-					<?php endif; ?>
-					<tr>
-						<th scope="row"><?php echo esc_html__( 'Tracking number', 'woo-kontor-sync-pro' ); ?></th>
-						<td>
-							<?php if ( '' !== $details['url'] ) : ?>
-								<a href="<?php echo esc_url( $details['url'] ); ?>" target="_blank" rel="noopener nofollow">
-									<?php echo esc_html( $details['number'] ); ?>
-								</a>
-							<?php else : ?>
-								<?php echo esc_html( $details['number'] ); ?>
-							<?php endif; ?>
-						</td>
-					</tr>
+					<?php endforeach; ?>
 				</tbody>
 			</table>
 		</section>
@@ -128,14 +119,14 @@ class Tracking {
 			return;
 		}
 
-		$details = $this->details( $order );
+		$parcels = $this->details( $order );
 
-		if ( null === $details ) {
+		if ( empty( $parcels ) ) {
 			return;
 		}
 
 		if ( $plain_text ) {
-			$this->render_email_plain( $details );
+			$this->render_email_plain( $parcels );
 
 			return;
 		}
@@ -143,20 +134,22 @@ class Tracking {
 		?>
 		<div class="wksync-email-tracking" style="margin-bottom: 24px;">
 			<h2><?php echo esc_html__( 'Shipment tracking', 'woo-kontor-sync-pro' ); ?></h2>
-			<p>
-				<?php if ( '' !== $details['provider'] ) : ?>
-					<?php echo esc_html__( 'Carrier', 'woo-kontor-sync-pro' ); ?>:
-					<strong><?php echo esc_html( $details['provider'] ); ?></strong><br/>
-				<?php endif; ?>
-				<?php echo esc_html__( 'Tracking number', 'woo-kontor-sync-pro' ); ?>:
-				<strong><?php echo esc_html( $details['number'] ); ?></strong>
-				<?php if ( '' !== $details['url'] ) : ?>
-					<br/>
-					<a href="<?php echo esc_url( $details['url'] ); ?>" target="_blank" rel="noopener nofollow">
-						<?php echo esc_html__( 'Track your shipment', 'woo-kontor-sync-pro' ); ?>
-					</a>
-				<?php endif; ?>
-			</p>
+			<?php foreach ( $parcels as $parcel ) : ?>
+				<p>
+					<?php if ( '' !== $parcel['provider'] ) : ?>
+						<?php echo esc_html__( 'Carrier', 'woo-kontor-sync-pro' ); ?>:
+						<strong><?php echo esc_html( $parcel['provider'] ); ?></strong><br/>
+					<?php endif; ?>
+					<?php echo esc_html__( 'Tracking number', 'woo-kontor-sync-pro' ); ?>:
+					<strong><?php echo esc_html( $parcel['number'] ); ?></strong>
+					<?php if ( '' !== $parcel['url'] ) : ?>
+						<br/>
+						<a href="<?php echo esc_url( $parcel['url'] ); ?>" target="_blank" rel="noopener nofollow">
+							<?php echo esc_html__( 'Track your shipment', 'woo-kontor-sync-pro' ); ?>
+						</a>
+					<?php endif; ?>
+				</p>
+			<?php endforeach; ?>
 		</div>
 		<?php
 	}
@@ -164,32 +157,39 @@ class Tracking {
 	/**
 	 * Render the tracking block for the plain-text email template.
 	 *
-	 * @param array $details Provider, number and URL.
+	 * @param array $parcels Parcels, each with "provider", "number" and "url".
 	 * @return void
 	 */
-	protected function render_email_plain( array $details ) {
+	protected function render_email_plain( array $parcels ) {
 		$lines = array( wc_strtoupper( __( 'Shipment tracking', 'woo-kontor-sync-pro' ) ) );
 
-		if ( '' !== $details['provider'] ) {
-			$lines[] = sprintf(
-				/* translators: %s: shipping carrier name. */
-				__( 'Carrier: %s', 'woo-kontor-sync-pro' ),
-				$details['provider']
-			);
-		}
+		foreach ( $parcels as $index => $parcel ) {
+			// A blank line between parcels, so several do not read as one run-on block.
+			if ( $index > 0 ) {
+				$lines[] = '';
+			}
 
-		$lines[] = sprintf(
-			/* translators: %s: parcel tracking number. */
-			__( 'Tracking number: %s', 'woo-kontor-sync-pro' ),
-			$details['number']
-		);
+			if ( '' !== $parcel['provider'] ) {
+				$lines[] = sprintf(
+					/* translators: %s: shipping carrier name. */
+					__( 'Carrier: %s', 'woo-kontor-sync-pro' ),
+					$parcel['provider']
+				);
+			}
 
-		if ( '' !== $details['url'] ) {
 			$lines[] = sprintf(
-				/* translators: %s: URL of the carrier's tracking page. */
-				__( 'Track your shipment: %s', 'woo-kontor-sync-pro' ),
-				esc_url_raw( $details['url'] )
+				/* translators: %s: parcel tracking number. */
+				__( 'Tracking number: %s', 'woo-kontor-sync-pro' ),
+				$parcel['number']
 			);
+
+			if ( '' !== $parcel['url'] ) {
+				$lines[] = sprintf(
+					/* translators: %s: URL of the carrier's tracking page. */
+					__( 'Track your shipment: %s', 'woo-kontor-sync-pro' ),
+					esc_url_raw( $parcel['url'] )
+				);
+			}
 		}
 
 		echo "\n" . esc_html( implode( "\n", $lines ) ) . "\n\n";

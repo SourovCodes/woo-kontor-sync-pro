@@ -170,9 +170,11 @@ class OrderPanel {
 			$this->text( $order, DeliverySync::META_STATUS, __( 'Nothing reported yet', 'woo-kontor-sync-pro' ) )
 		);
 
-		$number = trim( (string) $order->get_meta( DeliverySync::META_TRACKING ) );
+		// Every parcel, through the same reader the customer's order page uses, so the
+		// shop manager and the customer cannot be looking at different numbers.
+		$parcels = DeliverySync::shipments( $order );
 
-		if ( '' === $number ) {
+		if ( empty( $parcels ) ) {
 			$this->render_row(
 				__( 'Tracking number', 'woo-kontor-sync-pro' ),
 				__( 'Nothing shipped yet', 'woo-kontor-sync-pro' )
@@ -181,26 +183,24 @@ class OrderPanel {
 			return;
 		}
 
-		$provider = trim( (string) $order->get_meta( DeliverySync::META_PROVIDER ) );
+		foreach ( $parcels as $parcel ) {
+			if ( '' !== $parcel['provider'] ) {
+				$this->render_row( __( 'Carrier', 'woo-kontor-sync-pro' ), $parcel['provider'] );
+			}
 
-		if ( '' !== $provider ) {
-			$this->render_row( __( 'Carrier', 'woo-kontor-sync-pro' ), $provider );
+			if ( '' === $parcel['url'] ) {
+				$this->render_row( __( 'Tracking number', 'woo-kontor-sync-pro' ), $parcel['number'] );
+
+				continue;
+			}
+
+			printf(
+				'<p><strong>%1$s:</strong> <a href="%2$s" target="_blank" rel="noopener nofollow">%3$s</a></p>',
+				esc_html__( 'Tracking number', 'woo-kontor-sync-pro' ),
+				esc_url( $parcel['url'] ),
+				esc_html( $parcel['number'] )
+			);
 		}
-
-		$url = trim( (string) $order->get_meta( DeliverySync::META_TRACKING_URL ) );
-
-		if ( '' === $url ) {
-			$this->render_row( __( 'Tracking number', 'woo-kontor-sync-pro' ), $number );
-
-			return;
-		}
-
-		printf(
-			'<p><strong>%1$s:</strong> <a href="%2$s" target="_blank" rel="noopener nofollow">%3$s</a></p>',
-			esc_html__( 'Tracking number', 'woo-kontor-sync-pro' ),
-			esc_url( $url ),
-			esc_html( $number )
-		);
 	}
 
 	/**

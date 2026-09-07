@@ -443,63 +443,63 @@ msgstr "Die Kontor-API-Basis-URL wurde nicht konfiguriert."
 msgid "The Kontor API key has not been configured."
 msgstr "Der Kontor-API-Schlüssel wurde nicht konfiguriert."
 
-#: includes/Frontend/Tracking.php:88
-#: includes/Frontend/Tracking.php:145
-#: includes/Frontend/Tracking.php:171
+#: includes/Frontend/Tracking.php:77
+#: includes/Frontend/Tracking.php:136
+#: includes/Frontend/Tracking.php:164
 msgid "Shipment tracking"
 msgstr "Sendungsverfolgung"
 
-#: includes/Admin/OrderPanel.php:187
-#: includes/Frontend/Tracking.php:93
-#: includes/Frontend/Tracking.php:148
+#: includes/Admin/OrderPanel.php:188
+#: includes/Frontend/Tracking.php:83
+#: includes/Frontend/Tracking.php:140
 msgid "Carrier"
 msgstr "Versanddienstleister"
 
-#: includes/Admin/OrderPanel.php:177
-#: includes/Admin/OrderPanel.php:193
-#: includes/Admin/OrderPanel.php:200
-#: includes/Frontend/Tracking.php:98
-#: includes/Frontend/Tracking.php:151
+#: includes/Admin/OrderPanel.php:179
+#: includes/Admin/OrderPanel.php:192
+#: includes/Admin/OrderPanel.php:199
+#: includes/Frontend/Tracking.php:88
+#: includes/Frontend/Tracking.php:143
 msgid "Tracking number"
 msgstr "Sendungsnummer"
 
-#: includes/Frontend/Tracking.php:156
+#: includes/Frontend/Tracking.php:148
 msgid "Track your shipment"
 msgstr "Sendung verfolgen"
 
 #. translators: %s: shipping carrier name.
-#: includes/Frontend/Tracking.php:176
+#: includes/Frontend/Tracking.php:175
 #, php-format
 msgid "Carrier: %s"
 msgstr "Versanddienstleister: %s"
 
 #. translators: %s: parcel tracking number.
-#: includes/Frontend/Tracking.php:183
+#: includes/Frontend/Tracking.php:182
 #, php-format
 msgid "Tracking number: %s"
 msgstr "Sendungsnummer: %s"
 
 #. translators: %s: URL of the carrier's tracking page.
-#: includes/Frontend/Tracking.php:190
+#: includes/Frontend/Tracking.php:189
 #, php-format
 msgid "Track your shipment: %s"
 msgstr "Sendung verfolgen: %s"
 
-#: includes/Sync/DeliverySync.php:156
+#: includes/Sync/DeliverySync.php:172
 msgid "Kontor reported no orders for this shop."
 msgstr "Kontor hat für diesen Shop keine Bestellungen gemeldet."
 
-#: includes/Sync/DeliverySync.php:287
+#: includes/Sync/DeliverySync.php:303
 msgid "Kontor reports this order as completed."
 msgstr "Kontor meldet diese Bestellung als abgeschlossen."
 
 #. translators: 1: shipping provider, 2: tracking number.
-#: includes/Sync/DeliverySync.php:404
+#: includes/Sync/DeliverySync.php:440
 #, php-format
 msgid "Kontor tracking: %1$s %2$s"
 msgstr "Kontor-Sendungsverfolgung: %1$s %2$s"
 
-#: includes/Sync/DeliverySync.php:405
+#: includes/Sync/DeliverySync.php:441
 msgid "unknown carrier"
 msgstr "unbekannter Versanddienstleister"
 
@@ -605,18 +605,18 @@ msgstr "PDF herunterladen"
 msgid "%1$s: %2$s"
 msgstr "%1$s: %2$s"
 
-#: includes/Sync/InvoiceSync.php:337
+#: includes/Sync/InvoiceSync.php:340
 msgid "Invoice"
 msgstr "Rechnung"
 
 #. translators: %s: invoice number.
-#: includes/Sync/InvoiceSync.php:342
+#: includes/Sync/InvoiceSync.php:345
 #, php-format
 msgid "Invoice %s"
 msgstr "Rechnung %s"
 
 #. translators: 1: invoice number, 2: date the invoice was issued.
-#: includes/Sync/InvoiceSync.php:354
+#: includes/Sync/InvoiceSync.php:357
 #, php-format
 msgid "Invoice %1$s of %2$s"
 msgstr "Rechnung %1$s vom %2$s"
@@ -673,22 +673,22 @@ msgstr "Das Rechnungsverzeichnis existiert nicht."
 msgid "The invoice directory could not be created inside the uploads folder."
 msgstr "Das Rechnungsverzeichnis konnte im Uploads-Ordner nicht angelegt werden."
 
-#: includes/Sync/InvoiceSync.php:394
+#: includes/Sync/InvoiceSync.php:397
 msgid "Kontor reported no invoices for this shop."
 msgstr "Kontor hat für diesen Shop keine Rechnungen gemeldet."
 
-#: includes/Sync/InvoiceSync.php:718
+#: includes/Sync/InvoiceSync.php:721
 msgid "Kontor returned a document that could not be decoded."
 msgstr "Kontor hat ein Dokument zurückgegeben, das nicht dekodiert werden konnte."
 
 #. translators: %s: invoice number as issued by Kontor.
-#: includes/Sync/InvoiceSync.php:753
+#: includes/Sync/InvoiceSync.php:756
 #, php-format
 msgid "Invoice %s downloaded from Kontor."
 msgstr "Rechnung %s von Kontor heruntergeladen."
 
 #. translators: 1: invoices downloaded, 2: invoices that failed, 3: invoice rows with no matching order.
-#: includes/Sync/InvoiceSync.php:994
+#: includes/Sync/InvoiceSync.php:997
 #, php-format
 msgid "%1$d invoices downloaded, %2$d failed, %3$d not found locally."
 msgstr "%1$d Rechnungen heruntergeladen, %2$d fehlgeschlagen, %3$d lokal nicht gefunden."
@@ -714,12 +714,12 @@ msgstr "Status zu teilweise abgeschlossen ändern"
 msgid "Partially completed"
 msgstr "Teilweise abgeschlossen"
 
-#: includes/Sync/DeliverySync.php:299
+#: includes/Sync/DeliverySync.php:315
 msgid "Kontor reports this order as partially completed."
 msgstr "Kontor meldet diese Bestellung als teilweise abgeschlossen."
 
 #. translators: 1: orders updated, 2: orders completed, 3: orders partially completed, 4: order numbers with no matching order.
-#: includes/Sync/DeliverySync.php:518
+#: includes/Sync/DeliverySync.php:686
 #, php-format
 msgid "%1$d orders updated, %2$d completed, %3$d partially completed, %4$d not found locally."
 msgstr "%1$d Bestellungen aktualisiert, %2$d abgeschlossen, %3$d teilweise abgeschlossen, %4$d lokal nicht gefunden."
@@ -1221,27 +1221,27 @@ msgstr "Mit aktiviertem Überschreiben erzwungen an Kontor gesendet."
 msgid "Force-pushed to Kontor with overwrite enabled, as %s."
 msgstr "Mit aktiviertem Überschreiben erzwungen an Kontor gesendet, als %s."
 
-#: includes/Admin/OrderActions.php:95
+#: includes/Admin/OrderActions.php:100
 msgid "Email the invoice to the customer again"
 msgstr "Rechnung erneut an den Kunden senden"
 
-#: includes/Admin/OrderActions.php:99
+#: includes/Admin/OrderActions.php:104
 msgid "Email the tracking details to the customer again"
 msgstr "Sendungsdaten erneut an den Kunden senden"
 
-#: includes/Admin/OrderActions.php:143
+#: includes/Admin/OrderActions.php:148
 msgid "Kontor invoice email sent to the customer."
 msgstr "Kontor-Rechnungs-E-Mail an den Kunden gesendet."
 
-#: includes/Admin/OrderActions.php:144
+#: includes/Admin/OrderActions.php:149
 msgid "The Kontor invoice email could not be sent."
 msgstr "Die Kontor-Rechnungs-E-Mail konnte nicht gesendet werden."
 
-#: includes/Admin/OrderActions.php:158
+#: includes/Admin/OrderActions.php:163
 msgid "Kontor tracking email sent to the customer."
 msgstr "Kontor-Sendungs-E-Mail an den Kunden gesendet."
 
-#: includes/Admin/OrderActions.php:159
+#: includes/Admin/OrderActions.php:164
 msgid "The Kontor tracking email could not be sent."
 msgstr "Die Kontor-Sendungs-E-Mail konnte nicht gesendet werden."
 
@@ -1289,7 +1289,7 @@ msgstr "Kontor-Status"
 msgid "Nothing reported yet"
 msgstr "Noch nichts gemeldet"
 
-#: includes/Admin/OrderPanel.php:178
+#: includes/Admin/OrderPanel.php:180
 msgid "Nothing shipped yet"
 msgstr "Noch nichts versendet"
 
@@ -1933,11 +1933,11 @@ msgstr "Ja"
 msgid "No"
 msgstr "Nein"
 
-#: includes/Admin/OrderActions.php:109
+#: includes/Admin/OrderActions.php:114
 msgid "Send this order to Kontor again"
 msgstr "Diese Bestellung erneut an Kontor senden"
 
-#: includes/Admin/OrderActions.php:183
+#: includes/Admin/OrderActions.php:188
 msgid "Queued to be sent to Kontor again."
 msgstr "Zum erneuten Senden an Kontor eingeplant."
 
@@ -1981,19 +1981,19 @@ msgstr "Kontor hat diese Bestellung %1$d Mal abgelehnt, daher wird sie nicht meh
 msgid "no reason given"
 msgstr "kein Grund angegeben"
 
-#: includes/Sync/DeliverySync.php:169
+#: includes/Sync/DeliverySync.php:185
 msgid "The delivery rows could not be stored for the run to work through."
 msgstr "Die Lieferdaten konnten nicht gespeichert werden, damit der Lauf sie abarbeiten kann."
 
-#: includes/Sync/DeliverySync.php:201
+#: includes/Sync/DeliverySync.php:217
 msgid "The stored delivery rows could not be read, so the run was stopped part-way."
 msgstr "Die gespeicherten Lieferdaten konnten nicht gelesen werden, daher wurde der Lauf abgebrochen."
 
-#: includes/Sync/InvoiceSync.php:407
+#: includes/Sync/InvoiceSync.php:410
 msgid "The invoice listing could not be stored for the run to work through."
 msgstr "Die Rechnungsliste konnte nicht gespeichert werden, damit der Lauf sie abarbeiten kann."
 
-#: includes/Sync/InvoiceSync.php:473
+#: includes/Sync/InvoiceSync.php:476
 msgid "The stored invoice listing could not be read, so the run was stopped part-way."
 msgstr "Die gespeicherte Rechnungsliste konnte nicht gelesen werden, daher wurde der Lauf abgebrochen."
 
@@ -2150,15 +2150,15 @@ msgstr "Kontor führt kein Bild dazu"
 msgid "Kontor files it under no category"
 msgstr "Kontor ordnet ihn keiner Kategorie zu"
 
-#: includes/Admin/OrderActions.php:94
+#: includes/Admin/OrderActions.php:99
 msgid "Email the corrected-invoice notice to the customer again"
 msgstr "Korrigierte Rechnung erneut an den Kunden senden"
 
-#: includes/Admin/OrderActions.php:133
+#: includes/Admin/OrderActions.php:138
 msgid "Kontor corrected-invoice email sent to the customer."
 msgstr "Kontor-E-Mail zur korrigierten Rechnung an den Kunden gesendet."
 
-#: includes/Admin/OrderActions.php:134
+#: includes/Admin/OrderActions.php:139
 msgid "The Kontor corrected-invoice email could not be sent."
 msgstr "Die Kontor-E-Mail zur korrigierten Rechnung konnte nicht gesendet werden."
 
@@ -2208,18 +2208,18 @@ msgstr "Falls Sie die stornierte Rechnung bereits bezahlt haben und sich durch d
 msgid "We are sorry for the confusion and thank you for your understanding."
 msgstr "Wir entschuldigen uns für die Unannehmlichkeiten und danken Ihnen für Ihr Verständnis."
 
-#: includes/Sync/InvoiceSync.php:488
+#: includes/Sync/InvoiceSync.php:491
 msgid "The stored invoice listing was written by an earlier version of the plugin, so the run was stopped part-way. The next run will fetch it again."
 msgstr "Die gespeicherte Rechnungsliste stammt aus einer früheren Version des Plugins, deshalb wurde der Lauf vorzeitig beendet. Der nächste Lauf ruft sie erneut ab."
 
 #. translators: %s: invoice number as issued by Kontor.
-#: includes/Sync/InvoiceSync.php:799
+#: includes/Sync/InvoiceSync.php:802
 #, php-format
 msgid "Invoice %s has been cancelled in Kontor."
 msgstr "Rechnung %s wurde in Kontor storniert."
 
 #. translators: %d: invoices whose status changed in Kontor.
-#: includes/Sync/InvoiceSync.php:1008
+#: includes/Sync/InvoiceSync.php:1011
 #, php-format
 msgid "%d invoice changed status in Kontor."
 msgid_plural "%d invoices changed status in Kontor."

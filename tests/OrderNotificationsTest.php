@@ -774,6 +774,98 @@ class OrderNotificationsTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Kontor swinging between an order's two parcels announces once, not once a run.
+	 *
+	 * This is the regression test for the incident. Order 15339 on the live account
+	 * shipped in two parcels, and the orders entity returned them alternately — one per
+	 * hourly delivery run, for eleven days. The old code compared the reported number
+	 * against the single stored one, so every swing read as a parcel that had just
+	 * shipped: **33 tracking emails to one customer.** A list only ever grows, so the
+	 * second parcel is announced when it first appears and never again.
+	 *
+	 * @return void
+	 */
+	public function test_kontor_alternating_between_two_parcels_announces_each_once() {
+		$this->fake_api();
+
+		$order = $this->make_order( 'processing' );
+		$first = '913368990400000344001';
+		$other = '913368990400000344002';
+
+		$this->deliver( $order, array( 'tracking' => $first ) );
+
+		$this->assertCount( 1, $this->announced['tracking'], 'The first parcel is news.' );
+
+		$this->deliver( wc_get_order( $order->get_id() ), array( 'tracking' => $other ) );
+
+		$this->assertCount( 2, $this->announced['tracking'], 'A second parcel is news too.' );
+
+		// Eleven days of Kontor changing its mind about which one to report.
+		for ( $run = 0; $run < 12; $run++ ) {
+			$this->deliver( wc_get_order( $order->get_id() ), array( 'tracking' => 0 === $run % 2 ? $first : $other ) );
+		}
+
+		$this->assertCount( 2, $this->announced['tracking'], 'Neither parcel is announced twice.' );
+	}
+
+	/**
+	 * Both parcels are kept, and the customer can reach either.
+	 *
+	 * The old code wrote one meta key, so a second number removed the first and the
+	 * customer lost the link to a parcel they had already been told about.
+	 *
+	 * @return void
+	 */
+	public function test_a_second_parcel_never_removes_the_first() {
+		$this->fake_api();
+
+		$order = $this->make_order( 'processing' );
+
+		$this->deliver( $order, array( 'tracking' => '913368990400000344001' ) );
+		$this->deliver( wc_get_order( $order->get_id() ), array( 'tracking' => '913368990400000344002' ) );
+
+		$parcels = DeliverySync::shipments( wc_get_order( $order->get_id() ) );
+
+		$this->assertCount( 2, $parcels );
+		$this->assertSame( '913368990400000344001', $parcels[0]['number'] );
+		$this->assertSame( '913368990400000344002', $parcels[1]['number'] );
+	}
+
+	/**
+	 * A parcel an earlier version already announced is adopted in silence.
+	 *
+	 * The upgrade case. Every order the delivery sync has ever touched carries the old
+	 * single tracking meta and has been mailed about it once. Reading that number into
+	 * the new list is bookkeeping, and announcing it would mail the whole back catalogue
+	 * about parcels delivered weeks ago.
+	 *
+	 * @return void
+	 */
+	public function test_a_parcel_carried_over_from_an_earlier_version_announces_nothing() {
+		$this->fake_api();
+
+		$order = $this->make_order( 'processing' );
+
+		// As an earlier version left it: one number, no list.
+		$order->update_meta_data( DeliverySync::META_TRACKING, '913368990400000344001' );
+		$order->update_meta_data( DeliverySync::META_PROVIDER, 'planzer' );
+		$order->save();
+
+		$this->deliver( wc_get_order( $order->get_id() ), array( 'tracking' => '913368990400000344002' ) );
+
+		$this->assertSame( array(), $this->announced['tracking'], 'The migrating run says nothing.' );
+
+		$parcels = DeliverySync::shipments( wc_get_order( $order->get_id() ) );
+
+		$this->assertCount( 2, $parcels, 'Both parcels are kept even though neither was announced.' );
+
+		// A genuinely new parcel after the migration announces normally.
+		$this->deliver( wc_get_order( $order->get_id() ), array( 'tracking' => '913368990400000344003' ) );
+
+		$this->assertCount( 1, $this->announced['tracking'] );
+	}
+
+	/**
 	 * A status that moves and nothing else announces nothing.
 	 *
 	 * The diff in apply_row() reports that something changed for any of four fields,
