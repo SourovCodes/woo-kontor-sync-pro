@@ -28,10 +28,10 @@ defined( 'ABSPATH' ) || exit;
  * well as it. Two mails about one document would be worse than either alone.
  *
  * Disabled by default, like every mail here, and for a sharper reason than usual: the
- * invoice listing has no incremental filter, so the first run after this version
- * lands sees the shop's whole history at once and every correction ever issued would
- * go out in a single chain. By the time anybody switches it on, that run has been and
- * gone and only genuinely new corrections remain to announce.
+ * invoice listing has no incremental filter, so the first run after this version lands
+ * reads the status of every invoice inside Kontor's 30-day window at once and every
+ * correction among them would go out in a single chain. By the time anybody switches it
+ * on, that run has been and gone and only genuinely new corrections remain to announce.
  */
 class WKSYNC_Customer_Invoice_Corrected extends WKSYNC_Order_Email {
 

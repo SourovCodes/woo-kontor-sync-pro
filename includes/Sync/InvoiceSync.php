@@ -26,8 +26,11 @@ defined( 'ABSPATH' ) || exit;
  * new are actually downloaded.
  *
  * Like the orders entity, the listing honours only filter.shopid, so every invoice
- * for the shop comes back on every run. The stored document ids are what make the
- * job incremental — without them each run would re-download the whole history.
+ * inside Kontor's 30-day window comes back on every run — not the whole history, which
+ * this said until Kontor confirmed the horizon on 7 September 2026. The stored document
+ * ids are what make the job incremental; without them each run would re-download the
+ * window. The corollary is that a status changing more than 30 days after an invoice was
+ * issued never reaches us at all: see is_cancelled() and restate().
  *
  * An order can be invoiced more than once, so the invoices are kept as a list rather
  * than a single file. Nothing already downloaded is ever replaced or deleted: an
@@ -606,9 +609,9 @@ class InvoiceSync {
 				/*
 				 * Only a document we knew to be valid can become cancelled. An entry
 				 * stored before 0.31.0 has no status at all, so the first run after the
-				 * upgrade learns the status of the shop's whole invoice history at once —
-				 * recording what was already true, which is not news and must not mail
-				 * every customer a correction notice for an invoice cancelled months ago.
+				 * upgrade learns the status of everything inside Kontor's 30-day window at
+				 * once — recording what was already true, which is not news and must not
+				 * mail every customer a correction notice for an invoice already cancelled.
 				 */
 				if ( self::is_cancelled( $row ) && $this->was_known_valid( $held ) ) {
 					$cancelled[] = $row['id'];
@@ -1000,7 +1003,7 @@ class InvoiceSync {
 		/*
 		 * Only mentioned when it happened, so a shop whose invoices are all settled reads
 		 * the sentence it has always read. The first run after 0.31.0 is the loud one: it
-		 * learns Kontor's verdict on the shop's whole invoice history at once.
+		 * learns Kontor's verdict on everything inside the 30-day window at once.
 		 */
 		if ( $restated > 0 ) {
 			$summary .= ' ' . sprintf(

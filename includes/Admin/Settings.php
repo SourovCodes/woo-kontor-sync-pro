@@ -514,7 +514,7 @@ class Settings {
 	/**
 	 * Allowed intervals for the invoice document import.
 	 *
-	 * Nothing shorter than an hour. Every run walks the shop's whole invoice history
+	 * Nothing shorter than an hour. Every run walks Kontor's whole 30-day window
 	 * — the entity has no incremental filter — and an invoice appears hours after the
 	 * order rather than minutes, so a tighter schedule would only re-read the same
 	 * list more often.

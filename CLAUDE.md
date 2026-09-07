@@ -916,6 +916,13 @@ of them wrong produces silently wrong data rather than an error:
     reached by a genuinely untaxed line, where its zero is the right answer.
 - **`provider` and `trackinginfo` arrive as `null`, not absent** — confirmed against live data, where
   all 7 rows for one shop had both null. Anything reading them has to treat null as empty.
+- **One tracking number per order, and it is always the first.** Kontor confirmed this on 7 September
+  2026: an order shipped in several parcels reports the tracking number of the first parcel and no
+  way to reach the others. It bites hardest where it matters most — `partially_completed` is the
+  commonest order status on the account, and those are precisely the orders that ship in parts. The
+  practical effects: a customer can track the first parcel only, and `DeliverySync::announce_tracking()`
+  never fires a second time for that order, because the number it compares against does not change
+  when a later parcel ships. Nothing here can be improved without a second field from Kontor.
 - **An order the upsert reply says nothing about is counted as failed.** Nothing is written on it, so
   the next sweep sends it again; leaving it out of the counts instead would report a batch of
   twenty-five as "five sent" and give nobody a reason to look.
@@ -966,9 +973,22 @@ of them wrong produces silently wrong data rather than an error:
   - Decoding is **strict** (`base64_decode( $x, true )`), and `Storage::put()` then checks the bytes
     actually start with `%PDF-`. Loose decoding silently discards what it does not recognise and
     hands back a shorter file that still looks like a success.
-  - **The listing has no incremental filter**, so every run sees the shop's whole invoice history.
-    What makes the job incremental is the **document id recorded on the order**; without it each run
-    would re-download everything. An order can be invoiced more than once, so `_wksync_invoices`
+  - **The listing has no incremental filter, but it does have a horizon: 30 days.** Every run sees
+    every invoice issued in the last 30 days and nothing older — confirmed by Kontor on 7 September
+    2026, and consistent with the data, where the oldest of the 57 rows was 21 days old. This
+    document said "the shop's whole invoice history" until then, which was never checked and is
+    wrong. What makes the job incremental is the **document id recorded on the order**; without it
+    each run would re-download the whole window.
+    - **A status that changes more than 30 days after an invoice was issued never reaches us**, and
+      nothing says so. The row has left the listing by then, so `restate()` never sees it and the
+      stored entry keeps whatever it last had — a late cancellation would leave the shop showing a
+      void invoice as valid, indefinitely. There is no fix available: we cannot ask about an invoice
+      Kontor no longer lists. What bounds the risk is that corrections appear to be prompt — the
+      August 2026 batch was cancelled between **1 and 11 days** after issue, well inside the window.
+      Re-check that if a shop ever reports an invoice the ERP says is void.
+    - It also bounds the back-catalogue hazard the two invoice emails default to off for. A first
+      run mails at most 30 days of invoices, not everything the shop has ever issued — smaller than
+      the email descriptions say, and still large enough to be worth the default. An order can be invoiced more than once, so `_wksync_invoices`
     holds a *list*, and nothing already downloaded is ever replaced or deleted — an invoice is a
     financial record, and the corrected one is a second document rather than an edit of the first.
   - A recorded invoice whose file has been deleted counts as **still held**. Re-downloading it is
@@ -999,8 +1019,9 @@ of them wrong produces silently wrong data rather than an error:
       back on every run. It now restates the stored entry and nothing else about it — the number,
       the date and the file are what they were, because an invoice is a financial record and this
       is not the place to edit one. The listing has no incremental filter, so **the first run after
-      0.31.0 learns the status of the shop's whole invoice history at once**; it is counted as
-      `restated` and named in the run summary only when it is not zero.
+      0.31.0 learns the status of everything inside the 30-day window at once**; it is counted as
+      `restated` and named in the run summary only when it is not zero. On the live shop that was
+      57 invoices across 39 orders, downloading nothing and mailing nobody.
     - **A status seen for the first time is not a change**, which is the whole of the
       back-catalogue protection. `was_known_valid()` is why: an entry with no status was written
       before Kontor supplied one and says nothing either way, so only a document we knew to be

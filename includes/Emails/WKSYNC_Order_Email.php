@@ -40,9 +40,9 @@ defined( 'ABSPATH' ) || exit;
  * Both are disabled by default. What they change is what the shop sends to customers,
  * which is the strongest form of the rule that governs every other setting here — and
  * neither Kontor listing has an incremental filter, so the first run after this
- * version lands sees the shop's whole invoice history and every order the delivery
- * sync has not yet touched. Enabled by default, an update would mail the entire back
- * catalogue in one chain. Disabled, by the time anybody switches them on that first
+ * version lands sees every invoice inside Kontor's 30-day window and every order the
+ * delivery sync has not yet touched. Enabled by default, an update would mail that
+ * whole backlog in one chain. Disabled, by the time anybody switches them on that first
  * run has recorded everything and there is nothing left to announce.
  */
 abstract class WKSYNC_Order_Email extends WC_Email {
