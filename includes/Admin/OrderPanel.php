@@ -306,8 +306,16 @@ class OrderPanel {
 			return;
 		}
 
-		$invoices = InvoiceSync::classify( $invoices );
-		$replaced = count( $invoices ) > 1;
+		$invoices  = InvoiceSync::classify( $invoices );
+		$cancelled = false;
+
+		foreach ( $invoices as $invoice ) {
+			if ( InvoiceSync::is_cancelled( $invoice ) ) {
+				$cancelled = true;
+
+				break;
+			}
+		}
 
 		// Stacked rather than tabulated: the side column is narrow enough that a label
 		// and a link side by side would wrap into each other.
@@ -317,14 +325,15 @@ class OrderPanel {
 			 * same reason. A shop manager answering "which of these two do I owe?" is
 			 * looking at this panel while the customer looks at that page, and the two
 			 * disagreeing about which invoice counts would be worse than neither saying.
-			 * An order with one invoice is left unqualified, as it always was.
+			 * An order with nothing cancelled is left unqualified, however many invoices
+			 * it has: two part-deliveries are both owed and neither needs defending.
 			 */
-			if ( $replaced ) {
+			if ( $cancelled ) {
 				printf(
 					'<p><strong>%s</strong></p>',
 					esc_html(
 						$invoice['current']
-							? __( 'Current invoice (valid)', 'woo-kontor-sync-pro' )
+							? __( 'Valid invoice', 'woo-kontor-sync-pro' )
 							: __( 'Cancelled invoice (no longer valid)', 'woo-kontor-sync-pro' )
 					)
 				);

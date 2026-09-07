@@ -9,7 +9,7 @@ msgstr ""
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"POT-Creation-Date: 2026-08-28T13:14:59+00:00\n"
+"POT-Creation-Date: 2026-09-07T08:53:36+00:00\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "X-Generator: WP-CLI 2.12.0\n"
 "X-Domain: woo-kontor-sync-pro\n"
@@ -239,9 +239,9 @@ msgid "Refused %d times, so the sweep has stopped sending it. Use \"Send this or
 msgstr ""
 
 #: includes/Admin/OrderPanel.php:291
-#: includes/Frontend/Invoices.php:118
-#: includes/Frontend/Invoices.php:172
-#: includes/Frontend/Invoices.php:197
+#: includes/Frontend/Invoices.php:145
+#: includes/Frontend/Invoices.php:199
+#: includes/Frontend/Invoices.php:224
 msgid "Invoices"
 msgstr ""
 
@@ -253,20 +253,22 @@ msgstr ""
 msgid "Run the invoice sync"
 msgstr ""
 
-#: includes/Admin/OrderPanel.php:327
-#: includes/Frontend/Invoices.php:88
-msgid "Current invoice (valid)"
-msgstr ""
+#: includes/Admin/OrderPanel.php:336
+#: includes/Frontend/Invoices.php:107
+msgid "Valid invoice"
+msgid_plural "Valid invoices"
+msgstr[0] ""
+msgstr[1] ""
 
-#: includes/Admin/OrderPanel.php:328
-#: includes/Frontend/Invoices.php:92
+#: includes/Admin/OrderPanel.php:337
+#: includes/Frontend/Invoices.php:118
 msgid "Cancelled invoice (no longer valid)"
 msgid_plural "Cancelled invoices (no longer valid)"
 msgstr[0] ""
 msgstr[1] ""
 
-#: includes/Admin/OrderPanel.php:337
-#: includes/Frontend/Invoices.php:130
+#: includes/Admin/OrderPanel.php:346
+#: includes/Frontend/Invoices.php:157
 msgid "Download PDF"
 msgstr ""
 
@@ -1542,40 +1544,36 @@ msgstr ""
 msgid "Your invoice is attached to this email, and you can download it again from the links below."
 msgstr ""
 
-#: includes/Emails/WKSYNC_Customer_Invoice_Corrected.php:37
+#: includes/Emails/WKSYNC_Customer_Invoice_Corrected.php:43
 msgid "Kontor corrected invoice"
 msgstr ""
 
-#: includes/Emails/WKSYNC_Customer_Invoice_Corrected.php:38
-msgid "Sent to the customer when Kontor issues an invoice that replaces one already held for their order. Switch this on only after the first invoice import has finished: Kontor lists the shop's whole invoice history on every run, so the first pass sees every correction ever issued and would mail all of them at once."
+#: includes/Emails/WKSYNC_Customer_Invoice_Corrected.php:44
+msgid "Sent to the customer when Kontor cancels an invoice held for their order and a valid one remains. Switch this on only after the first invoice import has finished: Kontor lists the shop's whole invoice history on every run, so the first pass reads the status of every invoice ever issued and would mail every correction among them at once."
 msgstr ""
 
-#: includes/Emails/WKSYNC_Customer_Invoice_Corrected.php:58
+#: includes/Emails/WKSYNC_Customer_Invoice_Corrected.php:64
 msgid "Correction to your invoice - please use the current invoice"
 msgstr ""
 
-#: includes/Emails/WKSYNC_Customer_Invoice_Corrected.php:67
+#: includes/Emails/WKSYNC_Customer_Invoice_Corrected.php:73
 msgid "We have corrected your invoice"
 msgstr ""
 
-#: includes/Emails/WKSYNC_Customer_Invoice_Corrected.php:76
-msgid "Unfortunately, because of a technical fault, the invoice originally issued for your order used an incorrect VAT rate - and in a few cases two different rates."
+#: includes/Emails/WKSYNC_Customer_Invoice_Corrected.php:82
+msgid "An invoice issued for your order has been cancelled and replaced with a corrected one."
 msgstr ""
 
-#: includes/Emails/WKSYNC_Customer_Invoice_Corrected.php:92
-msgid "We have therefore corrected the invoice. The previous invoice has been cancelled and a new, corrected invoice has been issued."
+#: includes/Emails/WKSYNC_Customer_Invoice_Corrected.php:100
+msgid "Only the current invoice is valid. You can disregard the cancelled one, which is still listed below so that you have it for your records."
 msgstr ""
 
-#: includes/Emails/WKSYNC_Customer_Invoice_Corrected.php:93
-msgid "Please note: only the newly issued invoice is valid. You can disregard the invoice issued before it."
+#: includes/Emails/WKSYNC_Customer_Invoice_Corrected.php:101
+msgid "If you have already paid the cancelled invoice and the correction leaves a difference, please settle only the outstanding difference."
 msgstr ""
 
-#: includes/Emails/WKSYNC_Customer_Invoice_Corrected.php:94
-msgid "If you have already paid the original invoice and the correction leaves a difference, please settle only the outstanding difference."
-msgstr ""
-
-#: includes/Emails/WKSYNC_Customer_Invoice_Corrected.php:95
-msgid "The technical fault has since been found and fixed. We apologise for the confusion and thank you for your understanding."
+#: includes/Emails/WKSYNC_Customer_Invoice_Corrected.php:102
+msgid "We are sorry for the confusion and thank you for your understanding."
 msgstr ""
 
 #: includes/Emails/WKSYNC_Customer_Tracking.php:31
@@ -1609,7 +1607,7 @@ msgid "Hi %s,"
 msgstr ""
 
 #. translators: 1: invoice label with its number and date, 2: download URL.
-#: includes/Frontend/Invoices.php:208
+#: includes/Frontend/Invoices.php:235
 #, php-format
 msgid "%1$s: %2$s"
 msgstr ""
@@ -1886,49 +1884,67 @@ msgstr ""
 msgid "%1$d orders updated, %2$d completed, %3$d partially completed, %4$d not found locally."
 msgstr ""
 
-#: includes/Sync/InvoiceSync.php:268
+#: includes/Sync/InvoiceSync.php:337
 msgid "Invoice"
 msgstr ""
 
 #. translators: %s: invoice number.
-#: includes/Sync/InvoiceSync.php:273
+#: includes/Sync/InvoiceSync.php:342
 #, php-format
 msgid "Invoice %s"
 msgstr ""
 
 #. translators: 1: invoice number, 2: date the invoice was issued.
-#: includes/Sync/InvoiceSync.php:285
+#: includes/Sync/InvoiceSync.php:354
 #, php-format
 msgid "Invoice %1$s of %2$s"
 msgstr ""
 
-#: includes/Sync/InvoiceSync.php:325
+#: includes/Sync/InvoiceSync.php:394
 msgid "Kontor reported no invoices for this shop."
 msgstr ""
 
-#: includes/Sync/InvoiceSync.php:338
+#: includes/Sync/InvoiceSync.php:407
 msgid "The invoice listing could not be stored for the run to work through."
 msgstr ""
 
-#: includes/Sync/InvoiceSync.php:370
+#: includes/Sync/InvoiceSync.php:473
 msgid "The stored invoice listing could not be read, so the run was stopped part-way."
 msgstr ""
 
-#: includes/Sync/InvoiceSync.php:479
+#: includes/Sync/InvoiceSync.php:488
+msgid "The stored invoice listing was written by an earlier version of the plugin, so the run was stopped part-way. The next run will fetch it again."
+msgstr ""
+
+#: includes/Sync/InvoiceSync.php:718
 msgid "Kontor returned a document that could not be decoded."
 msgstr ""
 
 #. translators: %s: invoice number as issued by Kontor.
-#: includes/Sync/InvoiceSync.php:513
+#: includes/Sync/InvoiceSync.php:753
 #, php-format
 msgid "Invoice %s downloaded from Kontor."
 msgstr ""
 
+#. translators: %s: invoice number as issued by Kontor.
+#: includes/Sync/InvoiceSync.php:799
+#, php-format
+msgid "Invoice %s has been cancelled in Kontor."
+msgstr ""
+
 #. translators: 1: invoices downloaded, 2: invoices that failed, 3: invoice rows with no matching order.
-#: includes/Sync/InvoiceSync.php:708
+#: includes/Sync/InvoiceSync.php:994
 #, php-format
 msgid "%1$d invoices downloaded, %2$d failed, %3$d not found locally."
 msgstr ""
+
+#. translators: %d: invoices whose status changed in Kontor.
+#: includes/Sync/InvoiceSync.php:1008
+#, php-format
+msgid "%d invoice changed status in Kontor."
+msgid_plural "%d invoices changed status in Kontor."
+msgstr[0] ""
+msgstr[1] ""
 
 #: includes/Sync/OrderSync.php:448
 msgid "Force-pushed to Kontor with overwrite enabled."

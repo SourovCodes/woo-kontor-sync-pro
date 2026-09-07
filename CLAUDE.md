@@ -953,8 +953,8 @@ of them wrong produces silently wrong data rather than an error:
   - **The run summary mentions it only when it happened**, so a shop whose orders all go through
     reads the sentence it has always read. It is the one number there that will not resolve itself.
 - **Invoices are a two-step download, and the second step is not under the base URL.** The
-  `invoices` entity lists what exists — `id`, `Belegnr`, `Datum`, `Auftrnr` and the `ordernumber`
-  this plugin sent — honouring only `filter.shopid`, exactly like `orders`. Fetching a document is
+  `invoices` entity lists what exists — `id`, `Belegnr`, `Datum`, `Auftrnr`, `invoice_status` and
+  the `ordernumber` this plugin sent — honouring only `filter.shopid`, exactly like `orders`. Fetching a document is
   then a `POST` to **`/api/v1/files/dms/getdocument`** with `{ "id": … }`, which is a *sibling* of
   the configured `api_base_url` (`…/api/v1/kontor`), not a child of it. `Client::build_url()`
   resolves `DOCUMENT_ENDPOINT` against the base's parent so there is still one URL in the settings
@@ -974,41 +974,107 @@ of them wrong produces silently wrong data rather than an error:
   - A recorded invoice whose file has been deleted counts as **still held**. Re-downloading it is
     the obvious alternative, but it would mean a shop that deliberately purged old invoices got
     them all back on the next run.
-  - **A second invoice supersedes the first, and that is inferred rather than told.** Kontor
-    corrects an invoice by issuing a replacement and saying nothing whatever about the document it
-    replaces: the row carries `id`, `Belegname`, `Belegnr`, `Datum`, `Auftrnr` and `ordernumber` and
-    no status of any kind, every row on the account reads `Belegname: "Rechnung"`, and there is no
-    cancellation entity behind `/search` — `storno`, `gutschrift`, `creditnotes`, `belege` and
-    `documents` all answer ERR-500. **The Stornobeleg cannot be fetched**, so it is not offered.
-    `InvoiceSync::classify()` is the one place that decides which invoice counts, and everything
-    else reads it.
-    - **The highest `Belegnr` wins, never the storage order.** The listing comes back *newest
-      first*, so on a first import the replacement is downloaded and appended **before** the
-      document it replaces — anything reading position gets it exactly backwards and tells every
-      affected customer to use the cancelled invoice. `Belegnr` is Kontor's own issue sequence and
-      is the only field that survives that; the date is the tiebreak.
-    - **This is the assumption to revisit first if anything here misbehaves.** A second invoice
-      could in principle be a genuine part-delivery document, in which case this labels a valid
-      invoice cancelled — a confident false statement about a financial record, which is worse than
-      the ambiguity it replaces. Measured against the live account before it was written: 8 orders
-      carried two invoices and **every pair billed the identical line items, quantities and unit
-      prices**, differing only in the totals and the VAT rate, and the superseded document's own
-      lines did not sum to its own stated total. `partially_completed` is meanwhile the commonest
-      order status there (15 of 35) and those orders carry **one** invoice each, so Kontor does not
-      invoice per part-delivery on this account.
-    - **The cause of the batch that produced this feature was our own.** Every superseded invoice
-      carries a drifted rate — 8.11, 8.12, 8.13, 8.17 — and every replacement 8.10: the
-      `tax ÷ total × 100` derivation this plugin sent before 0.22.3, described under `taxRate`
-      above. A shop still below that version will keep generating corrections.
-    - **The superseded invoice stays downloadable, under a heading saying it is not valid.**
-      Somebody who has already paid against it needs it for their own records, and hiding it would
-      take that away to solve a labelling problem. It is **not attached to any email**, though —
-      two PDFs in one mail puts the reader straight back to guessing.
-    - **An order with one invoice reads exactly as it always did**, with no headings at all. Naming
-      a lone invoice "the valid one" invites the reader to hunt for the other one.
+  - **Which invoices an order still owes is `invoice_status`, and nothing else.** Every row carries
+    it and it is either `invoiced` or `canceled` (Kontor's spelling, one `l`).
+    `InvoiceSync::is_cancelled()` is the one place that reads it and everything else — the order
+    page, the admin panel, the attachments, the emails — reads that.
+    - **It was an inference until 0.31.0, and the inference was wrong.** Up to 0.30.0 the row
+      carried no status of any kind, every `Belegname` read `Rechnung`, and there was no
+      cancellation entity behind `/search` — `storno`, `gutschrift`, `creditnotes`, `belege` and
+      `documents` all answer ERR-500 — so the only signal available was that an order had more than
+      one invoice, and the plugin took the highest `Belegnr` to be the live one. Asked outright
+      whether a second invoice can bill the rest of a partial delivery, Kontor's answer was that
+      **there can be several valid invoices for one order and the rule could not be applied**, and
+      the field was added. So the shop had been telling every part-delivered customer to disregard
+      a bill they still owed — the exact failure the old rule's own note named as the one to watch
+      for. If anything here misbehaves, look at the field before looking at anything else.
+    - **Only an unmistakable `canceled` withholds an invoice.** A missing key, a null, or a word
+      this does not recognise reads as valid, for the reason `Ws_aktiv` is read the same way: the
+      two ways of being wrong are not equal. Calling a valid invoice void tells a customer not to
+      pay a bill; the reverse lists two documents without a heading, which is what every order
+      looked like before any of this existed.
+    - **A held invoice's status is followed on every run, and that is what makes the field usable
+      at all.** `apply_order()` used to skip a document the order already held, so an invoice
+      downloaded before 0.31.0 would have stayed statusless for ever while Kontor's verdict came
+      back on every run. It now restates the stored entry and nothing else about it — the number,
+      the date and the file are what they were, because an invoice is a financial record and this
+      is not the place to edit one. The listing has no incremental filter, so **the first run after
+      0.31.0 learns the status of the shop's whole invoice history at once**; it is counted as
+      `restated` and named in the run summary only when it is not zero.
+    - **A status seen for the first time is not a change**, which is the whole of the
+      back-catalogue protection. `was_known_valid()` is why: an entry with no status was written
+      before Kontor supplied one and says nothing either way, so only a document we knew to be
+      valid can become cancelled. Without it that first run would mail a correction notice to every
+      customer whose invoice was corrected months ago, on a shop that had the mail switched on.
+    - **`Belegnr` survives as the display order and nothing more.** The listing comes back *newest
+      first*, so storage follows the feed and a replacement is appended **before** the document it
+      replaces; `Belegnr` is Kontor's own issue sequence and the only field that survives that. The
+      date is the tiebreak.
+    - **The Stornobeleg still cannot be fetched**, so it is not offered. What is now known is which
+      of the documents the shop already holds is void.
+    - **The cause of the batch that produced this feature was our own.** Every cancelled invoice in
+      the August correction run carries a drifted rate — 8.11, 8.12, 8.13, 8.17 — and every
+      replacement 8.10: the `tax ÷ total × 100` derivation this plugin sent before 0.22.3,
+      described under `taxRate` above. A shop still below that version will keep generating
+      corrections.
+    - **A cancelled invoice stays downloadable, under a heading saying it is not valid.** Somebody
+      who has already paid against it needs it for their own records, and hiding it would take that
+      away to solve a labelling problem. It is **not attached to any email**, though — a void PDF
+      beside a live one puts the reader straight back to guessing.
+    - **An order can hold nothing valid at all**, because Kontor cancels a document and issues its
+      replacement as separate events, and between the two the listing carries only the cancellation.
+      Such an order lists its cancelled invoice under the heading saying so, attaches nothing to any
+      email, announces nothing, and is offered **no invoice mail on the order screen** —
+      `Admin\OrderActions` gates on `valid_for_order()`, because both mails point at an invoice the
+      customer is meant to use and there is none.
+      - It was briefly the shop's ordinary state rather than a gap between two events. On the day
+        `invoice_status` first appeared the listing returned **30 rows for 30 orders, 18 of them
+        cancelled with no replacement anywhere in the feed**; the replacements were restored the
+        same day, taking it to **57 rows over 39 orders**, and the 18 became ordinary pairs. Read
+        `meta` when something here looks wrong: `rowCount` was 30 against a `totalCount` of 12 both
+        before and after, so the count of live invoices was right while the rows were not.
+    - **The old rule and the field agree on everything the account currently holds.** All 18 pairs
+      have the higher `Belegnr` as the `invoiced` one — 36 rows, no disagreement — so this change
+      fixes nothing that is visibly broken today. It is worth making anyway, and the reason is the
+      one Kontor gave rather than anything in the data: several valid invoices for one order *can*
+      happen, and the first time one does the old rule tells that customer to disregard a bill they
+      owe. Do not read the agreement as evidence the guess was sound.
+    - **Every *valid* invoice is attached**, which since 0.31.0 can be more than one. An order
+      billed in parts owes both, and leaving the earlier one to the links alone would hide half of
+      what is due from anybody whose mail client shows attachments and little else.
+    - **Headings appear only where something has been cancelled**, not merely where there is more
+      than one invoice. They exist to separate the valid from the void, and putting them in front
+      of two documents that are both owed invites the reader to hunt for a distinction that is not
+      there. An order with a single invoice therefore reads exactly as it always did, and so now
+      does a part-delivered one.
     - **`Frontend\Invoices` and `Admin\OrderPanel` say the same thing in the same words**, for the
       reason `InvoiceSync::label()` is a public static: a shop manager answering "which of these do
       I owe?" is reading one screen while the customer reads the other.
+  - **The listing is grouped by order before it is chunked**, in `InvoiceSync::group()`, and the
+    payload is a list of orders rather than a list of rows. A correction is two rows saying
+    different halves of one thing — one document cancelled, another issued — and Kontor states them
+    independently. Chunked row by row they land in different actions and the customer is mailed
+    twice, once that an invoice is ready and once that another is void. Grouped, `announce()` sees
+    the whole order and sends one mail. `CHUNK_SIZE` is unchanged at 10, because an order with more
+    than one invoice is the exception.
+    - **A payload written by 0.30.0 stops the run rather than being misread.** WordPress replaces a
+      plugin without running the deactivation hook, so a run in flight when the files are swapped
+      finds a flat list where this version expects groups. `is_grouped()` catches it, the payload is
+      dropped and the failure is said out loud once; the next scheduled run fetches the listing
+      again. Deploy while nothing is running and it costs nothing — the same bargain as the
+      transient-to-option move.
+  - **`announce()` decides once per order, from four facts**: valid invoices that arrived in this
+    run, invoices that became cancelled in it, whether the order held a valid one before it, and
+    what it holds now.
+    - A known-valid invoice cancelled with a valid one remaining is a **correction**, whether the
+      replacement arrived in this run or an earlier one.
+    - A valid invoice arriving at an order that had none and holds a cancelled one is **also a
+      correction** — the cancellation whose replacement Kontor issued in a later run, which went
+      unannounced at the time because there was nothing to point the customer at.
+    - A valid invoice arriving at an order that already had one is an **arrival**. This is the
+      partial delivery, and calling it a correction is what the whole change exists to stop.
+    - **No valid invoice left at all is silence.** There is no version of telling somebody their
+      invoice is void that leaves them better off when there is nothing to send them instead.
 - **Invoice PDFs cannot go in the media library.** They carry a customer's name, address and what
   they bought, and everything under `wp-content/uploads` is served straight off disk to anyone
   holding the URL. `Invoices\Storage` writes them to a directory whose name carries a per-site
@@ -1229,8 +1295,8 @@ calling it queues real work: it is not a way to test whether a job would be allo
   action per page or chunk rather than looping in one request. See `ProductSync::import_page()`.
 - **What a chunked run is working through lives in an option, never a transient.** Four jobs fetch
   everything in one request and apply it a chunk per action — the stock levels, the delivery rows,
-  the invoice listing, the order IDs a sweep fixed at the start — and `Sync\Payload` is where that
-  sits between actions.
+  the invoice listing (grouped by order, so a correction is settled in one action), the order IDs a
+  sweep fixed at the start — and `Sync\Payload` is where that sits between actions.
   - **A transient is not storage on a site with a persistent object cache.** Redis and Memcached
     hold it *instead of* the database, so it can be evicted under memory pressure at any moment —
     and neither the eviction nor the failure that follows says anything: `set_transient()` returns
@@ -1527,20 +1593,31 @@ calling it queues real work: it is not a way to test whether a job would be allo
     Sending "your invoice is ready" a second time is exactly what left a customer holding two
     identical-looking links and no way to tell which they owed. It is a separate class rather than a
     variable subject line because WooCommerce stores the subject and heading as options a shop
-    manager edits, and one class can only ever have one of each. Its wording — subject, heading and
-    five paragraphs — was supplied by the shop and is carried verbatim in the German catalogues; the
-    English source strings are the translation, not the other way round.
+    manager edits, and one class can only ever have one of each. Keeping it to *one* mail per
+    correction is what the grouped listing buys; see `announce()` above for which of the two fires.
+    - **It names no cause, and that is a change from what it shipped with.** The wording supplied by
+      the shop described the VAT-rate fault that prompted it — a fault this plugin had itself caused
+      and has since fixed. Kontor cancels an invoice whenever it has reason to, and a mail
+      confidently blaming the wrong thing is worse than one saying only what is certain: this
+      document is void, that one counts, pay the difference. The German catalogues carry the new
+      wording in both registers.
     - **`WKSYNC_Order_Email::paragraphs()` exists for it.** Every other mail here says one thing and
-      `intro()` is the whole of it; a correction has to say what went wrong, which document counts,
-      what to do about money already paid, and that it is fixed. The base returns
-      `array( $this->intro() )` so the other two are unchanged.
-    - **An invoice that arrives already superseded announces nothing at all** — not the arrival hook
-      and not the correction hook. It is a cancelled document, and there is no version of telling a
-      customer about one that leaves them better off. This is the case the newest-first listing
-      produces on every first import.
+      `intro()` is the whole of it; a correction has to say what has happened, which document
+      counts, and what to do about money already paid. The base returns `array( $this->intro() )` so
+      the other two are unchanged.
+    - **An invoice that arrives already cancelled announces nothing at all** — not the arrival hook
+      and not the correction hook. There is no version of telling a customer about a void document
+      that leaves them better off. Kontor lists cancelled invoices alongside live ones, so this is
+      what a first import produces.
+    - **A second *valid* invoice is an arrival, not a correction.** A partially delivered order is
+      billed for what shipped and the rest is billed later, and both are owed. Before 0.31.0 the
+      shop called the earlier one cancelled and mailed the customer a correction notice about a bill
+      they still had to pay.
     - **`Admin\OrderActions`' invoice entry sends whichever mail matches the order**, and renames
-      itself to say so. Pressing it is how a shop manager reaches the customers whose correction went
-      out before this existed, and sending them the arrival mail again would repeat the original
+      itself to say so. It reads `has_correction()`, which since 0.31.0 means "holds a cancelled
+      invoice" rather than "holds more than one" — which is the question that entry always wanted
+      answered. Pressing it is how a shop manager reaches the customers whose correction went out
+      before this existed, and sending them the arrival mail again would repeat the original
       problem.
   - **Orders that already carry their tracking or their invoice are never announced**, and there is
     deliberately **no bulk backfill**. That falls straight out of the stored meta being the record —

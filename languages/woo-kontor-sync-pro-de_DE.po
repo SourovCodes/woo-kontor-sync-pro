@@ -588,35 +588,35 @@ msgid "Invoice sync"
 msgstr "Rechnungssynchronisation"
 
 #: includes/Admin/OrderPanel.php:291
-#: includes/Frontend/Invoices.php:118
-#: includes/Frontend/Invoices.php:172
-#: includes/Frontend/Invoices.php:197
+#: includes/Frontend/Invoices.php:145
+#: includes/Frontend/Invoices.php:199
+#: includes/Frontend/Invoices.php:224
 msgid "Invoices"
 msgstr "Rechnungen"
 
-#: includes/Admin/OrderPanel.php:337
-#: includes/Frontend/Invoices.php:130
+#: includes/Admin/OrderPanel.php:346
+#: includes/Frontend/Invoices.php:157
 msgid "Download PDF"
 msgstr "PDF herunterladen"
 
 #. translators: 1: invoice label with its number and date, 2: download URL.
-#: includes/Frontend/Invoices.php:208
+#: includes/Frontend/Invoices.php:235
 #, php-format
 msgid "%1$s: %2$s"
 msgstr "%1$s: %2$s"
 
-#: includes/Sync/InvoiceSync.php:268
+#: includes/Sync/InvoiceSync.php:337
 msgid "Invoice"
 msgstr "Rechnung"
 
 #. translators: %s: invoice number.
-#: includes/Sync/InvoiceSync.php:273
+#: includes/Sync/InvoiceSync.php:342
 #, php-format
 msgid "Invoice %s"
 msgstr "Rechnung %s"
 
 #. translators: 1: invoice number, 2: date the invoice was issued.
-#: includes/Sync/InvoiceSync.php:285
+#: includes/Sync/InvoiceSync.php:354
 #, php-format
 msgid "Invoice %1$s of %2$s"
 msgstr "Rechnung %1$s vom %2$s"
@@ -673,22 +673,22 @@ msgstr "Das Rechnungsverzeichnis existiert nicht."
 msgid "The invoice directory could not be created inside the uploads folder."
 msgstr "Das Rechnungsverzeichnis konnte im Uploads-Ordner nicht angelegt werden."
 
-#: includes/Sync/InvoiceSync.php:325
+#: includes/Sync/InvoiceSync.php:394
 msgid "Kontor reported no invoices for this shop."
 msgstr "Kontor hat für diesen Shop keine Rechnungen gemeldet."
 
-#: includes/Sync/InvoiceSync.php:479
+#: includes/Sync/InvoiceSync.php:718
 msgid "Kontor returned a document that could not be decoded."
 msgstr "Kontor hat ein Dokument zurückgegeben, das nicht dekodiert werden konnte."
 
 #. translators: %s: invoice number as issued by Kontor.
-#: includes/Sync/InvoiceSync.php:513
+#: includes/Sync/InvoiceSync.php:753
 #, php-format
 msgid "Invoice %s downloaded from Kontor."
 msgstr "Rechnung %s von Kontor heruntergeladen."
 
 #. translators: 1: invoices downloaded, 2: invoices that failed, 3: invoice rows with no matching order.
-#: includes/Sync/InvoiceSync.php:708
+#: includes/Sync/InvoiceSync.php:994
 #, php-format
 msgid "%1$d invoices downloaded, %2$d failed, %3$d not found locally."
 msgstr "%1$d Rechnungen heruntergeladen, %2$d fehlgeschlagen, %3$d lokal nicht gefunden."
@@ -1989,11 +1989,11 @@ msgstr "Die Lieferdaten konnten nicht gespeichert werden, damit der Lauf sie aba
 msgid "The stored delivery rows could not be read, so the run was stopped part-way."
 msgstr "Die gespeicherten Lieferdaten konnten nicht gelesen werden, daher wurde der Lauf abgebrochen."
 
-#: includes/Sync/InvoiceSync.php:338
+#: includes/Sync/InvoiceSync.php:407
 msgid "The invoice listing could not be stored for the run to work through."
 msgstr "Die Rechnungsliste konnte nicht gespeichert werden, damit der Lauf sie abarbeiten kann."
 
-#: includes/Sync/InvoiceSync.php:370
+#: includes/Sync/InvoiceSync.php:473
 msgid "The stored invoice listing could not be read, so the run was stopped part-way."
 msgstr "Die gespeicherte Rechnungsliste konnte nicht gelesen werden, daher wurde der Lauf abgebrochen."
 
@@ -2162,50 +2162,66 @@ msgstr "Kontor-E-Mail zur korrigierten Rechnung an den Kunden gesendet."
 msgid "The Kontor corrected-invoice email could not be sent."
 msgstr "Die Kontor-E-Mail zur korrigierten Rechnung konnte nicht gesendet werden."
 
-#: includes/Admin/OrderPanel.php:327
-#: includes/Frontend/Invoices.php:88
-msgid "Current invoice (valid)"
-msgstr "Aktuelle Rechnung (gültig)"
-
-#: includes/Admin/OrderPanel.php:328
-#: includes/Frontend/Invoices.php:92
+#: includes/Admin/OrderPanel.php:337
+#: includes/Frontend/Invoices.php:118
 msgid "Cancelled invoice (no longer valid)"
 msgid_plural "Cancelled invoices (no longer valid)"
 msgstr[0] "Stornierte Rechnung (nicht mehr gültig)"
 msgstr[1] "Stornierte Rechnungen (nicht mehr gültig)"
 
-#: includes/Emails/WKSYNC_Customer_Invoice_Corrected.php:37
+#: includes/Emails/WKSYNC_Customer_Invoice_Corrected.php:43
 msgid "Kontor corrected invoice"
 msgstr "Kontor Rechnungskorrektur"
 
-#: includes/Emails/WKSYNC_Customer_Invoice_Corrected.php:38
-msgid "Sent to the customer when Kontor issues an invoice that replaces one already held for their order. Switch this on only after the first invoice import has finished: Kontor lists the shop's whole invoice history on every run, so the first pass sees every correction ever issued and would mail all of them at once."
-msgstr "Wird an den Kunden gesendet, sobald Kontor eine Rechnung ausstellt, die eine bereits zu seiner Bestellung vorhandene Rechnung ersetzt. Schalte dies erst ein, wenn der erste Rechnungsimport abgeschlossen ist: Kontor listet bei jedem Durchlauf die gesamte Rechnungshistorie des Shops, der erste Durchlauf sieht also jede jemals ausgestellte Korrektur und würde alle auf einmal versenden."
-
-#: includes/Emails/WKSYNC_Customer_Invoice_Corrected.php:58
+#: includes/Emails/WKSYNC_Customer_Invoice_Corrected.php:64
 msgid "Correction to your invoice - please use the current invoice"
 msgstr "Korrektur deiner Rechnung – bitte aktuelle Rechnung beachten"
 
-#: includes/Emails/WKSYNC_Customer_Invoice_Corrected.php:67
+#: includes/Emails/WKSYNC_Customer_Invoice_Corrected.php:73
 msgid "We have corrected your invoice"
 msgstr "Wir haben deine Rechnung korrigiert"
 
-#: includes/Emails/WKSYNC_Customer_Invoice_Corrected.php:76
-msgid "Unfortunately, because of a technical fault, the invoice originally issued for your order used an incorrect VAT rate - and in a few cases two different rates."
-msgstr "Leider wurde bei der ursprünglich ausgestellten Rechnung zu deiner Bestellung aufgrund eines technischen Fehlers ein falscher bzw. in einzelnen Fällen zwei unterschiedliche Mehrwertsteuersätze verwendet."
+#: includes/Admin/OrderPanel.php:336
+#: includes/Frontend/Invoices.php:107
+msgid "Valid invoice"
+msgid_plural "Valid invoices"
+msgstr[0] "Gültige Rechnung"
+msgstr[1] "Gültige Rechnungen"
 
-#: includes/Emails/WKSYNC_Customer_Invoice_Corrected.php:92
-msgid "We have therefore corrected the invoice. The previous invoice has been cancelled and a new, corrected invoice has been issued."
-msgstr "Wir haben die Rechnung daher korrigiert. Die bisherige Rechnung wurde storniert und eine neue, korrigierte Rechnung ausgestellt."
+#: includes/Emails/WKSYNC_Customer_Invoice_Corrected.php:44
+msgid "Sent to the customer when Kontor cancels an invoice held for their order and a valid one remains. Switch this on only after the first invoice import has finished: Kontor lists the shop's whole invoice history on every run, so the first pass reads the status of every invoice ever issued and would mail every correction among them at once."
+msgstr "Wird an die Kundin oder den Kunden gesendet, wenn Kontor eine zur Bestellung gespeicherte Rechnung storniert und weiterhin eine gültige Rechnung vorliegt. Erst aktivieren, wenn der erste Rechnungsimport abgeschlossen ist: Kontor liefert bei jedem Lauf die gesamte Rechnungshistorie des Shops, sodass der erste Durchlauf den Status jeder je erstellten Rechnung liest und alle darin enthaltenen Korrekturen auf einmal versenden würde."
 
-#: includes/Emails/WKSYNC_Customer_Invoice_Corrected.php:93
-msgid "Please note: only the newly issued invoice is valid. You can disregard the invoice issued before it."
-msgstr "Bitte beachte: Ausschliesslich die neu ausgestellte Rechnung ist gültig. Die zuvor ausgestellte Rechnung kannst du ignorieren."
+#: includes/Emails/WKSYNC_Customer_Invoice_Corrected.php:82
+msgid "An invoice issued for your order has been cancelled and replaced with a corrected one."
+msgstr "Eine zu deiner Bestellung ausgestellte Rechnung wurde storniert und durch eine korrigierte Rechnung ersetzt."
 
-#: includes/Emails/WKSYNC_Customer_Invoice_Corrected.php:94
-msgid "If you have already paid the original invoice and the correction leaves a difference, please settle only the outstanding difference."
-msgstr "Falls du die ursprüngliche Rechnung bereits bezahlt hast und sich durch die Korrektur ein Differenzbetrag ergibt, bitten wir dich, lediglich den noch offenen Differenzbetrag zu begleichen."
+#: includes/Emails/WKSYNC_Customer_Invoice_Corrected.php:100
+msgid "Only the current invoice is valid. You can disregard the cancelled one, which is still listed below so that you have it for your records."
+msgstr "Nur die aktuelle Rechnung ist gültig. Die stornierte Rechnung kannst du ignorieren; sie ist unten weiterhin aufgeführt, damit du sie für deine Unterlagen hast."
 
-#: includes/Emails/WKSYNC_Customer_Invoice_Corrected.php:95
-msgid "The technical fault has since been found and fixed. We apologise for the confusion and thank you for your understanding."
-msgstr "Der technische Fehler wurde inzwischen gefunden und behoben. Wir entschuldigen uns für die entstandene Verwirrung und danken dir für dein Verständnis."
+#: includes/Emails/WKSYNC_Customer_Invoice_Corrected.php:101
+msgid "If you have already paid the cancelled invoice and the correction leaves a difference, please settle only the outstanding difference."
+msgstr "Falls du die stornierte Rechnung bereits bezahlt hast und sich durch die Korrektur eine Differenz ergibt, begleiche bitte nur den offenen Differenzbetrag."
+
+#: includes/Emails/WKSYNC_Customer_Invoice_Corrected.php:102
+msgid "We are sorry for the confusion and thank you for your understanding."
+msgstr "Wir entschuldigen uns für die Unannehmlichkeiten und danken dir für dein Verständnis."
+
+#: includes/Sync/InvoiceSync.php:488
+msgid "The stored invoice listing was written by an earlier version of the plugin, so the run was stopped part-way. The next run will fetch it again."
+msgstr "Die gespeicherte Rechnungsliste stammt aus einer früheren Version des Plugins, deshalb wurde der Lauf vorzeitig beendet. Der nächste Lauf ruft sie erneut ab."
+
+#. translators: %s: invoice number as issued by Kontor.
+#: includes/Sync/InvoiceSync.php:799
+#, php-format
+msgid "Invoice %s has been cancelled in Kontor."
+msgstr "Rechnung %s wurde in Kontor storniert."
+
+#. translators: %d: invoices whose status changed in Kontor.
+#: includes/Sync/InvoiceSync.php:1008
+#, php-format
+msgid "%d invoice changed status in Kontor."
+msgid_plural "%d invoices changed status in Kontor."
+msgstr[0] "%d Rechnung hat in Kontor den Status gewechselt."
+msgstr[1] "%d Rechnungen haben in Kontor den Status gewechselt."

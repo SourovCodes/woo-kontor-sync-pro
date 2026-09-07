@@ -102,17 +102,20 @@ class OrderPanelTest extends WP_UnitTestCase {
 	 *
 	 * @param string $number Invoice number.
 	 * @param string $date   Issue date, or an empty string.
+	 * @param string $status invoice_status Kontor reports for it.
+	 * @param string $id     Kontor document id.
 	 * @return array Invoice entry as the sync records it.
 	 */
-	private function store_invoice( $number = '141542', $date = '2025-08-05' ) {
+	private function store_invoice( $number = '141542', $date = '2025-08-05', $status = 'invoiced', $id = self::DOCUMENT_ID ) {
 		$file = Storage::put( "%PDF-1.4\nsynthetic\n", $number );
 
 		$this->assertNotWPError( $file );
 
 		return array(
-			'id'     => self::DOCUMENT_ID,
+			'id'     => $id,
 			'number' => $number,
 			'date'   => $date,
+			'status' => $status,
 			'file'   => $file,
 		);
 	}
@@ -266,6 +269,59 @@ class OrderPanelTest extends WP_UnitTestCase {
 		$this->assertStringContainsString( 'order=' . $order->get_id(), $markup );
 		$this->assertStringContainsString( self::DOCUMENT_ID, $markup );
 		$this->assertStringContainsString( 'Download PDF', $markup );
+	}
+
+	/**
+	 * Two invoices Kontor calls valid are listed without headings.
+	 *
+	 * Said the same way here as on the customer's own order page. A partially delivered
+	 * order is billed for what shipped and the rest is billed later, and both documents
+	 * are owed — so labelling one of them would be answering a question nobody asked and
+	 * inviting the reader to look for a cancelled invoice that does not exist.
+	 *
+	 * @return void
+	 */
+	public function test_two_valid_invoices_are_listed_without_headings() {
+		$order = $this->make_order(
+			array(
+				InvoiceSync::META_INVOICES => array(
+					$this->store_invoice( '141638', '2026-08-24' ),
+					$this->store_invoice( '141675', '2026-08-28', 'invoiced', 'f1c0c0de-0000-4000-8000-00000000beef' ),
+				),
+			)
+		);
+
+		$markup = $this->panel( $order );
+
+		$this->assertStringContainsString( 'Invoice 141638', $markup );
+		$this->assertStringContainsString( 'Invoice 141675', $markup );
+		$this->assertStringNotContainsString( 'Valid invoice', $markup );
+		$this->assertStringNotContainsString( 'Cancelled invoice', $markup );
+	}
+
+	/**
+	 * A cancelled invoice is named as cancelled and the other as valid.
+	 *
+	 * @return void
+	 */
+	public function test_a_cancelled_invoice_is_named_on_the_panel() {
+		$order = $this->make_order(
+			array(
+				InvoiceSync::META_INVOICES => array(
+					$this->store_invoice( '141638', '2026-08-24', 'canceled' ),
+					$this->store_invoice( '141675', '2026-08-28', 'invoiced', 'f1c0c0de-0000-4000-8000-00000000beef' ),
+				),
+			)
+		);
+
+		$markup = $this->panel( $order );
+
+		$this->assertStringContainsString( 'Valid invoice', $markup );
+		$this->assertStringContainsString( 'Cancelled invoice (no longer valid)', $markup );
+		$this->assertLessThan(
+			strpos( $markup, 'Cancelled invoice' ),
+			strpos( $markup, 'Valid invoice' )
+		);
 	}
 
 	/**

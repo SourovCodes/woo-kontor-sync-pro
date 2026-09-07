@@ -267,22 +267,53 @@ class OrderNotificationsTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * Download one invoice onto an order.
+	 * Run the invoice sync over one invoice for an order.
 	 *
 	 * @param WC_Order $order  Order the invoice belongs to.
 	 * @param string   $id     Kontor document id.
-	 * @param string   $number Belegnr, which is what decides which invoice is current.
+	 * @param string   $number Belegnr.
 	 * @param string   $date   Issue date.
+	 * @param string   $status invoice_status Kontor reports.
 	 * @return array Counters from the run.
 	 */
-	private function invoice( $order, $id = self::DOCUMENT_ID, $number = '141542', $date = '2025-08-05' ) {
+	private function invoice( $order, $id = self::DOCUMENT_ID, $number = '141542', $date = '2025-08-05', $status = 'invoiced' ) {
+		return $this->feed(
+			$order,
+			array(
+				array(
+					'id'     => $id,
+					'number' => $number,
+					'date'   => $date,
+					'status' => $status,
+				),
+			)
+		);
+	}
+
+	/**
+	 * Run the invoice sync over everything Kontor lists for one order.
+	 *
+	 * The listing is grouped per order before it is chunked, so this is the shape a
+	 * chunk really carries — and the shape that lets a cancellation and its replacement
+	 * be settled together, which is what keeps the customer to one email.
+	 *
+	 * @param WC_Order $order Order the invoices belong to.
+	 * @param array    $rows  Rows, each an "id", "number", "date" and "status".
+	 * @return array Counters from the run.
+	 */
+	private function feed( $order, array $rows ) {
+		$number = (string) $order->get_order_number();
+		$group  = array();
+
+		foreach ( $rows as $row ) {
+			$group[] = array_merge( $row, array( 'order_number' => $number ) );
+		}
+
 		return ( new InvoiceSync( null, $this->settings() ) )->apply(
 			array(
 				array(
-					'id'           => $id,
-					'number'       => $number,
-					'date'         => $date,
-					'order_number' => (string) $order->get_order_number(),
+					'order_number' => $number,
+					'rows'         => $group,
 				),
 			)
 		);
@@ -291,25 +322,33 @@ class OrderNotificationsTest extends WP_UnitTestCase {
 	/**
 	 * Store a real PDF and record it on an order, without running the sync.
 	 *
-	 * @param WC_Order $order Order to record it on.
+	 * Deliberately writes no status, because that is how every entry an earlier version
+	 * left behind looks.
+	 *
+	 * @param WC_Order $order  Order to record it on.
+	 * @param string   $id     Kontor document id.
+	 * @param string   $number Belegnr.
 	 * @return void
 	 */
-	private function store_invoice( $order ) {
-		$file = Storage::put( "%PDF-1.4\nsynthetic\n", '141542' );
+	private function store_invoice( $order, $id = self::DOCUMENT_ID, $number = '141542' ) {
+		$file = Storage::put( "%PDF-1.4\nsynthetic\n", $number );
 
 		$this->assertNotWPError( $file );
 
-		$order->update_meta_data(
-			InvoiceSync::META_INVOICES,
-			array(
-				array(
-					'id'     => self::DOCUMENT_ID,
-					'number' => '141542',
-					'date'   => '2025-08-05',
-					'file'   => $file,
-				),
-			)
+		$invoices = $order->get_meta( InvoiceSync::META_INVOICES );
+
+		if ( ! is_array( $invoices ) ) {
+			$invoices = array();
+		}
+
+		$invoices[] = array(
+			'id'     => $id,
+			'number' => $number,
+			'date'   => '2025-08-05',
+			'file'   => $file,
 		);
+
+		$order->update_meta_data( InvoiceSync::META_INVOICES, $invoices );
 		$order->save();
 	}
 
@@ -361,8 +400,52 @@ class OrderNotificationsTest extends WP_UnitTestCase {
 
 		$counts = $this->invoice( wc_get_order( $order->get_id() ) );
 
-		$this->assertSame( 1, $counts['unchanged'] );
+		$this->assertSame( 1, $counts['restated'] );
 		$this->assertSame( array(), $this->announced['invoice'] );
+	}
+
+	/**
+	 * Learning that a held invoice was cancelled long ago announces nothing.
+	 *
+	 * The upgrade case for the status itself, and the one that would be loudest if it
+	 * were wrong. Entries written before 0.31.0 carry no status, and the listing has no
+	 * incremental filter, so the first run after the upgrade reads Kontor's verdict on
+	 * every invoice the shop has ever issued at once. Treating a status seen for the
+	 * first time as a change would mail a correction notice to every customer whose
+	 * invoice was corrected months ago.
+	 *
+	 * @return void
+	 */
+	public function test_a_status_learned_for_the_first_time_announces_nothing() {
+		$this->fake_api();
+
+		$order = $this->make_order();
+
+		// Two invoices as an earlier version left them, neither carrying a status.
+		$this->store_invoice( $order );
+		$this->store_invoice( wc_get_order( $order->get_id() ), 'f1c0c0de-0000-4000-8000-00000000beef', '141675' );
+
+		$counts = $this->feed(
+			wc_get_order( $order->get_id() ),
+			array(
+				array(
+					'id'     => 'f1c0c0de-0000-4000-8000-00000000beef',
+					'number' => '141675',
+					'date'   => '2025-08-09',
+					'status' => 'invoiced',
+				),
+				array(
+					'id'     => self::DOCUMENT_ID,
+					'number' => '141542',
+					'date'   => '2025-08-05',
+					'status' => 'canceled',
+				),
+			)
+		);
+
+		$this->assertSame( 2, $counts['restated'] );
+		$this->assertSame( array(), $this->announced['invoice'] );
+		$this->assertSame( array(), $this->announced['corrected'] );
 	}
 
 	/**
@@ -402,24 +485,103 @@ class OrderNotificationsTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * A second invoice is announced as a correction, not as another arrival.
+	 * A cancellation and its replacement are one email, not two.
 	 *
-	 * Kontor corrects an invoice by issuing a replacement and saying nothing about the
-	 * document it replaces, so a second arrival is the only signal there is. Sending
-	 * "your invoice is ready" a second time is what left a customer holding two
-	 * identical-looking links and no way to tell which one they owed.
+	 * This is what the grouping is for. Kontor states the two halves of a correction
+	 * independently — one row saying the old document is void, another carrying the new
+	 * one — and chunked row by row they would land in different actions and mail the
+	 * customer twice: once that an invoice is ready, once that another is cancelled.
+	 * Settled together, exactly one mail goes out, and it is the correction.
 	 *
 	 * @return void
 	 */
-	public function test_a_second_invoice_announces_a_correction() {
+	public function test_a_cancellation_and_its_replacement_are_one_email() {
 		$this->fake_api();
 
 		$order = $this->make_order();
 
 		$this->invoice( $order );
+
+		$this->announced['invoice'] = array();
+
+		// The listing comes back newest first, which is the harder order to get right.
+		$this->feed(
+			wc_get_order( $order->get_id() ),
+			array(
+				array(
+					'id'     => 'f1c0c0de-0000-4000-8000-00000000beef',
+					'number' => '141675',
+					'date'   => '2025-08-09',
+					'status' => 'invoiced',
+				),
+				array(
+					'id'     => self::DOCUMENT_ID,
+					'number' => '141542',
+					'date'   => '2025-08-05',
+					'status' => 'canceled',
+				),
+			)
+		);
+
+		$this->assertSame( array(), $this->announced['invoice'] );
+		$this->assertCount( 1, $this->announced['corrected'] );
+		$this->assertSame( 'f1c0c0de-0000-4000-8000-00000000beef', $this->announced['corrected'][0][1] );
+	}
+
+	/**
+	 * A second invoice nothing has cancelled is an arrival, not a correction.
+	 *
+	 * The case that prompted the whole change. A partially delivered order is billed
+	 * for what shipped and the rest is billed later, so two invoices on one order are
+	 * as likely to be two bills as a correction — and the shop used to call the first
+	 * one cancelled and tell the customer to disregard an invoice they still owed.
+	 *
+	 * @return void
+	 */
+	public function test_a_second_valid_invoice_announces_an_arrival() {
+		$this->fake_api();
+
+		$order = $this->make_order();
+
+		$this->invoice( $order );
+
+		$this->announced['invoice'] = array();
+
 		$this->invoice( wc_get_order( $order->get_id() ), 'f1c0c0de-0000-4000-8000-00000000beef', '141675', '2025-08-09' );
 
 		$this->assertCount( 1, $this->announced['invoice'] );
+		$this->assertSame( 'f1c0c0de-0000-4000-8000-00000000beef', $this->announced['invoice'][0][1] );
+		$this->assertSame( array(), $this->announced['corrected'] );
+	}
+
+	/**
+	 * A cancellation with nothing to replace it waits for the replacement.
+	 *
+	 * Kontor can cancel an invoice in one run and issue its replacement in a later one.
+	 * Announcing the cancellation on its own would tell a customer their invoice is void
+	 * and give them nothing to pay instead; announcing the replacement as an ordinary
+	 * arrival would never mention that the document they hold is worthless. So the first
+	 * run says nothing and the second says it was a correction.
+	 *
+	 * @return void
+	 */
+	public function test_a_cancellation_with_no_replacement_waits_for_one() {
+		$this->fake_api();
+
+		$order = $this->make_order();
+
+		$this->invoice( $order );
+
+		$this->announced['invoice'] = array();
+
+		$this->invoice( wc_get_order( $order->get_id() ), self::DOCUMENT_ID, '141542', '2025-08-05', 'canceled' );
+
+		$this->assertSame( array(), $this->announced['invoice'], 'A cancelled invoice is not an arrival.' );
+		$this->assertSame( array(), $this->announced['corrected'], 'There is nothing to point the customer at yet.' );
+
+		$this->invoice( wc_get_order( $order->get_id() ), 'f1c0c0de-0000-4000-8000-00000000beef', '141675', '2025-08-09' );
+
+		$this->assertSame( array(), $this->announced['invoice'] );
 		$this->assertCount( 1, $this->announced['corrected'] );
 		$this->assertSame( 'f1c0c0de-0000-4000-8000-00000000beef', $this->announced['corrected'][0][1] );
 	}
@@ -440,27 +602,28 @@ class OrderNotificationsTest extends WP_UnitTestCase {
 
 		$order = $this->make_order();
 
-		// As the live shop already has them: the original, then its replacement.
-		$this->invoice( $order, self::DOCUMENT_ID, '141638', '2026-08-24' );
+		// As the live shop already has them: the original, cancelled, and its replacement.
+		$this->invoice( $order, self::DOCUMENT_ID, '141638', '2026-08-24', 'canceled' );
 		$this->invoice( wc_get_order( $order->get_id() ), 'f1c0c0de-0000-4000-8000-00000000beef', '141675', '2026-08-28' );
 
 		$this->announced['invoice']   = array();
 		$this->announced['corrected'] = array();
 
 		// The next run, seeing the whole history again exactly as the listing returns it.
-		$counts = ( new InvoiceSync( null, $this->settings() ) )->apply(
+		$counts = $this->feed(
+			wc_get_order( $order->get_id() ),
 			array(
 				array(
-					'id'           => 'f1c0c0de-0000-4000-8000-00000000beef',
-					'number'       => '141675',
-					'date'         => '2026-08-28',
-					'order_number' => (string) $order->get_order_number(),
+					'id'     => 'f1c0c0de-0000-4000-8000-00000000beef',
+					'number' => '141675',
+					'date'   => '2026-08-28',
+					'status' => 'invoiced',
 				),
 				array(
-					'id'           => self::DOCUMENT_ID,
-					'number'       => '141638',
-					'date'         => '2026-08-24',
-					'order_number' => (string) $order->get_order_number(),
+					'id'     => self::DOCUMENT_ID,
+					'number' => '141638',
+					'date'   => '2026-08-24',
+					'status' => 'canceled',
 				),
 			)
 		);
@@ -472,17 +635,16 @@ class OrderNotificationsTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * An invoice that arrives already superseded announces nothing at all.
+	 * An invoice that arrives already cancelled announces nothing at all.
 	 *
-	 * The listing comes back newest first, so on a first import the replacement is
-	 * downloaded before the document it replaces. Announcing that second arrival would
-	 * tell the customer about a cancelled invoice, which is worse than silence — and
-	 * announcing it as a *correction* would be worse still, since it is the thing
-	 * being corrected.
+	 * Kontor lists cancelled documents alongside live ones, so a first import downloads
+	 * both. Announcing that arrival would tell the customer about a void invoice, which
+	 * is worse than silence — and announcing it as a correction would be worse still,
+	 * since it is the thing that was corrected.
 	 *
 	 * @return void
 	 */
-	public function test_an_invoice_that_arrives_already_superseded_announces_nothing() {
+	public function test_an_invoice_that_arrives_already_cancelled_announces_nothing() {
 		$this->fake_api();
 
 		$order = $this->make_order();
@@ -491,7 +653,7 @@ class OrderNotificationsTest extends WP_UnitTestCase {
 
 		$before = count( $this->announced['invoice'] );
 
-		$this->invoice( wc_get_order( $order->get_id() ), 'f1c0c0de-0000-4000-8000-00000000beef', '141638', '2025-08-05' );
+		$this->invoice( wc_get_order( $order->get_id() ), 'f1c0c0de-0000-4000-8000-00000000beef', '141638', '2025-08-05', 'canceled' );
 
 		$this->assertCount( $before, $this->announced['invoice'] );
 		$this->assertCount( 0, $this->announced['corrected'] );
