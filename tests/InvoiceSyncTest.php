@@ -17,6 +17,7 @@ use WooKontorSync\Invoices\Download;
 use WooKontorSync\Invoices\Storage;
 use WooKontorSync\Sync\InvoiceSync;
 use WooKontorSync\Sync\OrderSync;
+use WooKontorSync\Sync\Payload;
 use WooKontorSync\Sync\Preflight;
 use WooKontorSync\Sync\Status;
 use WP_UnitTestCase;
@@ -131,12 +132,13 @@ class InvoiceSyncTest extends WP_UnitTestCase {
 	private function invoice_row( $order_number, array $overrides = array() ) {
 		return array_merge(
 			array(
-				'id'          => self::DOCUMENT_ID,
-				'Belegname'   => 'Rechnung',
-				'Belegnr'     => 141542,
-				'Datum'       => '2026-08-04T00:00:00',
-				'Auftrnr'     => 'AW 214841',
-				'ordernumber' => (string) $order_number,
+				'id'             => self::DOCUMENT_ID,
+				'Belegname'      => 'Rechnung',
+				'Belegnr'        => 141542,
+				'Datum'          => '2026-08-04T00:00:00',
+				'Auftrnr'        => 'AW 214841',
+				'ordernumber'    => (string) $order_number,
+				'invoice_status' => 'invoiced',
 			),
 			$overrides
 		);
@@ -333,6 +335,99 @@ class InvoiceSyncTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * An invoice already held learns its status without being fetched again.
+	 *
+	 * The backfill, and the part that makes the status usable at all. Every invoice
+	 * downloaded before 0.31.0 is stored without one, and the listing has no incremental
+	 * filter — so if a held row were skipped outright, as it was, the shop's whole
+	 * invoice history would stay unlabelled for ever while Kontor's verdict came back
+	 * on every run.
+	 *
+	 * @return void
+	 */
+	public function test_a_held_invoice_learns_its_status_without_being_downloaded_again() {
+		$order = $this->make_order();
+
+		$this->fake_api( array(), $this->pdf() );
+
+		$sync = new InvoiceSync( null, $this->settings() );
+
+		// As an earlier version left it: filed, with nothing said about its status.
+		$sync->apply( $this->normalised( $order ) );
+
+		$order = wc_get_order( $order->get_id() );
+		$held  = $order->get_meta( InvoiceSync::META_INVOICES );
+
+		unset( $held[0]['status'] );
+		$order->update_meta_data( InvoiceSync::META_INVOICES, $held );
+		$order->save();
+
+		$requests = count( $this->captured );
+		$counts   = $sync->apply( $this->normalised( wc_get_order( $order->get_id() ) ) );
+
+		$this->assertSame( 1, $counts['restated'] );
+		$this->assertSame( 0, $counts['downloaded'] );
+		$this->assertCount( $requests, $this->captured, 'Following a status must not cost a download.' );
+
+		$invoices = InvoiceSync::for_order( wc_get_order( $order->get_id() ) );
+
+		$this->assertSame( 'invoiced', $invoices[0]['status'] );
+		$this->assertFalse( InvoiceSync::is_cancelled( $invoices[0] ) );
+	}
+
+	/**
+	 * A cancellation is followed onto an invoice the order already holds.
+	 *
+	 * Kontor cancels a document it has already issued, so the row that says so is a row
+	 * for a file the shop downloaded weeks ago. Nothing else about it moves: the number,
+	 * the date and the file are what they were, because an invoice is a financial record
+	 * and this is not the place to edit one.
+	 *
+	 * @return void
+	 */
+	public function test_a_cancellation_is_followed_onto_an_invoice_already_held() {
+		$order = $this->make_order();
+
+		$this->fake_api( array(), $this->pdf() );
+
+		$sync = new InvoiceSync( null, $this->settings() );
+
+		$sync->apply( $this->normalised( $order ) );
+
+		$before = InvoiceSync::for_order( wc_get_order( $order->get_id() ) );
+		$counts = $sync->apply( $this->normalised( wc_get_order( $order->get_id() ), 'canceled' ) );
+
+		$this->assertSame( 1, $counts['restated'] );
+
+		$after = InvoiceSync::for_order( wc_get_order( $order->get_id() ) );
+
+		$this->assertTrue( InvoiceSync::is_cancelled( $after[0] ) );
+		$this->assertSame( $before[0]['number'], $after[0]['number'] );
+		$this->assertSame( $before[0]['date'], $after[0]['date'] );
+		$this->assertSame( $before[0]['file'], $after[0]['file'] );
+		$this->assertSame( array(), InvoiceSync::valid_for_order( wc_get_order( $order->get_id() ) ) );
+	}
+
+	/**
+	 * A status that has not moved is not written and not counted as a change.
+	 *
+	 * @return void
+	 */
+	public function test_an_unchanged_status_is_left_alone() {
+		$order = $this->make_order();
+
+		$this->fake_api( array(), $this->pdf() );
+
+		$sync = new InvoiceSync( null, $this->settings() );
+
+		$sync->apply( $this->normalised( $order ) );
+		$counts = $sync->apply( $this->normalised( wc_get_order( $order->get_id() ) ) );
+
+		$this->assertSame( 1, $counts['unchanged'] );
+		$this->assertSame( 0, $counts['restated'] );
+	}
+
+	/**
 	 * An invoice for an order this shop never pushed is counted, not downloaded.
 	 *
 	 * @return void
@@ -344,10 +439,16 @@ class InvoiceSyncTest extends WP_UnitTestCase {
 		$counts = $sync->apply(
 			array(
 				array(
-					'id'           => self::DOCUMENT_ID,
-					'number'       => '141542',
-					'date'         => '2026-08-04',
 					'order_number' => '99999999',
+					'rows'         => array(
+						array(
+							'id'           => self::DOCUMENT_ID,
+							'number'       => '141542',
+							'date'         => '2026-08-04',
+							'status'       => 'invoiced',
+							'order_number' => '99999999',
+						),
+					),
 				),
 			)
 		);
@@ -601,6 +702,83 @@ class InvoiceSyncTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * The listing is gathered into one entry per order before it is chunked.
+	 *
+	 * A correction is two rows saying different halves of one thing, and Kontor states
+	 * them independently. Chunked row by row they land in different actions and the
+	 * customer is mailed twice; grouped, the whole order is settled at once.
+	 *
+	 * @return void
+	 */
+	public function test_the_listing_is_grouped_by_order_before_it_is_chunked() {
+		$order = $this->make_order();
+
+		$this->fake_api(
+			array(
+				$this->invoice_row( $order->get_id() ),
+				$this->invoice_row(
+					$order->get_id(),
+					array(
+						'id'             => 'f1c0c0de-0000-4000-8000-00000000beef',
+						'Belegnr'        => 141675,
+						'invoice_status' => 'canceled',
+					)
+				),
+			),
+			$this->pdf()
+		);
+
+		( new InvoiceSync( null, $this->settings() ) )->start();
+
+		$payload = Payload::get( InvoiceSync::JOB );
+
+		$this->assertCount( 1, $payload, 'Two invoices for one order are one unit of work.' );
+		$this->assertSame( (string) $order->get_id(), $payload[0]['order_number'] );
+		$this->assertCount( 2, $payload[0]['rows'] );
+		$this->assertSame( 1, Status::get( InvoiceSync::JOB )['total'] );
+	}
+
+	/**
+	 * A payload left behind by an earlier version stops the run rather than misreading it.
+	 *
+	 * WordPress replaces a plugin without running its deactivation hook, so a run in
+	 * flight when the files are swapped finds a flat list of rows where this version
+	 * expects a list of orders. Said out loud once, and the next scheduled run fetches
+	 * the listing again.
+	 *
+	 * @return void
+	 */
+	public function test_a_payload_from_an_earlier_version_stops_the_run() {
+		$order = $this->make_order();
+
+		$this->fake_api( array( $this->invoice_row( $order->get_id() ) ), $this->pdf() );
+
+		$sync = new InvoiceSync( null, $this->settings() );
+		$sync->start();
+
+		$run = Status::get( InvoiceSync::JOB )['started'];
+
+		// The shape 0.30.0 stored: rows, not orders.
+		Payload::put(
+			InvoiceSync::JOB,
+			array(
+				array(
+					'id'           => self::DOCUMENT_ID,
+					'number'       => '141542',
+					'date'         => '2026-08-04',
+					'order_number' => (string) $order->get_id(),
+				),
+			)
+		);
+
+		$sync->apply_chunk( 0, $run );
+
+		$this->assertSame( 'failed', Status::get( InvoiceSync::JOB )['state'] );
+		$this->assertNull( Payload::get( InvoiceSync::JOB ) );
+		$this->assertSame( array(), InvoiceSync::for_order( wc_get_order( $order->get_id() ) ) );
+	}
+
+	/**
 	 * A listing row missing its document id or order number is dropped.
 	 *
 	 * Neither can be recovered: one cannot be downloaded and the other cannot be
@@ -626,18 +804,25 @@ class InvoiceSyncTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * One normalised row pointing at an order.
+	 * One order's worth of normalised rows, in the shape apply() takes.
 	 *
-	 * @param WC_Order $order Order the invoice belongs to.
-	 * @return array Rows in the shape apply() takes.
+	 * @param WC_Order $order  Order the invoice belongs to.
+	 * @param string   $status Status Kontor reports for the invoice.
+	 * @return array One group holding one row.
 	 */
-	private function normalised( $order ) {
+	private function normalised( $order, $status = 'invoiced' ) {
 		return array(
 			array(
-				'id'           => self::DOCUMENT_ID,
-				'number'       => '141542',
-				'date'         => '2026-08-04',
 				'order_number' => (string) $order->get_id(),
+				'rows'         => array(
+					array(
+						'id'           => self::DOCUMENT_ID,
+						'number'       => '141542',
+						'date'         => '2026-08-04',
+						'status'       => $status,
+						'order_number' => (string) $order->get_id(),
+					),
+				),
 			),
 		);
 	}

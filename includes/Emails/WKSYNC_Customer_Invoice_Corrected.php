@@ -8,15 +8,21 @@
 defined( 'ABSPATH' ) || exit;
 
 /**
- * Sent when the invoice sync downloads a document that supersedes one already held.
+ * Sent when Kontor cancels an invoice an order held and a valid one remains.
  *
  * A correction is not the same message as an arrival and must not borrow its wording.
  * "Your invoice is ready" in front of a customer who already has an invoice for that
  * order tells them nothing about which of the two they owe — which is the entire
- * problem, since Kontor issues the replacement and says nothing whatever about the
- * document it replaces. So this is a separate email type rather than a variable
- * subject line on the other one: WooCommerce stores the subject and heading as
- * options a shop manager edits, and one class could only ever have one of each.
+ * problem, since Kontor corrects an invoice by cancelling one document and issuing
+ * another. So this is a separate email type rather than a variable subject line on the
+ * other one: WooCommerce stores the subject and heading as options a shop manager
+ * edits, and one class could only ever have one of each.
+ *
+ * **It names no cause.** The wording it shipped with described the VAT-rate fault that
+ * prompted it, which this plugin had itself caused and has since fixed. Kontor cancels
+ * an invoice whenever it has reason to, and a mail confidently blaming the wrong thing
+ * is worse than one that says only what is certain: this document is void, that one
+ * counts, pay the difference.
  *
  * Fired by woo_kontor_sync_invoice_corrected instead of the arrival hook, never as
  * well as it. Two mails about one document would be worse than either alone.
@@ -35,7 +41,7 @@ class WKSYNC_Customer_Invoice_Corrected extends WKSYNC_Order_Email {
 	public function __construct() {
 		$this->id          = 'wksync_customer_invoice_corrected';
 		$this->title       = __( 'Kontor corrected invoice', 'woo-kontor-sync-pro' );
-		$this->description = __( 'Sent to the customer when Kontor issues an invoice that replaces one already held for their order. Switch this on only after the first invoice import has finished: Kontor lists the shop\'s whole invoice history on every run, so the first pass sees every correction ever issued and would mail all of them at once.', 'woo-kontor-sync-pro' );
+		$this->description = __( 'Sent to the customer when Kontor cancels an invoice held for their order and a valid one remains. Switch this on only after the first invoice import has finished: Kontor lists the shop\'s whole invoice history on every run, so the first pass reads the status of every invoice ever issued and would mail every correction among them at once.', 'woo-kontor-sync-pro' );
 
 		parent::__construct();
 	}
@@ -73,26 +79,27 @@ class WKSYNC_Customer_Invoice_Corrected extends WKSYNC_Order_Email {
 	 * @return string Plain text.
 	 */
 	protected function intro() {
-		return __( 'Unfortunately, because of a technical fault, the invoice originally issued for your order used an incorrect VAT rate - and in a few cases two different rates.', 'woo-kontor-sync-pro' );
+		return __( 'An invoice issued for your order has been cancelled and replaced with a corrected one.', 'woo-kontor-sync-pro' );
 	}
 
 	/**
 	 * The whole body, which needs more than one paragraph.
 	 *
-	 * It says four things, in this order, because a customer reading it wants them in
-	 * this order: what went wrong, which document now counts, what to do about money
-	 * already paid, and that it will not happen again. WooCommerce's own order table
-	 * follows, rendered by the base class.
+	 * It says three things, in this order, because a customer reading it wants them in
+	 * this order: what has happened, which document now counts, and what to do about
+	 * money already paid. The invoices themselves are listed under WooCommerce's own
+	 * order table, which the base class renders below this and Frontend\Invoices fills
+	 * in — the cancelled one under a heading saying so, which is why the text can say
+	 * "below" and mean it.
 	 *
 	 * @return array List of paragraphs.
 	 */
 	protected function paragraphs() {
 		return array(
 			$this->intro(),
-			__( 'We have therefore corrected the invoice. The previous invoice has been cancelled and a new, corrected invoice has been issued.', 'woo-kontor-sync-pro' ),
-			__( 'Please note: only the newly issued invoice is valid. You can disregard the invoice issued before it.', 'woo-kontor-sync-pro' ),
-			__( 'If you have already paid the original invoice and the correction leaves a difference, please settle only the outstanding difference.', 'woo-kontor-sync-pro' ),
-			__( 'The technical fault has since been found and fixed. We apologise for the confusion and thank you for your understanding.', 'woo-kontor-sync-pro' ),
+			__( 'Only the current invoice is valid. You can disregard the cancelled one, which is still listed below so that you have it for your records.', 'woo-kontor-sync-pro' ),
+			__( 'If you have already paid the cancelled invoice and the correction leaves a difference, please settle only the outstanding difference.', 'woo-kontor-sync-pro' ),
+			__( 'We are sorry for the confusion and thank you for your understanding.', 'woo-kontor-sync-pro' ),
 		);
 	}
 }

@@ -85,11 +85,16 @@ class OrderActions {
 			return $actions;
 		}
 
-		// for_order() drops entries whose file has gone from disk, so this offers the
-		// mail exactly when there is a PDF to attach to it. The entry names which of
-		// the two mails it will send, because they say very different things and the
-		// person pressing it should not have to work out which one this order gets.
-		if ( ! empty( InvoiceSync::for_order( $order ) ) ) {
+		/*
+		 * Offered when the order holds an invoice that is both readable and still owed.
+		 * valid_for_order() drops entries whose file has gone from disk, so there is a
+		 * PDF to attach, and it drops the ones Kontor has cancelled, so the mail has
+		 * something to point at — an order whose only invoice is void would otherwise be
+		 * offered a notice saying "use the current invoice" when there is none. The entry
+		 * names which of the two mails it will send, because they say very different
+		 * things and the person pressing it should not have to work out which.
+		 */
+		if ( ! empty( InvoiceSync::valid_for_order( $order ) ) ) {
 			$actions[ self::SEND_INVOICE ] = InvoiceSync::has_correction( $order )
 				? __( 'Email the corrected-invoice notice to the customer again', 'woo-kontor-sync-pro' )
 				: __( 'Email the invoice to the customer again', 'woo-kontor-sync-pro' );

@@ -28,15 +28,20 @@ defined( 'ABSPATH' ) || exit;
  * Admin copies of the emails are skipped: the shop can already see every order, and
  * the attachment would be a second copy of something it issued.
  *
- * **Where an invoice has been replaced, the two are never listed as equals.** Kontor
- * corrects an invoice by issuing a second one and saying nothing about the first, so
- * before this an order simply grew a second download link identical in appearance to
- * the one above it, and a customer holding two invoices for one order had no way at
- * all to tell which they owed. The replaced document is still offered — somebody who
- * has already paid against it needs it for their own records — but it is offered
- * under a heading saying it no longer counts, and it is not attached to anything.
- * InvoiceSync::classify() is what decides which is which, and is the one place that
- * decides it.
+ * **Where an invoice has been cancelled, the two are never listed as equals.** Kontor
+ * corrects an invoice by issuing a second one, and before this an order simply grew a
+ * second download link identical in appearance to the one above it, so a customer
+ * holding two invoices for one order had no way at all to tell which they owed. The
+ * cancelled document is still offered — somebody who has already paid against it needs
+ * it for their own records — but it is offered under a heading saying it no longer
+ * counts, and it is not attached to anything.
+ *
+ * **An order can also owe more than one invoice**, because a partial delivery is billed
+ * for what shipped and the rest is billed later. Those are listed plainly, with no
+ * headings at all: the headings exist to separate the valid from the void, and putting
+ * them in front of two documents that are both owed would invite the reader to hunt for
+ * a distinction that is not there. InvoiceSync::is_cancelled() is what decides which is
+ * which, from the status Kontor supplies, and is the one place that decides it.
  */
 class Invoices {
 
@@ -58,9 +63,10 @@ class Invoices {
 	/**
 	 * Group an order's invoices under the headings that say what each one is worth.
 	 *
-	 * An order with a single invoice gets one untitled group, which is what every
-	 * order looked like before corrections were distinguished at all. Naming that one
-	 * "the valid invoice" would invite the reader to wonder which other one there is.
+	 * An order with nothing cancelled gets one untitled group, however many invoices it
+	 * has, which is what every order looked like before corrections were distinguished
+	 * at all. Naming a group "the valid invoices" where none has been cancelled would
+	 * invite the reader to wonder which other ones there are.
 	 *
 	 * @param mixed $order Order being displayed.
 	 * @return array List of groups, each with a "title" and an "invoices" list.
@@ -72,32 +78,53 @@ class Invoices {
 			return array();
 		}
 
-		if ( 1 === count( $invoices ) ) {
+		$valid     = array();
+		$cancelled = array();
+
+		foreach ( $invoices as $invoice ) {
+			if ( InvoiceSync::is_cancelled( $invoice ) ) {
+				$cancelled[] = $invoice;
+
+				continue;
+			}
+
+			$valid[] = $invoice;
+		}
+
+		if ( empty( $cancelled ) ) {
 			return array(
 				array(
 					'title'    => '',
-					'invoices' => $invoices,
+					'invoices' => $valid,
 				),
 			);
 		}
 
-		$replaced = array_slice( $invoices, 1 );
+		$groups = array();
 
-		return array(
-			array(
-				'title'    => __( 'Current invoice (valid)', 'woo-kontor-sync-pro' ),
-				'invoices' => array( $invoices[0] ),
-			),
-			array(
+		if ( ! empty( $valid ) ) {
+			$groups[] = array(
 				'title'    => _n(
-					'Cancelled invoice (no longer valid)',
-					'Cancelled invoices (no longer valid)',
-					count( $replaced ),
+					'Valid invoice',
+					'Valid invoices',
+					count( $valid ),
 					'woo-kontor-sync-pro'
 				),
-				'invoices' => $replaced,
+				'invoices' => $valid,
+			);
+		}
+
+		$groups[] = array(
+			'title'    => _n(
+				'Cancelled invoice (no longer valid)',
+				'Cancelled invoices (no longer valid)',
+				count( $cancelled ),
+				'woo-kontor-sync-pro'
 			),
+			'invoices' => $cancelled,
 		);
+
+		return $groups;
 	}
 
 	/**
@@ -216,12 +243,15 @@ class Invoices {
 	}
 
 	/**
-	 * Attach an order's current invoice to the customer's emails.
+	 * Attach an order's valid invoices to the customer's emails.
 	 *
-	 * Only the invoice that still counts is attached. A cancelled one riding along
-	 * beside it would undo the whole point of separating them on the page: the reader
-	 * opens the mail, finds two PDFs, and is back to guessing. It stays downloadable
-	 * from the links, under the heading that says what it is.
+	 * Every invoice the order still owes, and only those. An order billed in parts has
+	 * more than one, and each of them is a bill the customer has to pay — leaving the
+	 * earlier one to the links would hide half of what is owed. A cancelled invoice
+	 * riding along beside them is the opposite case and would undo the whole point of
+	 * separating them on the page: the reader opens the mail, finds two PDFs, and is
+	 * back to guessing. It stays downloadable from the links, under the heading that
+	 * says what it is.
 	 *
 	 * @param array  $attachments Attachment paths WooCommerce has collected.
 	 * @param string $email_id    Identifier of the email being sent.
@@ -242,22 +272,25 @@ class Invoices {
 			return $attachments;
 		}
 
-		$invoice = InvoiceSync::current_for_order( $subject );
+		$invoices = InvoiceSync::valid_for_order( $subject );
 
-		if ( null === $invoice ) {
+		if ( empty( $invoices ) ) {
 			return $attachments;
 		}
 
 		/**
-		 * Filters whether an order's invoice is attached to a given email.
+		 * Filters whether an order's invoices are attached to a given email.
 		 *
-		 * Every customer email carrying the order gets it by default, which for a
+		 * Every customer email carrying the order gets them by default, which for a
 		 * synced order is the completion mail. A shop that would rather send the
 		 * invoice only with one specific email can narrow it here.
 		 *
+		 * Asked once for the email rather than once per document: the question is
+		 * whether this mail carries invoices at all, not which of them it carries.
+		 *
 		 * @since 0.6.0
 		 *
-		 * @param bool     $attach   Whether to attach the invoice.
+		 * @param bool     $attach   Whether to attach the invoices.
 		 * @param string   $email_id Identifier of the email being sent.
 		 * @param WC_Order $subject  Order the email is about.
 		 */
@@ -265,12 +298,14 @@ class Invoices {
 			return $attachments;
 		}
 
-		$path = Storage::resolve( $invoice['file'] );
+		foreach ( $invoices as $invoice ) {
+			$path = Storage::resolve( $invoice['file'] );
 
-		// A file that has gone missing is skipped rather than failing the email:
-		// the customer would rather have the order confirmation without it.
-		if ( ! is_wp_error( $path ) ) {
-			$attachments[] = $path;
+			// A file that has gone missing is skipped rather than failing the email:
+			// the customer would rather have the order confirmation without it.
+			if ( ! is_wp_error( $path ) ) {
+				$attachments[] = $path;
+			}
 		}
 
 		return $attachments;
