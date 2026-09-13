@@ -748,6 +748,36 @@ class SyncTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A level that has not changed is not saved.
+	 *
+	 * Every save fires woocommerce_update_product, which is what product.updated
+	 * webhooks listen for, so a run that rewrote the whole feed sent one delivery
+	 * per article every fifteen minutes.
+	 *
+	 * @return void
+	 */
+	public function test_an_unchanged_stock_level_is_not_saved() {
+		$product = new WC_Product_Simple();
+		$product->set_sku( 'STEADY-STOCK' );
+		$product->set_manage_stock( true );
+		$product->set_stock_quantity( 7 );
+		$product->save();
+
+		$saves  = did_action( 'woocommerce_update_product' );
+		$counts = ( new StockSync( null, array() ) )->apply( array( 'STEADY-STOCK' => 7 ) );
+
+		$this->assertSame( 0, $counts['updated'] );
+		$this->assertSame( 1, $counts['unchanged'] );
+		$this->assertSame( $saves, did_action( 'woocommerce_update_product' ) );
+
+		$counts = ( new StockSync( null, array() ) )->apply( array( 'STEADY-STOCK' => 6 ) );
+
+		$this->assertSame( 1, $counts['updated'] );
+		$this->assertSame( $saves + 1, did_action( 'woocommerce_update_product' ) );
+		$this->assertSame( 6, wc_get_product( $product->get_id() )->get_stock_quantity() );
+	}
+
+	/**
 	 * A product this plugin imported has stock control taken over, rather than
 	 * being silently left selling.
 	 *

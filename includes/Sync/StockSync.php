@@ -240,6 +240,7 @@ class StockSync {
 	public function apply( array $chunk, $run = 0 ) {
 		$counts     = array(
 			'updated'   => 0,
+			'unchanged' => 0,
 			'missing'   => 0,
 			'unmanaged' => 0,
 		);
@@ -291,6 +292,21 @@ class StockSync {
 			}
 
 			$product->set_stock_quantity( $quantity );
+
+			/*
+			 * A level Kontor has not changed is not written. WooCommerce fires
+			 * woocommerce_update_product on every save whether anything changed or not,
+			 * and a product.updated webhook listens for exactly that, so saving the whole
+			 * feed every fifteen minutes sent every subscriber one delivery per article per
+			 * run. The stock status follows the quantity, so an unchanged quantity leaves
+			 * it as it was too. With the drafting on the product is saved regardless: the
+			 * run stamp is meta, which get_changes() does not report.
+			 */
+			if ( ! $drafting && ! $product->get_changes() ) {
+				++$counts['unchanged'];
+				continue;
+			}
+
 			$product->set_stock_status( $quantity > 0 ? 'instock' : 'outofstock' );
 			$product->save();
 

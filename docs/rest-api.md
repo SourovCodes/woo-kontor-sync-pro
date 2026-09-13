@@ -65,8 +65,8 @@ Both `GET` routes return this shape; so does the `progress` in a trigger's answe
   "percent": 100,
   "total": 2945,
   "processed": 2945,
-  "counts": { "updated": 2805, "missing": 140, "unmanaged": 0 },
-  "message": "2805 products updated, 140 article numbers had no matching SKU, 0 skipped as not stock-managed.",
+  "counts": { "updated": 61, "unchanged": 2744, "missing": 140, "unmanaged": 0 },
+  "message": "61 products updated, 140 article numbers had no matching SKU, 0 skipped as not stock-managed.",
   "next_run_gmt": "2026-08-14T18:41:11"
 }
 ```
@@ -102,8 +102,9 @@ under which a new trigger will be accepted rather than refused as a conflict.
 
 **`counts` keys are not a contract.** They are each job's own vocabulary and change when the jobs do.
 Today `products` reports `created`, `updated`, `skipped`, `no_sku`, `no_image`, `inactive`,
-`duplicate_sku`, `failed` and `drafted`, and `stock` reports `updated`, `missing`, `unmanaged`,
-`drafted` and `restored`. Read what is there; do not require any of them.
+`duplicate_sku`, `failed` and `drafted`, and `stock` reports `updated`, `unchanged`, `missing`,
+`unmanaged`, `drafted` and `restored`. `unchanged` is a product whose level Kontor had not moved, so
+it was not saved. Read what is there; do not require any of them.
 
 **`queued` counts a run due now, not a schedule.** Every job with an interval keeps a recurring
 action in the queue permanently — often days out — and that does not make a run queued. An *overdue*
