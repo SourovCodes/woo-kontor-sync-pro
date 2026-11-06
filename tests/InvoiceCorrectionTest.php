@@ -585,6 +585,10 @@ class InvoiceCorrectionTest extends WP_UnitTestCase {
 		$order = $this->part_delivered_order();
 		$email = new WKSYNC_Customer_Invoice();
 
+		// A resend with nobody to send to sends nothing.
+		$order->set_billing_email( 'customer@example.test' );
+		$order->save();
+
 		$this->assertTrue( $email->resend( $order ) );
 
 		$attachments = $email->get_attachments();
