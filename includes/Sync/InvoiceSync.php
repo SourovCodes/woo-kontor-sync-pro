@@ -58,9 +58,10 @@ class InvoiceSync {
 	/**
 	 * Meta holding every invoice downloaded for an order.
 	 *
-	 * A list of arrays with "id", "number", "date", "status" and "file" keys, oldest
-	 * first. Entries written before 0.31.0 have no "status"; see is_cancelled() for how
-	 * that reads, and apply() for what fills it in.
+	 * A list of arrays with "id", "number", "date", "status", "file" and "emailed" keys,
+	 * oldest first. Entries written before 0.31.0 have no "status"; see is_cancelled()
+	 * for how that reads, and apply() for what fills it in. Entries written before
+	 * 0.34.0 have no "emailed"; see was_emailed().
 	 */
 	const META_INVOICES = '_wksync_invoices';
 
@@ -294,6 +295,95 @@ class InvoiceSync {
 	 */
 	public static function has_correction( $order ) {
 		return ! empty( self::cancelled_for_order( $order ) );
+	}
+
+	/**
+	 * Whether an invoice has already gone to the customer by email.
+	 *
+	 * Every invoice reaches the customer's inbox once, attached to the first customer
+	 * email sent after it was downloaded, and never again. Until 0.34.0 every customer
+	 * email carried every valid invoice on the order, so a part-delivered order
+	 * re-sent its first invoice, months old and long since paid, with each mail about
+	 * a backorder. Order 15484 got its August invoice again with the invoice for its
+	 * November backorder, and a customer who pays whatever arrives pays twice.
+	 *
+	 * **Only an explicit false means "not yet sent".** InvoiceSync::attach() writes it
+	 * when it files a new document. An entry without the key was stored before
+	 * 0.34.0, when every customer email attached every valid invoice, so it has been
+	 * mailed at least once already. Reading the missing key as "unsent" would mail the
+	 * whole back catalogue again on the first email after the upgrade, which is the
+	 * exact flood this exists to stop.
+	 *
+	 * @param array $invoice Stored invoice entry.
+	 * @return bool True when the invoice has been, or must be assumed to have been, emailed.
+	 */
+	public static function was_emailed( array $invoice ) {
+		return ! array_key_exists( 'emailed', $invoice ) || false !== $invoice['emailed'];
+	}
+
+	/**
+	 * The valid invoices the customer has not been emailed yet, newest first.
+	 *
+	 * @param mixed $order Value that may be an order.
+	 * @return array List of invoices.
+	 */
+	public static function unsent_for_order( $order ) {
+		$unsent = array();
+
+		foreach ( self::valid_for_order( $order ) as $invoice ) {
+			if ( ! self::was_emailed( $invoice ) ) {
+				$unsent[] = $invoice;
+			}
+		}
+
+		return $unsent;
+	}
+
+	/**
+	 * Record that some of an order's invoices have been emailed to the customer.
+	 *
+	 * Called after the mail has been handed to WordPress, not when it was put together,
+	 * so a mail that failed to send leaves its invoices waiting for the next one.
+	 *
+	 * @param mixed $order Order, or order id, holding the invoices.
+	 * @param array $ids   Kontor document ids of the invoices that went out.
+	 * @return void
+	 */
+	public static function mark_emailed( $order, array $ids ) {
+		$order = $order instanceof WC_Order ? wc_get_order( $order->get_id() ) : wc_get_order( $order );
+		$ids   = array_map( 'strval', $ids );
+
+		if ( ! $order instanceof WC_Order || empty( $ids ) ) {
+			return;
+		}
+
+		$invoices = $order->get_meta( self::META_INVOICES );
+
+		if ( ! is_array( $invoices ) ) {
+			return;
+		}
+
+		$changed = false;
+
+		foreach ( $invoices as $index => $invoice ) {
+			if ( ! is_array( $invoice ) || ! isset( $invoice['id'] ) || ! in_array( (string) $invoice['id'], $ids, true ) ) {
+				continue;
+			}
+
+			if ( self::was_emailed( $invoice ) ) {
+				continue;
+			}
+
+			$invoices[ $index ]['emailed'] = gmdate( 'c' );
+			$changed                       = true;
+		}
+
+		if ( ! $changed ) {
+			return;
+		}
+
+		$order->update_meta_data( self::META_INVOICES, array_values( $invoices ) );
+		$order->save();
 	}
 
 	/**
@@ -741,11 +831,13 @@ class InvoiceSync {
 		}
 
 		$invoices[] = array(
-			'id'     => $row['id'],
-			'number' => $row['number'],
-			'date'   => $row['date'],
-			'status' => $row['status'],
-			'file'   => $file,
+			'id'      => $row['id'],
+			'number'  => $row['number'],
+			'date'    => $row['date'],
+			'status'  => $row['status'],
+			'file'    => $file,
+			// Waiting for its first customer email; see was_emailed().
+			'emailed' => false,
 		);
 
 		$order->update_meta_data( self::META_INVOICES, array_values( $invoices ) );

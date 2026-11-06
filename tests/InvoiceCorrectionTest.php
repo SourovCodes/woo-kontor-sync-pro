@@ -7,7 +7,9 @@
 
 namespace WooKontorSync\Tests;
 
+use WC_Email_Customer_Completed_Order;
 use WC_Order;
+use WKSYNC_Customer_Invoice;
 use WKSYNC_Customer_Invoice_Corrected;
 use WooKontorSync\Admin\OrderActions;
 use WooKontorSync\Emails\Emails;
@@ -129,6 +131,11 @@ class InvoiceCorrectionTest extends WP_UnitTestCase {
 			// Absent rather than empty when the case under test is a legacy entry.
 			if ( array_key_exists( 'status', $invoice ) ) {
 				$entry['status'] = $invoice['status'];
+			}
+
+			// Likewise: no "emailed" key is how every entry before 0.34.0 looks.
+			if ( array_key_exists( 'emailed', $invoice ) ) {
+				$entry['emailed'] = $invoice['emailed'];
 			}
 
 			$stored[] = $entry;
@@ -452,25 +459,164 @@ class InvoiceCorrectionTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * Every invoice an order still owes is attached.
+	 * A backorder's invoice goes out alone, without the first delivery's invoice.
 	 *
-	 * An order billed in parts owes both, and leaving the earlier one to the links
-	 * would hide half of what is due from anybody whose mail client shows attachments
-	 * and not much else.
+	 * Order 15484: invoice 141672 was mailed in August with the first delivery, and the
+	 * November backorder was billed as 142274. The November mail carried both, the
+	 * customer could not tell which was new, and the old one risked being paid twice.
 	 *
 	 * @return void
 	 */
-	public function test_every_valid_invoice_is_attached() {
-		$order = $this->part_delivered_order();
-		$email = new WKSYNC_Customer_Invoice_Corrected();
+	public function test_a_backorder_invoice_is_sent_without_the_earlier_one() {
+		$order = $this->backorder_order();
+		$new   = InvoiceSync::find( $order, self::NEW_ID );
 
-		$attachments = ( new Invoices() )->attach( array(), $email->id, $order, $email );
+		foreach ( array( new WKSYNC_Customer_Invoice(), new WC_Email_Customer_Completed_Order() ) as $email ) {
+			$attachments = ( new Invoices() )->attach( array(), $email->id, $order, $email );
 
-		$this->assertCount( 2, $attachments );
-
-		foreach ( InvoiceSync::valid_for_order( $order ) as $invoice ) {
-			$this->assertContains( Storage::resolve( $invoice['file'] ), $attachments );
+			$this->assertSame( array( Storage::resolve( $new['file'] ) ), $attachments, $email->id );
 		}
+	}
+
+	/**
+	 * The mail lists the invoices it attaches and no others.
+	 *
+	 * A link to the old invoice is the old invoice, one click away.
+	 *
+	 * @return void
+	 */
+	public function test_the_email_lists_only_the_invoices_it_carries() {
+		$order = $this->backorder_order();
+
+		foreach ( array( false, true ) as $plain_text ) {
+			ob_start();
+			( new Invoices() )->render_email( $order, false, $plain_text, new WKSYNC_Customer_Invoice() );
+			$body = (string) ob_get_clean();
+
+			$this->assertStringContainsString( '141675', $body );
+			$this->assertStringNotContainsString( '141638', $body );
+		}
+	}
+
+	/**
+	 * The customer's account still lists every invoice.
+	 *
+	 * The shop keeps the record; only the mail stops repeating it.
+	 *
+	 * @return void
+	 */
+	public function test_the_order_page_still_lists_every_invoice() {
+		ob_start();
+		( new Invoices() )->render_order_details( $this->backorder_order() );
+		$html = (string) ob_get_clean();
+
+		$this->assertStringContainsString( '141675', $html );
+		$this->assertStringContainsString( '141638', $html );
+	}
+
+	/**
+	 * An invoice stored before 0.34.0 counts as already sent.
+	 *
+	 * Those entries were attached to every customer mail the order ever had. Treating a
+	 * missing flag as "unsent" would mail the whole back catalogue again on the first
+	 * email after the upgrade.
+	 *
+	 * @return void
+	 */
+	public function test_an_invoice_stored_before_the_upgrade_is_not_sent_again() {
+		$order = $this->part_delivered_order();
+		$email = new WC_Email_Customer_Completed_Order();
+
+		$this->assertSame( array(), ( new Invoices() )->attach( array(), $email->id, $order, $email ) );
+		$this->assertSame( array(), InvoiceSync::unsent_for_order( $order ) );
+	}
+
+	/**
+	 * Once a mail carrying an invoice has gone, the next mail does not carry it.
+	 *
+	 * @return void
+	 */
+	public function test_an_invoice_goes_out_once() {
+		$order   = $this->backorder_order();
+		$email   = new WKSYNC_Customer_Invoice();
+		$display = new Invoices();
+
+		$this->assertCount( 1, $display->attach( array(), $email->id, $order, $email ) );
+
+		$display->record_sent( true, $email->id, $email );
+
+		$order = wc_get_order( $order->get_id() );
+		$sent  = InvoiceSync::find( $order, self::NEW_ID );
+
+		$this->assertNotFalse( $sent['emailed'] );
+		$this->assertTrue( InvoiceSync::was_emailed( $sent ) );
+
+		$next = new WC_Email_Customer_Completed_Order();
+
+		$this->assertSame( array(), $display->attach( array(), $next->id, $order, $next ) );
+	}
+
+	/**
+	 * A mail that failed to send leaves its invoices for the next one.
+	 *
+	 * @return void
+	 */
+	public function test_a_failed_mail_leaves_its_invoice_unsent() {
+		$order   = $this->backorder_order();
+		$email   = new WKSYNC_Customer_Invoice();
+		$display = new Invoices();
+
+		$display->attach( array(), $email->id, $order, $email );
+		$display->record_sent( false, $email->id, $email );
+
+		$this->assertCount( 1, InvoiceSync::unsent_for_order( wc_get_order( $order->get_id() ) ) );
+	}
+
+	/**
+	 * A shop manager's resend carries the current invoice, and only that one.
+	 *
+	 * Both invoices on the order have gone out already. The resend is a deliberate
+	 * request for the customer to have the invoice again, so it carries the newest
+	 * valid one, not the earlier part-delivery invoice.
+	 *
+	 * @return void
+	 */
+	public function test_a_resend_carries_only_the_current_invoice() {
+		$order = $this->part_delivered_order();
+		$email = new WKSYNC_Customer_Invoice();
+
+		$this->assertTrue( $email->resend( $order ) );
+
+		$attachments = $email->get_attachments();
+		$current     = InvoiceSync::current_for_order( $order );
+
+		$this->assertSame( array( Storage::resolve( $current['file'] ) ), $attachments );
+	}
+
+	/**
+	 * An order whose first delivery was invoiced and mailed, and whose backorder was
+	 * just invoiced.
+	 *
+	 * @return WC_Order The saved order.
+	 */
+	private function backorder_order() {
+		return $this->order_with(
+			array(
+				array(
+					'id'     => self::OLD_ID,
+					'number' => '141638',
+					'date'   => '2026-08-28',
+					'status' => 'invoiced',
+				),
+				array(
+					'id'      => self::NEW_ID,
+					'number'  => '141675',
+					'date'    => '2026-11-06',
+					'status'  => 'invoiced',
+					'emailed' => false,
+				),
+			)
+		);
 	}
 
 	/**
