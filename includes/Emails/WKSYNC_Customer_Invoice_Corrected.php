@@ -47,6 +47,19 @@ class WKSYNC_Customer_Invoice_Corrected extends WKSYNC_Order_Email {
 	}
 
 	/**
+	 * A correction notice always carries the invoice that now counts.
+	 *
+	 * Its whole message is "use this one", which says nothing if "this one" is not
+	 * attached. The replacement may have gone out by itself earlier, when Kontor issued
+	 * it before cancelling the original.
+	 *
+	 * @return bool Always true.
+	 */
+	public function carries_current_invoice() {
+		return true;
+	}
+
+	/**
 	 * The plugin hook this email answers.
 	 *
 	 * @return string Hook name.

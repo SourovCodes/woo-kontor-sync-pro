@@ -1083,9 +1083,10 @@ of them wrong produces silently wrong data rather than an error:
       one Kontor gave rather than anything in the data: several valid invoices for one order *can*
       happen, and the first time one does the old rule tells that customer to disregard a bill they
       owe. Do not read the agreement as evidence the guess was sound.
-    - **Every *valid* invoice is attached**, which since 0.31.0 can be more than one. An order
-      billed in parts owes both, and leaving the earlier one to the links alone would hide half of
-      what is due from anybody whose mail client shows attachments and little else.
+    - **Only *valid* invoices are attached, and since 0.34.0 only the ones not yet emailed.** From
+      0.31.0 every valid one went on every mail, on the reasoning that an order billed in parts owes
+      both. In practice the earlier one had already been sent, and re-sending it with each backorder
+      is what got customers paying twice. See "Each invoice is emailed once" below.
     - **Headings appear only where something has been cancelled**, not merely where there is more
       than one invoice. They exist to separate the valid from the void, and putting them in front
       of two documents that are both owed invites the reader to hunt for a distinction that is not
@@ -1663,6 +1664,23 @@ calling it queues real work: it is not a way to test whether a job would be allo
       answered. Pressing it is how a shop manager reaches the customers whose correction went out
       before this existed, and sending them the arrival mail again would repeat the original
       problem.
+  - **Each invoice is emailed once, and never again alongside a newer one.** Until 0.34.0
+    `Frontend\Invoices::attach()` put every valid invoice on every customer email, so a
+    part-delivered order re-sent its August invoice with each November backorder mail. Order 15484
+    got invoice 141672 (already paid) attached next to the new 142274, five mails in one day, and
+    the shop's worry was customers paying both. Now:
+    - Each `_wksync_invoices` entry carries `emailed`. `InvoiceSync::attach()` writes `false` and
+      `InvoiceSync::mark_emailed()` overwrites it with a timestamp. **A missing key means "already
+      sent"**, because every entry stored before 0.34.0 was attached to every mail the order had.
+      Reading it as unsent would mail the whole back catalogue on the first email after the
+      upgrade.
+    - `Invoices::for_email()` decides what a mail carries: the valid, unsent invoices, plus the
+      current one when `WKSYNC_Order_Email::carries_current_invoice()` says so. That is the
+      correction notice always, and a shop manager's resend. The email body lists the same set
+      (`render_email()` takes WooCommerce's fourth `$email` argument). Only the correction notice
+      also lists cancelled ones. The order page in the customer's account still lists everything.
+    - An invoice is marked sent on `woocommerce_email_sent` with a true result, not when it is
+      attached. A mail `wp_mail()` refused leaves it for the next one.
   - **Orders that already carry their tracking or their invoice are never announced**, and there is
     deliberately **no bulk backfill**. That falls straight out of the stored meta being the record —
     the first run after the upgrade matches on every order the syncs have already touched — and it

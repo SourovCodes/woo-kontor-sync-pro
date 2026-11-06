@@ -48,6 +48,16 @@ defined( 'ABSPATH' ) || exit;
 abstract class WKSYNC_Order_Email extends WC_Email {
 
 	/**
+	 * Whether the mail last prepared is a shop manager's resend.
+	 *
+	 * Describes the last mail this object prepared, the same as $this->object does, so
+	 * it stays set after resend() returns, for anything rendering that mail afterwards.
+	 *
+	 * @var bool
+	 */
+	protected $resending = false;
+
+	/**
 	 * Constructor.
 	 *
 	 * Subclasses set their id, title and description and then call this.
@@ -114,6 +124,21 @@ abstract class WKSYNC_Order_Email extends WC_Email {
 	}
 
 	/**
+	 * Whether this mail carries the invoice that currently counts, even if already sent.
+	 *
+	 * Normally a mail attaches only the invoices the customer has not been emailed yet;
+	 * see InvoiceSync::was_emailed(). A shop manager pressing resend wants the customer to
+	 * have the invoice in hand again, so a resend carries the most recent valid one as
+	 * well. Never every valid one: an earlier part-delivery invoice has gone out already,
+	 * and sending it again with a newer one is how a customer ends up paying it twice.
+	 *
+	 * @return bool True when the current invoice is attached regardless of history.
+	 */
+	public function carries_current_invoice() {
+		return $this->resending;
+	}
+
+	/**
 	 * Send the email in answer to the sync.
 	 *
 	 * @param int   $order_id Order something arrived for.
@@ -122,6 +147,8 @@ abstract class WKSYNC_Order_Email extends WC_Email {
 	 */
 	public function trigger( $order_id, $detail = null ) {
 		$this->setup_locale();
+
+		$this->resending = false;
 
 		if ( $this->prepare( wc_get_order( $order_id ) ) ) {
 			$this->send_notification();
@@ -143,7 +170,8 @@ abstract class WKSYNC_Order_Email extends WC_Email {
 	public function resend( $order ) {
 		$this->setup_locale();
 
-		$sent = false;
+		$sent            = false;
+		$this->resending = true;
 
 		if ( $this->prepare( $order ) && $this->get_recipient() ) {
 			$sent = $this->send(

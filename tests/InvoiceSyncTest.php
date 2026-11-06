@@ -640,6 +640,20 @@ class InvoiceSyncTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A freshly downloaded invoice is waiting for its first customer email.
+	 *
+	 * @return void
+	 */
+	public function test_a_new_download_waits_for_its_first_email() {
+		$order    = $this->stored_invoice_order();
+		$invoices = InvoiceSync::for_order( $order );
+
+		$this->assertArrayHasKey( 'emailed', $invoices[0] );
+		$this->assertFalse( $invoices[0]['emailed'] );
+		$this->assertCount( 1, InvoiceSync::unsent_for_order( $order ) );
+	}
+
+	/**
 	 * A shop can narrow which emails carry the attachment.
 	 *
 	 * @return void
